@@ -70,34 +70,10 @@ final class RenderEngine {
     /// the carry itself, superseding it if another change arrives first (debounce). The
     /// overlay still follows the user — just once they've actually landed on a Space.
     private func activeSpaceDidChange() {
-        spaceSettleDeadline = CACurrentMediaTime() + 0.7
-        spaceCarryGeneration += 1
-        let generation = spaceCarryGeneration
-        // Make the overlay TRANSPARENT (not hidden) for the duration of the swipe, and
-        // reveal it again once the swipe settles (`ensureOverlaysOnActiveSpace`). During a
-        // swipe the opaque overlay slides out with the outgoing Space while it keeps
-        // rendering the live capture — which IS the swipe animation — so its content slides
-        // too, doubling the motion ("a duplicate next Space moving twice as fast"). The
-        // post-settle `followActiveSpace` carry also momentarily joins all Spaces, which
-        // mid-swipe literally shows the overlay on every Space at once. Both vanish if the
-        // overlay is invisible until the swipe is done.
-        //
-        // We use alpha, NOT orderOut: the render clock is screen-tied (`NSScreen.displayLink`)
-        // so alpha leaves it ticking, whereas orderOut detaches the layer (the old freeze).
-        // Alpha also can't strand the window the way a missed re-show (orderFront) could.
-        for id in visibleDisplayIDs { overlays[id]?.alphaValue = 0 }
-        // Strip the migrate flag from the control windows for the duration of the swipe,
-        // so WindowServer can't pull a key-capable .normal window onto the in-flight Space
-        // and reverse the gesture (the snap-back). Restored once settled, below.
-        for window in controlWindowsProvider() {
-            window.collectionBehavior.remove(.moveToActiveSpace)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, generation == self.spaceCarryGeneration else { return }
-                self.followActiveSpace()
-            }
-        }
+        // STEP 1 (space-independent experiment): the overlay is now `.canJoinAllSpaces`, so it
+        // is already present on the newly-active Space — there is nothing to carry, hide, or
+        // reveal. Intentionally a no-op; the carry helpers below are left in place (unused) so
+        // this step is a clean one-commit revert.
     }
 
     /// Carry every visible overlay onto the now-active Space. `orderFront` alone on
@@ -140,23 +116,8 @@ final class RenderEngine {
     ///    debounced path is only the backup for transitions the notification misses, e.g.
     ///    yabai.) Only the focused display can have switched Space; others must not be carried.
     func ensureOverlaysOnActiveSpace() {
-        guard CACurrentMediaTime() > spaceSettleDeadline else { return }
-        let mainID = NSScreen.main.flatMap {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
-        }
-        for id in visibleDisplayIDs {
-            guard let overlay = overlays[id] else { continue }
-            if overlay.occlusionState.contains(.visible) {
-                if overlay.alphaValue != 1 { overlay.alphaValue = 1 }   // reveal after the swipe
-                overlayOccludedTicks[id] = 0
-            } else {
-                let ticks = (overlayOccludedTicks[id] ?? 0) + 1
-                overlayOccludedTicks[id] = ticks
-                if id == mainID, ticks == 3 {   // fire exactly once, after ~1.5s sustained
-                    carryAndRebuild(id)
-                }
-            }
-        }
+        // STEP 1 (space-independent experiment): no carry safety net needed — the overlay is
+        // on every Space already. Intentionally a no-op for this step.
     }
 
     /// Carry an overlay onto the active Space and rebuild its render clock. The carry

@@ -130,15 +130,12 @@ final class OverlayWindow: NSWindow {
         isOpaque = true
         hasShadow = false
         ignoresMouseEvents = true
-        // `.transient` keeps the overlay on the current Space and auto-hides it in
-        // Exposé / Mission Control; `.fullScreenAuxiliary` additionally lets it
-        // appear over another app's full-screen Space. `.canJoinAllSpaces` is
-        // deliberately NOT used as a steady state — one opaque window present on
-        // *every* Space at once is fed by a single active-Space capture, so it
-        // visually merges the desktops and breaks Mission Control (tried and reverted
-        // on-device). Instead the overlay FOLLOWS the user one Space at a time; see
-        // `carryToActiveSpace`.
-        collectionBehavior = Self.singleSpaceBehavior
+        // STEP 1 (space-independent experiment): present on every Space at once and never
+        // carry. `.canJoinAllSpaces` keeps the shader on whatever Space is active without the
+        // single-Space carry/re-order that caused the ~1s reveal and the nested swipe. The
+        // window server drops it from the slide animation, so a swipe briefly shows the native
+        // (unshadered) transition; that's the accepted tradeoff for clean steady-state coverage.
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         displaysWhenScreenProfileChanges = true
         isExcludedFromWindowsMenu = true
         sharingType = .none
