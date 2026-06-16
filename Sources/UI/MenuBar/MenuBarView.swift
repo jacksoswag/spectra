@@ -25,6 +25,7 @@ struct MenuBarView: View {
             Divider()
 
             presetPicker
+            intensityControls
             qualityControls
 
             Divider()
@@ -67,6 +68,27 @@ struct MenuBarView: View {
                 NSApp.activate(ignoringOtherApps: true)
                 engine.frontStudioWindow()
             }
+        }
+    }
+
+    /// Overall shader intensity as a 0%–100% slider. Scales every effect's strength
+    /// at render time (it never edits the stack), so the active-preset label above is
+    /// unaffected. 70% is the look the presets ship at; 100% is +30%.
+    @ViewBuilder
+    private var intensityControls: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            HStack {
+                Text("Intensity")
+                Spacer()
+                Text("\(Int((engine.settings.intensity * 100).rounded()))%")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Slider(
+                value: Binding(
+                    get: { engine.settings.intensity },
+                    set: { engine.setIntensity($0) }),
+                in: 0...1)
         }
     }
 

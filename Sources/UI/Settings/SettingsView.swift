@@ -46,6 +46,18 @@ private struct SettingsForm: View {
             }
 
             Section("Performance") {
+                LabeledContent("Intensity") {
+                    HStack {
+                        Slider(value: Binding(
+                            get: { settings.intensity },
+                            set: { engine.setIntensity($0) }),
+                            in: 0...1)
+                        Text("\(Int((settings.intensity * 100).rounded()))%")
+                            .monospacedDigit().frame(width: 52, alignment: .trailing)
+                    }
+                }
+                Text("The overall strength of the whole shader, applied on top of each effect's own settings. The presets are tuned for 70%; 100% pushes them about 30% further.")
+                    .font(.caption).foregroundStyle(.secondary)
                 LabeledContent("Render scale") {
                     HStack {
                         Slider(value: Binding(

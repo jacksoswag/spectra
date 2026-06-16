@@ -74,10 +74,17 @@ final class SpectraEngine {
     @ObservationIgnored private var isApplyingPreset = false
 
     /// The active preset name for the currently targeted display (menu bar).
-    var activePresetName: String? { selectedDisplayID.flatMap { activePresetByDisplay[$0] } }
+    var activePresetName: String? { selectedDisplayID.flatMap { activePresetName(for: $0) } }
 
-    /// The active preset name for a specific display.
-    func activePresetName(for displayID: CGDirectDisplayID) -> String? { activePresetByDisplay[displayID] }
+    /// The active preset name for a specific display — derived from what the live
+    /// stack actually contains, not from a stored label. The name shows only while
+    /// the stack still matches that preset; editing the stack (or starting empty)
+    /// clears it to nil. This is what makes the menu reflect the *current* preset
+    /// instead of a stale persisted one (e.g. "CRT Monitor" lingering on launch).
+    func activePresetName(for displayID: CGDirectDisplayID) -> String? {
+        guard let chain = stacks[displayID]?.chain() else { return nil }
+        return presets.matchingPreset(for: chain)?.name
+    }
 
     var shaderLibrary: ShaderLibrary { renderEngine.shaders }
 
@@ -703,6 +710,7 @@ final class SpectraEngine {
         }
 
         renderEngine.setCoversMenuBarAndDock(settings.coverMenuBarAndDock)
+        renderEngine.setIntensityScale(Self.intensityScale(forSetting: settings.intensity))
         // Authoritative cursor pass: now that every renderer is (de)activated and every
         // chain rebuilt, push the effective custom-cursor state (setting OR warp
         // auto-engage) to all renderers, sessions, and the hardware cursor at once.
@@ -823,7 +831,7 @@ final class SpectraEngine {
 
     private func tick() {
         performance.refresh()
-        renderEngine.ensureOverlaysOnActiveSpace()   // catch full-screen Space changes the notification misses
+        renderEngine.ensureOverlaysOnActiveSpace()   // follow the user across Spaces (focused-display, occlusion-gated)
         // Every session sits at exactly the slider value (a no-op when already there).
         for display in displays { applyScale(settings.renderScale, to: display) }
     }
@@ -848,6 +856,25 @@ final class SpectraEngine {
         let clamped = min(RenderScale.max, max(RenderScale.min, scale))
         settings.renderScale = clamped
         for display in displays { applyScale(clamped, to: display) }
+    }
+
+    /// Set the global intensity live (the Intensity slider). Pushed to every renderer
+    /// as a per-effect strength multiplier — it never edits the stack, so it doesn't
+    /// disturb the active-preset match or trigger a chain re-resolve.
+    func setIntensity(_ value: Double) {
+        let clamped = min(1.0, max(0.0, value))
+        settings.intensity = clamped
+        renderEngine.setIntensityScale(Self.intensityScale(forSetting: clamped))
+    }
+
+    /// Map the 0…1 Intensity setting to a per-effect strength multiplier. The shipped
+    /// presets are tuned to read as "current" at the 0.7 default, so 0.7 maps to 1.0×
+    /// (identity); 1.0 maps to 1.3× (+30%, as specified); and the bottom of the range
+    /// fades proportionally to 0× so the slider also dials effects down toward off.
+    static func intensityScale(forSetting value: Double) -> Float {
+        let c = min(1.0, max(0.0, value))
+        let scale = c <= 0.7 ? c / 0.7 : 1.0 + (c - 0.7)
+        return Float(scale)
     }
 
     // MARK: - Persistence

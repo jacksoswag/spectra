@@ -17,6 +17,10 @@ struct FrameContext {
     /// Host battery fraction (0...1) for the live REC-OSD battery icon. Defaults to
     /// full so callers that don't sample it (e.g. the preview) read a full bar.
     var batteryLevel: Float = 1.0
+    /// Global intensity multiplier applied to every effect's universal strength
+    /// (the master "intensity" slider). 1.0 = render each effect at its authored
+    /// strength; the engine derives this from the user's setting (0.7 → 1.0×).
+    var intensityScale: Float = 1.0
 
     /// Sample the system wall clock for the live REC OSD: seconds since local
     /// midnight plus today's year/month/day. Cheap (microseconds); called once per
@@ -155,6 +159,13 @@ final class EffectChainRenderer {
                 uniforms.passScale = pass.scale
                 uniforms.direction = pass.direction
                 effect.writeUniversal(into: &uniforms)
+                // Fold in the global intensity multiplier. Scaling the universal
+                // strength turns one slider into "overall shader strength": for
+                // cross-faded effects it pushes the processed/original mix (the
+                // composite lets strength exceed 1 so presets authored at full
+                // strength still gain headroom); for geometric effects, which read
+                // strength directly, it scales the displacement.
+                uniforms.strength *= frame.intensityScale
                 effect.writeParameters(into: &uniforms)
                 // REC OSD system-injected values. Runs for every recOSD pass.
                 if pass.fragmentFunction == "fx_cam_recOSD" {
@@ -182,9 +193,17 @@ final class EffectChainRenderer {
                 uniforms.withUnsafeBytes { raw in
                     encoder.setFragmentBytes(raw.baseAddress!, length: SpectraUniforms.byteCount, index: 0)
                 }
-                // Fused colour pass: its run of ops rides in a second buffer.
+                // Fused colour pass: its run of ops rides in a second buffer. Each
+                // op carries its own strength, so the global intensity is folded in
+                // per-op here (only when it isn't the 1.0 identity, to avoid copying
+                // the buffer every frame at the default).
                 if let fusedOps = effect.fusedOps {
-                    fusedOps.withUnsafeBytes { raw in
+                    var ops = fusedOps
+                    if frame.intensityScale != 1.0 {
+                        let count = min(Int(ops[0]), ColorFusion.maxOps)
+                        for i in 0..<count { ops[1 + i * ColorFusion.stride + 1] *= frame.intensityScale }
+                    }
+                    ops.withUnsafeBytes { raw in
                         encoder.setFragmentBytes(raw.baseAddress!, length: raw.count, index: 1)
                     }
                 }

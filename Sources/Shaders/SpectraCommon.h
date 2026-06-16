@@ -279,7 +279,11 @@ inline float3 spectra_compositeExplicit(float3 base, float3 processed,
                                         float blendAmount, float blendMode) {
     float3 blended = spectra_blend(base, processed, blendMode);
     float3 mixed = mix(processed, blended, clamp(blendAmount, 0.0, 1.0));
-    float k = clamp(strength, 0.0, 1.0) * clamp(opacity, 0.0, 1.0);
+    // strength is allowed above 1 (up to 2) so the global intensity slider can push
+    // past an effect's authored look: mix extrapolates beyond `mixed`, deepening the
+    // effect instead of clamping flat at full strength. At the default intensity the
+    // multiplier is 1.0, so authored strengths (<=1) render exactly as before.
+    float k = clamp(strength, 0.0, 2.0) * clamp(opacity, 0.0, 1.0);
     return mix(base, mixed, k);
 }
 

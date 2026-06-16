@@ -96,4 +96,21 @@ struct EffectChain: Codable, Hashable, Sendable {
     }
 
     var isEmpty: Bool { effects.isEmpty }
+
+    /// Structural equivalence for preset identification: the same effects in the
+    /// same order with the same descriptor, enabled state, universal parameters,
+    /// and parameter values. Per-instance identity (`id`, `seed`, custom `name`,
+    /// disclosure/group state) is ignored because it doesn't change the rendered
+    /// result — so a freshly-applied preset still matches its library entry even
+    /// though every instance got a new random id and seed on load.
+    func matchesPreset(_ other: EffectChain) -> Bool {
+        guard effects.count == other.effects.count else { return false }
+        for (a, b) in zip(effects, other.effects) {
+            if a.descriptorID != b.descriptorID { return false }
+            if a.isEnabled != b.isEnabled { return false }
+            if a.universal != b.universal { return false }
+            if a.values != b.values { return false }
+        }
+        return true
+    }
 }

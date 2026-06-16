@@ -22,6 +22,16 @@ final class PresetLibrary {
 
     func preset(id: UUID) -> Preset? { all.first { $0.id == id } }
 
+    /// The preset whose chain the live `chain` currently represents (structural
+    /// match, ignoring per-instance identity), or nil if the stack is empty or no
+    /// longer corresponds to any known preset. This is the source of truth for the
+    /// menu's "current preset" label: it reflects what is actually loaded rather
+    /// than a persisted name that can go stale once the stack is edited.
+    func matchingPreset(for chain: EffectChain) -> Preset? {
+        guard !chain.isEmpty else { return nil }
+        return all.first { $0.chain.matchesPreset(chain) }
+    }
+
     func presets(in category: PresetCategory) -> [Preset] {
         if category == .user { return user }
         return builtIn.filter { $0.category == category }

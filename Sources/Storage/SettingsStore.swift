@@ -70,6 +70,11 @@ final class SettingsStore {
     /// output, fewer full-resolution read/writes). On by default; an escape hatch in
     /// case a fused result ever looks different from the separate passes.
     var fuseColorPasses: Bool { didSet { persist() } }
+    /// Global effect intensity (0…1), the master strength of the whole shader.
+    /// The shipped presets are tuned to read as "current" at the 0.7 default;
+    /// `SpectraEngine` maps this to a per-effect strength multiplier (0.7 → 1.0×,
+    /// 1.0 → 1.3×) applied at render time, so changing it never edits the stack.
+    var intensity: Double { didSet { persist() } }
 
     /// Effect descriptor ids the user has starred in the library.
     private(set) var favoriteEffectIDs: Set<String> { didSet { persist() } }
@@ -81,7 +86,8 @@ final class SettingsStore {
     /// v3: introduced a discrete `renderQuality` rung (native/high/balanced/…).
     /// v4: replaced it with a continuous `renderScale` (plus a since-removed
     ///     `autoCalibrate`, now ignored on load).
-    private static let currentSchemaVersion = 4
+    /// v5: introduced a global `intensity` (default 0.7 = the look the presets ship at).
+    private static let currentSchemaVersion = 5
 
     private struct State: Codable {
         var startEnabledOnLaunch = false
@@ -103,6 +109,9 @@ final class SettingsStore {
         // fall back to the default below, rather than failing the whole decode.
         var coverMenuBarAndDock: Bool? = true
         var fuseColorPasses: Bool? = true
+        // Optional so files written before v5 decode to nil and adopt the 0.7
+        // default (which reproduces the presets' shipped look).
+        var intensity: Double? = nil
         var favoriteEffectIDs: [String] = []
         // Optional so settings files written before versioning (which lack the key)
         // decode to nil and trigger the migration; new installs default to current.
@@ -139,6 +148,7 @@ final class SettingsStore {
         menuBarShowsPerformance = state.menuBarShowsPerformance
         coverMenuBarAndDock = state.coverMenuBarAndDock ?? true
         fuseColorPasses = state.fuseColorPasses ?? true
+        intensity = Swift.min(1.0, Swift.max(0.0, state.intensity ?? 0.7))
         favoriteEffectIDs = Set(state.favoriteEffectIDs)
 
         if migrated { persist() }   // write the migrated values back once
@@ -162,6 +172,7 @@ final class SettingsStore {
             reduceMotion: reduceMotion, menuBarShowsPerformance: menuBarShowsPerformance,
             coverMenuBarAndDock: coverMenuBarAndDock,
             fuseColorPasses: fuseColorPasses,
+            intensity: intensity,
             favoriteEffectIDs: favoriteEffectIDs.sorted())
         try? JSONStore.save(state, to: AppPaths.settingsFile)
     }
