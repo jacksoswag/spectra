@@ -1,0 +1,10 @@
+# compiled test artifacts (rebuild via README)
+01_virtual_display/vd_create
+02_cgs_window_filter/cgsfilter
+03_per_app_injection/target
+03_per_app_injection/target_hardened
+03_per_app_injection/inject.dylib
+03_per_app_injection/inject_arm64e.dylib
+04_windowserver_injection/probe
+findings/imgstat
+*.dSYM/

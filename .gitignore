@@ -1,0 +1,75 @@
+# ---- Secrets (never commit) ----
+.env
+.env.*
+*.pem
+*.key
+*.p12
+id_rsa*
+*credentials*
+*secret*
+README.orig.md
+
+# ---- macOS / Xcode / Swift build output ----
+build/
+DerivedData/
+.build/
+*.xcuserstate
+xcuserdata/
+*.xcuserdatad/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM/
+*.dSYM.zip
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved
+
+# ---- Generic build / dependency output ----
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.pyc
+dist/
+target/
+.next/
+
+# ---- Unity (defensive; not used here but per policy) ----
+Library/
+Temp/
+Obj/
+Logs/
+UserSettings/
+
+# ---- Compiled binaries / Mach-O artifacts ----
+# Top-level scratch executables (rebuildable)
+/test2
+/test_property
+# Research experiment build products (rebuild via each README)
+*.dylib
+*.o
+*.a
+research/experimental/01_virtual_display/vd_create
+research/experimental/02_cgs_window_filter/cgsfilter
+research/experimental/03_per_app_injection/target
+research/experimental/03_per_app_injection/target_hardened
+research/experimental/03_per_app_injection/inject.dylib
+research/experimental/03_per_app_injection/inject_arm64e.dylib
+research/experimental/04_windowserver_injection/probe
+research/experimental/findings/imgstat
+
+# ---- Large model / binary artifacts ----
+*.mlmodel
+*.mlmodelc
+*.mlpackage
+*.bin
+*.safetensors
+*.ckpt
+*.pt
+*.onnx
+*.gguf
+
+# ---- OS junk ----
+.DS_Store

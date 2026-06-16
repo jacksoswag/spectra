@@ -1,0 +1,137 @@
+import SwiftUI
+
+/// Properties panel for the selected effect: identity, universal parameters, and
+/// the effect-specific controls grouped by section.
+struct InspectorView: View {
+    let engine: SpectraEngine
+    @Bindable var stack: EffectStack
+
+    private var selection: EffectInstance? { stack.selectedInstance }
+    private var descriptor: EffectDescriptor? {
+        selection.flatMap { engine.registry.descriptor($0.descriptorID) }
+    }
+
+    var body: some View {
+        ScrollView {
+            if let instance = selection, let descriptor {
+                VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+                    header(instance: instance, descriptor: descriptor)
+                    universalSection(instance: instance)
+                    parameterSections(instance: instance, descriptor: descriptor)
+                }
+                .padding(Theme.Spacing.lg)
+            } else {
+                placeholder
+            }
+        }
+    }
+
+    private func header(instance: EffectInstance, descriptor: EffectDescriptor) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            HStack {
+                Image(systemName: descriptor.iconSystemName)
+                    .foregroundStyle(Theme.categoryTint(descriptor.category))
+                Text(descriptor.name).font(.title3.bold())
+                Spacer()
+                Menu {
+                    Button("Reset Parameters") { stack.resetParameters(on: instance.id, to: descriptor) }
+                    Button("Duplicate") { stack.duplicate(instance.id) }
+                    Divider()
+                    Button("Remove", role: .destructive) { stack.remove(instance.id) }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+            Text(descriptor.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func universalSection(instance: EffectInstance) -> some View {
+        InspectorSection(title: "Universal") {
+            LabeledSlider(title: "Strength", value: ParameterBinding.strength(stack, instance.id), range: 0...1, step: 0.01)
+            LabeledSlider(title: "Opacity", value: ParameterBinding.opacity(stack, instance.id), range: 0...1, step: 0.01)
+            LabeledSlider(title: "Blend Amount", value: ParameterBinding.blendAmount(stack, instance.id), range: 0...1, step: 0.01)
+            HStack {
+                Text("Blend Mode").font(.callout)
+                Spacer()
+                Picker("", selection: ParameterBinding.blendMode(stack, instance.id)) {
+                    ForEach(BlendMode.allCases) { mode in Text(mode.displayName).tag(mode) }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 160)
+            }
+            if showsSeed {
+                HStack {
+                    LabeledSlider(title: "Seed", value: ParameterBinding.seed(stack, instance.id), range: 0...1, step: 0.001)
+                    Button { stack.update(instance.id) { $0.seed = Float.random(in: 0..<1) } } label: {
+                        Image(systemName: "dice")
+                    }
+                    .buttonStyle(.borderless).help("Randomize seed")
+                }
+            }
+        }
+    }
+
+    /// Stochastic and animated effects expose the random seed so the user can
+    /// vary or lock the random pattern.
+    private var showsSeed: Bool {
+        guard let descriptor else { return false }
+        return descriptor.category == .noise || descriptor.isAnimated
+    }
+
+    private func parameterSections(instance: EffectInstance, descriptor: EffectDescriptor) -> some View {
+        let groups = Dictionary(grouping: descriptor.parameters) { $0.group ?? "Parameters" }
+        let order = orderedGroupNames(descriptor.parameters)
+        return ForEach(order, id: \.self) { name in
+            InspectorSection(title: name) {
+                ForEach(groups[name] ?? []) { parameter in
+                    ParameterControlView(stack: stack, instanceID: instance.id, parameter: parameter)
+                }
+            }
+        }
+    }
+
+    private func orderedGroupNames(_ parameters: [EffectParameter]) -> [String] {
+        var seen: [String] = []
+        for parameter in parameters {
+            let name = parameter.group ?? "Parameters"
+            if !seen.contains(name) { seen.append(name) }
+        }
+        return seen
+    }
+
+    private var placeholder: some View {
+        VStack(spacing: Theme.Spacing.sm) {
+            Image(systemName: "slider.horizontal.below.rectangle")
+                .font(.largeTitle).foregroundStyle(.tertiary)
+            Text("Select an effect").font(.headline).foregroundStyle(.secondary)
+            Text("Its properties appear here.").font(.caption).foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 300)
+        .padding()
+    }
+}
+
+/// A titled inspector section with a card body.
+struct InspectorSection<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            Text(title.uppercased())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+                content
+            }
+            .padding(Theme.Spacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .spectraCard()
+        }
+    }
+}
