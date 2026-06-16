@@ -105,6 +105,12 @@ final class OverlayWindow: NSWindow {
             max(Int(CGWindowLevelForKey(.statusWindow)),
                 Int(CGWindowLevelForKey(.dockWindow)))) + 1)
 
+    /// STEP 2 (space-independent experiment): the screen-lock shield level — above the
+    /// ENTIRE Space system (Mission Control, full-screen apps, all Spaces and transitions).
+    /// Renders over every pixel by definition and covers full-screen apps for free. Covers
+    /// the menu bar / Dock / Mission Control overview too; the panic hotkey makes that safe.
+    static let shieldingLevel = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
+
     let displayID: CGDirectDisplayID
     private let host: MetalLayerHostView
 
@@ -125,7 +131,7 @@ final class OverlayWindow: NSWindow {
             defer: false)
 
         isReleasedWhenClosed = false
-        level = Self.belowMenuBarLevel
+        level = Self.shieldingLevel   // STEP 2: above the entire Space system
         backgroundColor = .black
         isOpaque = true
         hasShadow = false
@@ -152,7 +158,11 @@ final class OverlayWindow: NSWindow {
     /// processed output) or drop it back below them. Applied live; the renderer
     /// re-pegs control windows to match.
     func setCoversMenuBarAndDock(_ covers: Bool) {
-        level = covers ? Self.aboveMenuBarLevel : Self.belowMenuBarLevel
+        // STEP 2: the overlay sits at the shield level above the whole Space system, so it
+        // already covers the menu bar/Dock regardless of this toggle. Hold the shield level
+        // (the engine calls this on reconcile; don't let it drop the overlay back down).
+        _ = covers
+        level = Self.shieldingLevel
     }
 
     /// Reliably carry this single-Space overlay onto the now-active Space. Ordering a
