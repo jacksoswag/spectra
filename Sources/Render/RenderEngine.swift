@@ -73,22 +73,19 @@ final class RenderEngine {
         spaceSettleDeadline = CACurrentMediaTime() + 0.7
         spaceCarryGeneration += 1
         let generation = spaceCarryGeneration
-        // Hide the visible overlays and drop their buffered frames the instant a Space
-        // change is detected. The overlay is opaque and click-through; left up, it can be
-        // force-fronted onto the new Space (via `carryToActiveSpace`) still showing a stale
-        // pre-transition frame — the "frozen Mission Control" ghost, where the menu bar and
-        // Dock appear dead because they're buried under the frozen image. An animated chain
-        // makes it worse: its idle redraw keeps re-presenting `lastFrame` even with no fresh
-        // capture during the swipe. While hidden the display link keeps rendering fresh
-        // captures into the off-screen layer, so when `followActiveSpace` re-shows them after
-        // the swipe settles they are already current (no stale flash) and nothing visible can
-        // snap the in-flight swipe back onto the overlay's Space. They stay in
-        // `visibleDisplayIDs`, so the debounced carry below (and the tick safety net) bring
-        // them back on the now-active Space.
-        for id in visibleDisplayIDs {
-            overlays[id]?.hide()
-            renderers[id]?.discardBufferedFrames()
-        }
+        // Make the overlay TRANSPARENT (not hidden) for the duration of the swipe, and
+        // reveal it again once the swipe settles (`ensureOverlaysOnActiveSpace`). During a
+        // swipe the opaque overlay slides out with the outgoing Space while it keeps
+        // rendering the live capture — which IS the swipe animation — so its content slides
+        // too, doubling the motion ("a duplicate next Space moving twice as fast"). The
+        // post-settle `followActiveSpace` carry also momentarily joins all Spaces, which
+        // mid-swipe literally shows the overlay on every Space at once. Both vanish if the
+        // overlay is invisible until the swipe is done.
+        //
+        // We use alpha, NOT orderOut: the render clock is screen-tied (`NSScreen.displayLink`)
+        // so alpha leaves it ticking, whereas orderOut detaches the layer (the old freeze).
+        // Alpha also can't strand the window the way a missed re-show (orderFront) could.
+        for id in visibleDisplayIDs { overlays[id]?.alphaValue = 0 }
         // Strip the migrate flag from the control windows for the duration of the swipe,
         // so WindowServer can't pull a key-capable .normal window onto the in-flight Space
         // and reverse the gesture (the snap-back). Restored once settled, below.
@@ -109,7 +106,7 @@ final class RenderEngine {
     /// reliably, then reverts. Cheap and idempotent when already on the active Space.
     /// Only called once a Space transition has settled (see `activeSpaceDidChange`).
     private func followActiveSpace() {
-        for id in visibleDisplayIDs { overlays[id]?.carryToActiveSpace() }
+        for id in visibleDisplayIDs { carryAndRebuild(id) }
         // The swipe has settled: let the control windows follow to the now-active Space
         // again (migrating now can't reverse a completed gesture), and wake capture so a
         // fresh frame lands on the new Space — re-showing the overlay re-dirties it, but
@@ -120,16 +117,57 @@ final class RenderEngine {
         onActiveSpaceSettled()
     }
 
-    /// Notification-independent safety net. `activeSpaceDidChange` doesn't reliably
-    /// fire for full-screen-app Space transitions, so a periodic caller (the engine
-    /// tick) re-checks and carries any overlay that has fallen off the active Space.
-    /// A no-op when every overlay is already on the active Space, and suppressed while
-    /// a Space transition is still settling so it can't force-front mid-swipe.
+    /// Consecutive ticks each overlay has been occluded, so the safety-net carry fires only
+    /// after SUSTAINED occlusion, not on a transient `occlusionState` flap (see
+    /// `ensureOverlaysOnActiveSpace`).
+    private var overlayOccludedTicks: [CGDirectDisplayID: Int] = [:]
+
+    /// Notification-independent safety net (the engine tick), run once a Space swipe has
+    /// settled (`now > spaceSettleDeadline`, so never mid-swipe). It does two things:
+    ///
+    /// 1. Reveal — restore `alphaValue` to 1 after `activeSpaceDidChange` made the overlay
+    ///    transparent for the swipe. Time-based, so a transparent overlay is never stranded.
+    /// 2. Follow — carry the FOCUSED display's overlay onto the active Space, but ONLY after
+    ///    it has been occluded for several consecutive ticks (~1.5s of SUSTAINED occlusion),
+    ///    and exactly once. This is essential: the overlay's `occlusionState` FLAPS
+    ///    (spurious visible→occluded→visible even on a static single display), and any carry
+    ///    triggered by a flap re-runs `carryToActiveSpace` + the `CAMetalDisplayLink` rebuild,
+    ///    each of which forces a window-server recomposite that spikes GPU time/latency to
+    ///    ~80ms (and flashes the overlay across Spaces — the "two Spaces" doubling). A real
+    ///    Space change stays occluded until carried, so it clears the debounce; a flap
+    ///    recovers within a tick and never does. (Gesture Space changes are already carried
+    ///    immediately by the `activeSpaceDidChange` notification → `followActiveSpace`; this
+    ///    debounced path is only the backup for transitions the notification misses, e.g.
+    ///    yabai.) Only the focused display can have switched Space; others must not be carried.
     func ensureOverlaysOnActiveSpace() {
         guard CACurrentMediaTime() > spaceSettleDeadline else { return }
+        let mainID = NSScreen.main.flatMap {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+        }
         for id in visibleDisplayIDs {
-            guard let overlay = overlays[id], !overlay.isOnActiveSpace else { continue }
-            overlay.carryToActiveSpace()
+            guard let overlay = overlays[id] else { continue }
+            if overlay.occlusionState.contains(.visible) {
+                if overlay.alphaValue != 1 { overlay.alphaValue = 1 }   // reveal after the swipe
+                overlayOccludedTicks[id] = 0
+            } else {
+                let ticks = (overlayOccludedTicks[id] ?? 0) + 1
+                overlayOccludedTicks[id] = ticks
+                if id == mainID, ticks == 3 {   // fire exactly once, after ~1.5s sustained
+                    carryAndRebuild(id)
+                }
+            }
+        }
+    }
+
+    /// Carry an overlay onto the active Space and rebuild its render clock. The carry
+    /// re-orders the window, which permanently stops the window-tied `CAMetalDisplayLink`;
+    /// the rebuild is queued AFTER `carryToActiveSpace`'s deferred revert (main-queue FIFO),
+    /// so the revert's own `orderFront` can't re-kill the fresh link, and the overlay
+    /// resumes painting on the new Space instead of freezing.
+    private func carryAndRebuild(_ id: CGDirectDisplayID) {
+        overlays[id]?.carryToActiveSpace()
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.renderers[id]?.rebuildDisplayLink() }
         }
     }
 
@@ -181,6 +219,13 @@ final class RenderEngine {
     func setCoversMenuBarAndDock(_ covers: Bool) {
         coversMenuBarAndDock = covers
         for overlay in overlays.values { overlay.setCoversMenuBarAndDock(covers) }
+    }
+
+    /// Push the global intensity multiplier to every active renderer. Stored so a
+    /// display activated later (via `activate`) can be brought up to the same value
+    /// by the engine's reconcile.
+    func setIntensityScale(_ scale: Float) {
+        for renderer in renderers.values { renderer.setIntensityScale(scale) }
     }
 
     func setOverlayVisible(_ visible: Bool, displayID: CGDirectDisplayID) {

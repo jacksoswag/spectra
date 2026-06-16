@@ -8,9 +8,19 @@ import QuartzCore
 ///
 /// Capture and presentation are decoupled. Frames arrive from the capture queue
 /// via `submit(_:)`, which only stores the most recent frame and returns — it
-/// never touches a drawable or the GPU. A `CAMetalDisplayLink` bound to the
-/// overlay layer is the single render clock: it fires on the main run loop and, at
-/// most `maxRenderFPS` times a second, renders the latest stored frame.
+/// never touches a drawable or the GPU. A **screen-tied** `CADisplayLink`
+/// (`NSScreen.displayLink`) is the single render clock: it fires on the main run
+/// loop at the display refresh and, at most `maxRenderFPS` times a second, draws
+/// the latest stored frame onto the overlay layer's `nextDrawable()`.
+///
+/// Why screen-tied and not a window-tied `CAMetalDisplayLink`/`NSView.displayLink`:
+/// a window-tied link stops delivering callbacks the instant the overlay window is
+/// hidden, re-ordered (a Space carry), or its Space leaves the screen — and never
+/// resumes. A dead clock on an opaque overlay froze it on a stale frame: the
+/// Space-freeze, the ghosted/doubled menu bar, the missing cursor, and the apparent
+/// fps collapse were all that one clock going silent. A screen-tied link keeps
+/// ticking regardless of the overlay's visibility, so following the user across
+/// Spaces can no longer freeze rendering.
 ///
 /// One clock, one cap. The render rate is deliberately *not* tied to how fast
 /// capture delivers frames: the opaque overlay presenting to the screen makes the
@@ -42,6 +52,11 @@ final class DisplayRenderer: NSObject {
     /// held at or below this; the user's Frame Rate setting can only lower it.
     private let maxRenderFPS = 60.0
 
+    /// Global intensity multiplier (the master "intensity" slider), pushed in from
+    /// the engine and injected into every frame's `FrameContext`. Main-thread only
+    /// (set from the main actor, read in the display-link callback).
+    private var intensityScale: Float = 1.0
+
     private let chainLock = NSLock()
     private var chain: [ResolvedEffect] = []
 
@@ -65,8 +80,9 @@ final class DisplayRenderer: NSObject {
     private var lastFrame: CapturedFrame?
     private var needsRedraw = false
 
-    /// The display link, created and torn down on the main thread (where its run
-    /// loop lives). Activation only flips `isPaused`.
+    /// The render clock, created and torn down on the main thread (where its run loop
+    /// lives). Activation only flips `isPaused`. See `ensureDisplayLink` for why it's a
+    /// window-tied `CAMetalDisplayLink` and how a Space carry rebuilds it.
     private var displayLink: CAMetalDisplayLink?
     /// The user's Frame Rate setting (0 = use `maxRenderFPS`). Only ever lowers the
     /// effective cap below `maxRenderFPS`.
@@ -144,8 +160,13 @@ final class DisplayRenderer: NSObject {
 
     // MARK: - Display-link lifecycle (main thread)
 
-    /// Create the display link (once) and attach it to the main run loop in the
-    /// common modes, so it keeps firing while the user interacts with menus etc.
+    /// Create the render clock (once) and attach it to the main run loop in the common
+    /// modes, so it keeps firing while the user interacts with menus etc. The clock is a
+    /// `CAMetalDisplayLink` bound to the overlay layer: it actively drives the layer at the
+    /// full display refresh (60), which a screen-tied `NSScreen.displayLink` does NOT — that
+    /// follows the display's adaptive rate, which macOS throttles to ~30 for the opaque,
+    /// low-motion overlay. The tradeoff is that this link stops when the overlay window is
+    /// hidden/re-ordered (a Space carry), so `rebuildDisplayLink` re-creates it after a carry.
     private func ensureDisplayLink() {
         guard displayLink == nil else { return }
         let link = CAMetalDisplayLink(metalLayer: overlay.metalLayer)
@@ -156,12 +177,30 @@ final class DisplayRenderer: NSObject {
         displayLink = link
     }
 
+    /// Re-create the render clock. A Space carry (`carryToActiveSpace`) re-orders the overlay
+    /// window, which stops a `CAMetalDisplayLink` permanently; the engine calls this right
+    /// after a carry so the overlay resumes painting on the new Space instead of freezing.
+    func rebuildDisplayLink() {
+        guard isActive else { return }
+        displayLink?.invalidate()
+        displayLink = nil
+        ensureDisplayLink()
+        displayLink?.isPaused = false
+        requestRedraw()
+    }
+
     /// Lower the render/present rate to the user's Frame Rate setting. Never raises
     /// it above `maxRenderFPS`.
     func setPreferredFrameRate(_ fps: Int) {
         guard fps != preferredFrameRate else { return }
         preferredFrameRate = fps
         if let displayLink { applyPreferredFrameRate(to: displayLink) }
+    }
+
+    /// Set the global intensity multiplier (main actor). Cheap; takes effect on the
+    /// next rendered frame.
+    func setIntensityScale(_ scale: Float) {
+        intensityScale = scale
     }
 
     /// The single effective render cap: `maxRenderFPS`, lowered by the user setting.
@@ -182,20 +221,6 @@ final class DisplayRenderer: NSObject {
         frameLock.unlock()
     }
 
-    /// Drop any buffered frames so the overlay cannot re-present a pre-transition
-    /// (stale) frame. Called on the main thread when a Space change begins, before the
-    /// overlay is hidden and later carried onto the now-active Space — otherwise the
-    /// animated-chain idle redraw keeps painting the stale frame and it gets
-    /// force-fronted as the "frozen Mission Control" ghost. The next render waits for a
-    /// fresh capture. Unlike `clearMailbox` this also drops a pending one-shot redraw.
-    func discardBufferedFrames() {
-        frameLock.lock()
-        pendingFrame = nil
-        lastFrame = nil
-        needsRedraw = false
-        frameLock.unlock()
-    }
-
     /// Stop rendering and release resources (display removed / app shutdown).
     func teardown() {
         isActive = false           // pause the link
@@ -207,8 +232,8 @@ final class DisplayRenderer: NSObject {
 
     // MARK: - Frame rendering (main thread, via the display-link callback)
 
-    /// Render and present a captured frame onto `drawable`. Drops the frame
-    /// (reporting it) if no in-flight slot is available.
+    /// Render and present a captured frame onto `drawable` (supplied by the display-link
+    /// callback). Drops the frame (reporting it) if no in-flight slot is available.
     private func renderFrame(_ frame: CapturedFrame, drawable: CAMetalDrawable) {
         let encodeStart = CACurrentMediaTime()
 
@@ -237,7 +262,8 @@ final class DisplayRenderer: NSObject {
             time: time, frameIndex: frameCounter,
             clockSeconds: clock.clockSeconds,
             year: clock.year, month: clock.month, day: clock.day,
-            batteryLevel: BatteryProvider.level())
+            batteryLevel: BatteryProvider.level(),
+            intensityScale: intensityScale)
 
         // Optionally draw the live cursor into the frame so it goes through the
         // chain. The composited texture (if any) is released on GPU completion.
@@ -375,19 +401,14 @@ extension DisplayRenderer: CAMetalDisplayLinkDelegate {
         guard let frame else { return }                              // nothing captured yet
         guard hasNew || redraw || hasAnimatedEffect else { return }  // idle: nothing changed
 
-        // Cap the render rate without inducing a beat. `CAMetalDisplayLink` already
-        // fires at `renderFPSCap` (preferredFrameRateRange); this wall-clock check is a
-        // backstop against a panel that over-fires the cap (e.g. ProMotion ignoring the
-        // max hint) re-dirtying the captured scene into a compositor feedback loop.
-        //
-        // The threshold is one interval MINUS a tolerance, not a strict `1/cap`. When
-        // the panel runs at exactly the cap (e.g. 60.00Hz) a tick lands ~one interval
-        // after the last render, and sub-frame jitter pushes `delta` a hair under a
-        // strict threshold — deferring that tick to the next one HALVES the rate to ~30
-        // (the "stuck at 35-40fps, quality has no effect" symptom). The tolerance (1/5
-        // of an interval, ~3.3ms at 60Hz) absorbs that jitter so every on-time tick
-        // renders, while a genuine over-fire (delta well under the interval) is still
-        // deferred — the tolerance stays below one panel-frame on 120/144/240Hz panels.
+        // Cap the render rate without inducing a beat. The link already fires at
+        // `renderFPSCap` (preferredFrameRateRange); this wall-clock check is a backstop
+        // against a panel that over-fires (e.g. ProMotion ignoring the max hint)
+        // re-dirtying the captured scene into a compositor feedback loop. The threshold is
+        // one interval MINUS a 1/5 tolerance, not a strict `1/cap`: at exactly the cap a
+        // tick lands ~one interval after the last render and sub-frame jitter would push it
+        // a hair under a strict threshold, deferring to the next tick and HALVING the rate
+        // to ~30. The tolerance absorbs that jitter while still deferring a genuine over-fire.
         let now = CACurrentMediaTime()
         let interval = 1.0 / renderFPSCap
         if now - lastRenderHostTime < interval - interval * 0.2 {
