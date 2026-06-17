@@ -15,6 +15,7 @@
 		110C8D0442616A2008F87B5B /* WallpaperProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C27306DC3BC6D0F18EB85E4 /* WallpaperProvider.swift */; };
 		112DC93AB3159843D19315C0 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDC9CD95E551DDB421FCECF /* LibraryView.swift */; };
 		146CC5D136181360DB64EA18 /* CamcorderEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF8FF0CB6E08FCE8E2B5CC2 /* CamcorderEffects.swift */; };
+		17BA3BD6ABFCE49DC582DFA8 /* GradeLUTExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7002C0E14170B0EFBCCBF32 /* GradeLUTExtractor.swift */; };
 		18CF58EFD9BCA34F1133B7D2 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC6A575DC6AD65716CA353D /* Theme.swift */; };
 		1B42FB506E2C60E2A5B2DEC8 /* ShaderLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B04916991AE44E17EB469C1 /* ShaderLibrary.swift */; };
 		1C544D2E2A06848D236BF80C /* PreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8DC82FEBC51060516CD56C9 /* PreviewView.swift */; };
@@ -23,6 +24,7 @@
 		20012AFD8F4CAE5A45E4B527 /* JSONStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C658D820143DA1065FEF55 /* JSONStore.swift */; };
 		2396C00DDBD0222961607FE5 /* CustomShader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4F8C5B8F7D5E31D9CEC382 /* CustomShader.swift */; };
 		25103B756D23B703F069D720 /* SpectraEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC63F6F33294E002BB9C6000 /* SpectraEngine.swift */; };
+		26BC3F5A22E7C9A7F9898023 /* DisplayGrade.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65418F91E245D94A1DE9F9F /* DisplayGrade.swift */; };
 		29A2CDA44BE5CA4363131D58 /* ChainResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC336088AC8C1AD9CF71C06B /* ChainResolver.swift */; };
 		2ABA9046C605C6F6BEFF6956 /* EffectInstance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68F183494670314C1285764C /* EffectInstance.swift */; };
 		2AD498D077B6A313BF54F423 /* CursorVisibilityEnforcer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E48F1BA38D24C7E3D4B5551 /* CursorVisibilityEnforcer.swift */; };
@@ -197,6 +199,7 @@
 		BF49DA9EE9C0422C435C14EA /* Blur.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = Blur.metal; sourceTree = "<group>"; };
 		C40ED1AF624A83E5D6A8F77C /* Retro.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = Retro.metal; sourceTree = "<group>"; };
 		C60B56C75653A5F227B2653E /* UniversalParameters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalParameters.swift; sourceTree = "<group>"; };
+		C7002C0E14170B0EFBCCBF32 /* GradeLUTExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GradeLUTExtractor.swift; sourceTree = "<group>"; };
 		CA99BBA6F1C42522CB2D3D49 /* Common.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = Common.metal; sourceTree = "<group>"; };
 		CC336088AC8C1AD9CF71C06B /* ChainResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainResolver.swift; sourceTree = "<group>"; };
 		CCE7C77AC48E873B4C0E594E /* DisplayInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayInfo.swift; sourceTree = "<group>"; };
@@ -220,6 +223,7 @@
 		F195518442119740C860C107 /* ShaderImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShaderImporter.swift; sourceTree = "<group>"; };
 		F5607D2E4650B96DF5FCD17C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F58B8CDE44B3645D4CCB05E1 /* ChainProfiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainProfiler.swift; sourceTree = "<group>"; };
+		F65418F91E245D94A1DE9F9F /* DisplayGrade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayGrade.swift; sourceTree = "<group>"; };
 		F79E8229458605184B001A58 /* VHS.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = VHS.metal; sourceTree = "<group>"; };
 		F7DBEF059BCC82AF8433F942 /* PerformanceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMonitor.swift; sourceTree = "<group>"; };
 		F92C725B9EA33AC2898E0DF0 /* EffectDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectDescriptor.swift; sourceTree = "<group>"; };
@@ -449,8 +453,10 @@
 			children = (
 				3FE41201305BD9FF34AAB979 /* AuxTextureFactory.swift */,
 				1097DCFC978E64CE21C0DDDA /* CursorCompositor.swift */,
+				F65418F91E245D94A1DE9F9F /* DisplayGrade.swift */,
 				1008583F1E43ACAC9DDCD052 /* DisplayRenderer.swift */,
 				D96A444C4BCF7E82C5391CD1 /* EffectChainRenderer.swift */,
+				C7002C0E14170B0EFBCCBF32 /* GradeLUTExtractor.swift */,
 				732223F3F6B52DC71C9E341E /* MetalContext.swift */,
 				E8244C8DE0CFFE861B820ABB /* OverlayWindow.swift */,
 				71310B95BE29EE617DAE60A4 /* RenderEngine.swift */,
@@ -735,6 +741,7 @@
 				2AD498D077B6A313BF54F423 /* CursorVisibilityEnforcer.swift in Sources */,
 				2396C00DDBD0222961607FE5 /* CustomShader.swift in Sources */,
 				8E8E2D9D24A619E533A792D0 /* CustomShaderStore.swift in Sources */,
+				26BC3F5A22E7C9A7F9898023 /* DisplayGrade.swift in Sources */,
 				6A7AB38932164CD7DEE71001 /* DisplayInfo.swift in Sources */,
 				D091DC66C2FFFED2D1F4E6CA /* DisplayManager.swift in Sources */,
 				B0DA8527A5975108B504AB60 /* DisplayRenderer.swift in Sources */,
@@ -760,6 +767,7 @@
 				B9B9F3547FBBDA00CA4DF1AB /* Glitch.metal in Sources */,
 				38021AA0C97C6DBD8085FA37 /* GlitchEffects.swift in Sources */,
 				1E6BC3CF0275317AA917B128 /* GlobalHotKey.swift in Sources */,
+				17BA3BD6ABFCE49DC582DFA8 /* GradeLUTExtractor.swift in Sources */,
 				0677F8617A390140DDE4C3C6 /* InspectorView.swift in Sources */,
 				20012AFD8F4CAE5A45E4B527 /* JSONStore.swift in Sources */,
 				112DC93AB3159843D19315C0 /* LibraryView.swift in Sources */,

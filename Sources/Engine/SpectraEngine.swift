@@ -55,6 +55,28 @@ final class SpectraEngine {
     /// status item is hidden, so this is the guaranteed way to turn it off.
     @ObservationIgnored private var globalPanicHotKey: GlobalHotKey?
 
+    /// Global color grading via the scanout transfer LUT. A display whose chain is
+    /// made up ENTIRELY of per-channel color effects is rendered here — above the
+    /// whole Space system, with no capture or overlay — instead of through the
+    /// overlay engine. `gradeDisplays` is the set currently routed this way; it gates
+    /// `wantsOverlay` so those displays don't ALSO run the overlay (double-grading).
+    @ObservationIgnored private lazy var displayGrade = DisplayGrade()
+    @ObservationIgnored private lazy var gradeExtractor =
+        GradeLUTExtractor(context: context, shaders: renderEngine.shaders)
+    @ObservationIgnored private var gradeDisplays: Set<CGDirectDisplayID> = []
+
+    /// Effects whose transfer is per-channel separable — exactly reproducible by a
+    /// scanout LUT (verified against their `colorproc_*` math). Cross-channel ops
+    /// (saturation, vibrance, highlights/shadows/whites/blacks, temperature/tint's
+    /// luma-preservation, sepia, color balance, hue, channel mixer, gradient map, 3D
+    /// LUT) are deliberately absent: a gray-ramp evaluation can't capture them, so
+    /// they stay on the overlay.
+    private static let globalGradeEffectIDs: Set<String> = [
+        "color.brightness", "color.contrast", "color.exposure", "color.gamma",
+        "color.blackPoint", "color.whitePoint", "color.invert", "color.posterize",
+        "color.solarize", "color.levels",
+    ]
+
     /// Spectra's own control windows (the Studio and Settings), tracked once they
     /// appear (see `ControlWindowConfigurator`) so their `SCWindow`s can be excepted
     /// from the capture exclusion and rendered through the effect chain. Held weakly so
@@ -191,6 +213,7 @@ final class SpectraEngine {
         refreshTimer?.invalidate()
         folderWatcher?.stop()
         globalPanicHotKey = nil   // unregisters the Carbon hotkey
+        displayGrade.clearAll()   // restore every display's colour profile (scanout LUT)
         cursorEnforcer.setHidden(false)   // restores the cursor + removes the motion monitor
         for session in sessions.values { Task { await session.stop() } }
         renderEngine.shutdown()
@@ -424,6 +447,14 @@ final class SpectraEngine {
         // A warp effect may have been added/removed/toggled in this chain, which flips
         // whether the captured cursor warps — reconcile the cursor pipeline live.
         applyCursorState()
+        // Keep global-grade routing current with the edited chain. If the display
+        // crossed the grade↔overlay boundary (e.g. the last spatial effect was removed,
+        // or a spatial effect was added to a colour-only stack), reconcile the whole
+        // pipeline so the overlay+capture spin down or up accordingly; otherwise the
+        // grade reconcile alone refreshes the LUT for live parameter edits.
+        let wasGrade = gradeDisplays.contains(displayID)
+        reconcileGlobalGrade()
+        if gradeDisplays.contains(displayID) != wasGrade { updatePipelines() }
         saveState()
     }
 
@@ -639,7 +670,45 @@ final class SpectraEngine {
     // MARK: - Pipeline reconciliation
 
     private func wantsOverlay(_ displayID: CGDirectDisplayID) -> Bool {
-        isEnabled && permissionAuthorized
+        // A display routed to the global grade is rendered by the scanout LUT, not the
+        // overlay — running both would double-apply the grade on the current Space.
+        isEnabled && permissionAuthorized && !gradeDisplays.contains(displayID)
+    }
+
+    /// Whether a display's live stack is made up ENTIRELY of per-channel color
+    /// effects, i.e. reproducible by a scanout transfer LUT. Read from the raw stack
+    /// (descriptor ids), not the resolved chain, so colour-pass fusion — which would
+    /// collapse the run into one synthetic descriptor — doesn't hide the membership.
+    private func chainIsGlobalGrade(_ displayID: CGDirectDisplayID) -> Bool {
+        let chain = stack(for: displayID).chain()
+        let enabled = chain.effects.filter { chain.isEffectivelyEnabled($0) }
+        guard !enabled.isEmpty else { return false }
+        return enabled.allSatisfy { Self.globalGradeEffectIDs.contains($0.descriptorID) }
+    }
+
+    /// Route per-channel color chains to the global scanout LUT and keep
+    /// `gradeDisplays` in sync. Independent of capture permission — a pure colour
+    /// grade needs no screen capture. Called at the top of `updatePipelines` and
+    /// whenever a chain changes.
+    private func reconcileGlobalGrade() {
+        var next: Set<CGDirectDisplayID> = []
+        for display in displays {
+            let id = display.id
+            guard isEnabled, chainIsGlobalGrade(id) else {
+                displayGrade.clear(for: id)
+                continue
+            }
+            let resolved = resolvedChains[id] ?? resolver.resolve(stack(for: id).chain())
+            resolvedChains[id] = resolved
+            if let lut = gradeExtractor.extract(
+                chain: resolved, intensityScale: Self.intensityScale(forSetting: settings.intensity)) {
+                displayGrade.setLUT(lut, for: id)
+                next.insert(id)
+            } else {
+                displayGrade.clear(for: id)
+            }
+        }
+        gradeDisplays = next
     }
 
     private func wantsCapture(_ displayID: CGDirectDisplayID) -> Bool {
@@ -652,6 +721,10 @@ final class SpectraEngine {
 
     /// Reconcile capture sessions and overlay renderers with the desired state.
     private func updatePipelines() {
+        // Global colour grading is reconciled first and independently: it needs no
+        // capture permission, and it must update `gradeDisplays` before `wantsOverlay`
+        // is consulted below so graded displays skip the overlay/capture path.
+        reconcileGlobalGrade()
         guard permissionAuthorized else {
             for (id, session) in sessions { Task { await session.stop() }; sessions[id] = nil }
             for id in renderEngine.activeDisplayIDs { renderEngine.deactivate(id) }
@@ -865,6 +938,8 @@ final class SpectraEngine {
         let clamped = min(1.0, max(0.0, value))
         settings.intensity = clamped
         renderEngine.setIntensityScale(Self.intensityScale(forSetting: clamped))
+        // Globally-graded displays bake intensity into their LUT, so refresh it too.
+        if !gradeDisplays.isEmpty { reconcileGlobalGrade() }
     }
 
     /// Map the 0…1 Intensity setting to a per-effect strength multiplier. The shipped
