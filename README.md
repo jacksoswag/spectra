@@ -6,7 +6,8 @@ Spectra is a desktop-wide GPU visual effects engine for macOS. It captures your 
 
 - Captures every connected display at native resolution and refresh rate (60Hz and 120Hz ProMotion).
 - Processes frames entirely on the GPU. There is no CPU image processing and the capture-to-texture path is zero-copy through a `CVMetalTextureCache`.
-- Renders the result back through a per-display overlay window that clicks through to the real desktop beneath it. The overlay presents through an EDR-capable 16-bit layer, so it is HDR-aware on capable displays.
+- Renders the result back through a per-display overlay window that clicks through to the real desktop beneath it. The overlay presents through an EDR-capable 16-bit layer, so it is HDR-aware on capable displays, follows the user across Spaces, and shades native-fullscreen Spaces by elevating to the shielding window level for the duration of the fullscreen Space.
+- When a display's stack is made up entirely of per-channel color operations (brightness, contrast, exposure, gamma, black/white point, invert, posterize, solarize, levels), Spectra bakes it into a scanout transfer LUT and applies it through `CGSetDisplayTransferByTable` instead of the overlay. The grade then holds across every Space, swipe, and full-screen app without any window involved, and the original profile is restored on stop.
 - Ships 150+ built-in effects across 12 categories, each a real Metal fragment shader.
 - Stacks effects in any order, with per-effect strength, opacity, blend amount, and one of 16 blend modes applied to every effect for free.
 - Stores presets, and includes a curated library (Noir, Blade Runner, The Matrix, CRT Monitor, VHS, Camcorder, and more).
@@ -22,7 +23,7 @@ One unified workspace, no modes. Everything lives in a single coherent window:
 - **Effect Stack and Parameters** on the right: add, remove, reorder (drag and drop), duplicate, rename, group, enable, and disable layered effects, with universal and effect-specific controls beneath.
 - **Performance** along the bottom on demand: frame rate, GPU and CPU time, latency, dropped frames, pipeline analysis, and on-demand per-effect cost profiling.
 
-A menu bar item is always available for quick enable/disable, preset switching, current and recent presets, performance at a glance, settings, and refreshing displays.
+A menu bar item is always available for quick pause/unpause, preset switching (grouped by category), intensity and quality sliders, live fps and latency at a glance, and shortcuts into the Studio and Settings windows.
 
 ## Authoring effects
 
