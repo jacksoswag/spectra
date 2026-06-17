@@ -105,12 +105,6 @@ final class OverlayWindow: NSWindow {
             max(Int(CGWindowLevelForKey(.statusWindow)),
                 Int(CGWindowLevelForKey(.dockWindow)))) + 1)
 
-    /// STEP 2 (space-independent experiment): the screen-lock shield level — above the
-    /// ENTIRE Space system (Mission Control, full-screen apps, all Spaces and transitions).
-    /// Renders over every pixel by definition and covers full-screen apps for free. Covers
-    /// the menu bar / Dock / Mission Control overview too; the panic hotkey makes that safe.
-    static let shieldingLevel = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
-
     let displayID: CGDirectDisplayID
     private let host: MetalLayerHostView
 
@@ -131,17 +125,20 @@ final class OverlayWindow: NSWindow {
             defer: false)
 
         isReleasedWhenClosed = false
-        level = Self.shieldingLevel   // STEP 2: above the entire Space system
+        level = Self.belowMenuBarLevel
         backgroundColor = .black
         isOpaque = true
         hasShadow = false
         ignoresMouseEvents = true
-        // STEP 1 (space-independent experiment): present on every Space at once and never
-        // carry. `.canJoinAllSpaces` keeps the shader on whatever Space is active without the
-        // single-Space carry/re-order that caused the ~1s reveal and the nested swipe. The
-        // window server drops it from the slide animation, so a swipe briefly shows the native
-        // (unshadered) transition; that's the accepted tradeoff for clean steady-state coverage.
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        // `.transient` keeps the overlay on the current Space and auto-hides it in
+        // Exposé / Mission Control; `.fullScreenAuxiliary` additionally lets it
+        // appear over another app's full-screen Space. `.canJoinAllSpaces` is
+        // deliberately NOT used as a steady state — one opaque window present on
+        // *every* Space at once is fed by a single active-Space capture, so it
+        // visually merges the desktops and breaks Mission Control (tried and reverted
+        // on-device). Instead the overlay FOLLOWS the user one Space at a time; see
+        // `carryToActiveSpace`.
+        collectionBehavior = Self.singleSpaceBehavior
         displaysWhenScreenProfileChanges = true
         isExcludedFromWindowsMenu = true
         sharingType = .none
@@ -158,11 +155,7 @@ final class OverlayWindow: NSWindow {
     /// processed output) or drop it back below them. Applied live; the renderer
     /// re-pegs control windows to match.
     func setCoversMenuBarAndDock(_ covers: Bool) {
-        // STEP 2: the overlay sits at the shield level above the whole Space system, so it
-        // already covers the menu bar/Dock regardless of this toggle. Hold the shield level
-        // (the engine calls this on reconcile; don't let it drop the overlay back down).
-        _ = covers
-        level = Self.shieldingLevel
+        level = covers ? Self.aboveMenuBarLevel : Self.belowMenuBarLevel
     }
 
     /// Reliably carry this single-Space overlay onto the now-active Space. Ordering a
