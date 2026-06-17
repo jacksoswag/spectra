@@ -167,11 +167,6 @@ final class SpectraEngine {
         renderEngine.onActiveSpaceSettled = { [weak self] in
             self?.refreshCaptureExceptions()
         }
-        // Hide the overlay the moment a Space-switch swipe begins (the commit notification
-        // above is too late to catch the live drag). Idempotent and cheap.
-        swipeDetector.onSwipeStart = { [weak self] in
-            self?.renderEngine.hideOverlaysForSwipeStart()
-        }
         AppPaths.ensureDirectories()
         permissionAuthorized = ScreenRecordingPermission.isAuthorized
         await displayManager.refresh()
@@ -220,7 +215,6 @@ final class SpectraEngine {
         globalPanicHotKey = nil   // unregisters the Carbon hotkey
         displayGrade.clearAll()   // restore every display's colour profile (scanout LUT)
         cursorEnforcer.setHidden(false)   // restores the cursor + removes the motion monitor
-        swipeDetector.stop()      // removes the event tap
         for session in sessions.values { Task { await session.stop() } }
         renderEngine.shutdown()
     }
@@ -356,12 +350,6 @@ final class SpectraEngine {
     /// pair plus a global motion monitor that re-asserts the hide so it holds across
     /// pointer movement, not only after a keystroke.
     @ObservationIgnored private let cursorEnforcer = CursorVisibilityEnforcer()
-
-    /// Hides the overlay the instant a Space-switch swipe begins (before the commit
-    /// notification), which kills the during-swipe doubled-motion ghost. Listen-only and
-    /// additive — no-ops if the event tap can't be created. Started while an overlay is
-    /// live, stopped on disable/teardown.
-    @ObservationIgnored private let swipeDetector = SwipeStartDetector()
 
     /// Push the effective custom-cursor state to every renderer, session, and the
     /// hardware cursor in one place. The effective state folds in the setting *and*
@@ -753,7 +741,6 @@ final class SpectraEngine {
             // No overlay can be active here, so the effective custom-cursor state is
             // false — this restores the hardware cursor if it was hidden.
             updateCursorVisibility(effective: false)
-            swipeDetector.stop()
             return
         }
 
@@ -803,13 +790,6 @@ final class SpectraEngine {
         for id in renderEngine.activeDisplayIDs where !displays.contains(where: { $0.id == id }) {
             renderEngine.deactivate(id)
             resolvedChains[id] = nil
-        }
-
-        // Run the swipe-start detector only while an overlay is actually live.
-        if displays.contains(where: { wantsOverlay($0.id) }) {
-            swipeDetector.start()
-        } else {
-            swipeDetector.stop()
         }
 
         renderEngine.setCoversMenuBarAndDock(settings.coverMenuBarAndDock)

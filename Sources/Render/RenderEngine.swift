@@ -159,27 +159,6 @@ final class RenderEngine {
         }
     }
 
-    /// Hide every visible overlay the instant a Space-switch swipe BEGINS — before
-    /// `activeSpaceDidChangeNotification`, which only fires at swipe commit. During the live
-    /// drag the opaque overlay would otherwise slide out with the outgoing Space while still
-    /// rendering the live capture (the swipe animation itself), producing the doubled,
-    /// "shattering" ghost the user sees. Only `alphaValue` is touched (never `orderOut`,
-    /// which would stop the render clock), and a SHORT settle window is set: if the swipe
-    /// never commits — or this was a false-positive horizontal gesture — the overlay reveals
-    /// again within ~0.45s via `ensureOverlaysOnActiveSpace`; if it does commit,
-    /// `activeSpaceDidChange` extends the window and the frame-gated reveal restores it on
-    /// the new Space. Called (repeatedly, idempotently) by the swipe detector.
-    func hideOverlaysForSwipeStart() {
-        // Disabled while the stationary overlay stays visible through the swipe.
-        guard !Self.keepOverlayVisibleDuringSwipe else { return }
-        spaceSettleDeadline = max(spaceSettleDeadline, CACurrentMediaTime() + 0.45)
-        for id in visibleDisplayIDs {
-            guard let overlay = overlays[id] else { continue }
-            if overlay.alphaValue != 0 { overlay.alphaValue = 0 }
-            renderers[id]?.disarmFrameGatedReveal()
-        }
-    }
-
     /// Consecutive ticks each overlay has been occluded, so the safety-net carry fires only
     /// after SUSTAINED occlusion, not on a transient `occlusionState` flap (see
     /// `ensureOverlaysOnActiveSpace`).

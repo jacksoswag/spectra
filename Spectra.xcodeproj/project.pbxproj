@@ -51,7 +51,6 @@
 		5AB1FFC832734BD1A2402F2A /* Retro.metal in Sources */ = {isa = PBXBuildFile; fileRef = C40ED1AF624A83E5D6A8F77C /* Retro.metal */; };
 		5AC084A9BB74A49A8AAA003F /* EnvironmentEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BE2018CC7497E6DDB23C625 /* EnvironmentEffects.swift */; };
 		5EDE0C826491F884E6543EAC /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B02355D489CEEC8B1E33227 /* SettingsStore.swift */; };
-		61469567AD2D8F1AA6885217 /* SwipeStartDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6F9690BAF9146291561FE72 /* SwipeStartDetector.swift */; };
 		63C384407FC43CDA7A0F4931 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FEC559724B156142FF06F5BD /* Metal.framework */; };
 		685449413BB5D7868F960CFC /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FE9180E529D5E076DC070F3B /* MetalKit.framework */; };
 		6984BDE8DCBA1FDFAB333C84 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BA97C755B881F1C1865FFA3B /* UniformTypeIdentifiers.framework */; };
@@ -227,7 +226,6 @@
 		F5607D2E4650B96DF5FCD17C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F58B8CDE44B3645D4CCB05E1 /* ChainProfiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainProfiler.swift; sourceTree = "<group>"; };
 		F65418F91E245D94A1DE9F9F /* DisplayGrade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayGrade.swift; sourceTree = "<group>"; };
-		F6F9690BAF9146291561FE72 /* SwipeStartDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeStartDetector.swift; sourceTree = "<group>"; };
 		F79E8229458605184B001A58 /* VHS.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = VHS.metal; sourceTree = "<group>"; };
 		F7DBEF059BCC82AF8433F942 /* PerformanceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMonitor.swift; sourceTree = "<group>"; };
 		F92C725B9EA33AC2898E0DF0 /* EffectDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectDescriptor.swift; sourceTree = "<group>"; };
@@ -482,7 +480,6 @@
 				5E48F1BA38D24C7E3D4B5551 /* CursorVisibilityEnforcer.swift */,
 				FD11513CF174C44FA8C3183E /* GlobalHotKey.swift */,
 				2E19C828A239A7CE1415F420 /* SpectraApp.swift */,
-				F6F9690BAF9146291561FE72 /* SwipeStartDetector.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -810,7 +807,6 @@
 				4292E7433B0C5A8E4FCB82C5 /* SpectraControls.swift in Sources */,
 				25103B756D23B703F069D720 /* SpectraEngine.swift in Sources */,
 				F69C94AFA1E230F448B9CD30 /* StudioView.swift in Sources */,
-				61469567AD2D8F1AA6885217 /* SwipeStartDetector.swift in Sources */,
 				E2D4896E67DB2C2771AFF062 /* SystemAccessibility.swift in Sources */,
 				3BAC9621D3ADF4FC174C012B /* TexturePool.swift in Sources */,
 				18CF58EFD9BCA34F1133B7D2 /* Theme.swift in Sources */,
