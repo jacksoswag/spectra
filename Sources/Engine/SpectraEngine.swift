@@ -167,6 +167,11 @@ final class SpectraEngine {
         renderEngine.onActiveSpaceSettled = { [weak self] in
             self?.refreshCaptureExceptions()
         }
+        // Hide the overlay the moment a Space-switch swipe begins (the commit notification
+        // above is too late to catch the live drag). Idempotent and cheap.
+        swipeDetector.onSwipeStart = { [weak self] in
+            self?.renderEngine.hideOverlaysForSwipeStart()
+        }
         AppPaths.ensureDirectories()
         permissionAuthorized = ScreenRecordingPermission.isAuthorized
         await displayManager.refresh()
@@ -215,6 +220,7 @@ final class SpectraEngine {
         globalPanicHotKey = nil   // unregisters the Carbon hotkey
         displayGrade.clearAll()   // restore every display's colour profile (scanout LUT)
         cursorEnforcer.setHidden(false)   // restores the cursor + removes the motion monitor
+        swipeDetector.stop()      // removes the event tap
         for session in sessions.values { Task { await session.stop() } }
         renderEngine.shutdown()
     }
@@ -350,6 +356,12 @@ final class SpectraEngine {
     /// pair plus a global motion monitor that re-asserts the hide so it holds across
     /// pointer movement, not only after a keystroke.
     @ObservationIgnored private let cursorEnforcer = CursorVisibilityEnforcer()
+
+    /// Hides the overlay the instant a Space-switch swipe begins (before the commit
+    /// notification), which kills the during-swipe doubled-motion ghost. Listen-only and
+    /// additive — no-ops if the event tap can't be created. Started while an overlay is
+    /// live, stopped on disable/teardown.
+    @ObservationIgnored private let swipeDetector = SwipeStartDetector()
 
     /// Push the effective custom-cursor state to every renderer, session, and the
     /// hardware cursor in one place. The effective state folds in the setting *and*
@@ -692,10 +704,16 @@ final class SpectraEngine {
     /// whenever a chain changes.
     private func reconcileGlobalGrade() {
         var next: Set<CGDirectDisplayID> = []
+        var diag = "reconcileGlobalGrade isEnabled=\(isEnabled) perm=\(permissionAuthorized) selected=\(selectedDisplayID.map(String.init) ?? "nil")\n"
         for display in displays {
             let id = display.id
-            guard isEnabled, chainIsGlobalGrade(id) else {
+            let chain = stack(for: id).chain()
+            let enabledIDs = chain.effects.filter { chain.isEffectivelyEnabled($0) }.map(\.descriptorID)
+            let isGrade = isEnabled && chainIsGlobalGrade(id)
+            diag += "  display=\(id) enabled=\(enabledIDs) isGrade=\(isGrade)"
+            guard isGrade else {
                 displayGrade.clear(for: id)
+                diag += " -> cleared\n"
                 continue
             }
             let resolved = resolvedChains[id] ?? resolver.resolve(stack(for: id).chain())
@@ -704,11 +722,15 @@ final class SpectraEngine {
                 chain: resolved, intensityScale: Self.intensityScale(forSetting: settings.intensity)) {
                 displayGrade.setLUT(lut, for: id)
                 next.insert(id)
+                diag += " -> LUT applied (r[0]=\(lut.red.first ?? -1) r[255]=\(lut.red.last ?? -1))\n"
             } else {
                 displayGrade.clear(for: id)
+                diag += " -> extract FAILED\n"
             }
         }
         gradeDisplays = next
+        diag += "gradeDisplays=\(next) overlayWanted(selected)=\(selectedDisplayID.map { wantsOverlay($0) } ?? false)\n"
+        try? diag.write(toFile: "/tmp/spectra-grade-check.txt", atomically: true, encoding: .utf8)
     }
 
     private func wantsCapture(_ displayID: CGDirectDisplayID) -> Bool {
@@ -731,6 +753,7 @@ final class SpectraEngine {
             // No overlay can be active here, so the effective custom-cursor state is
             // false — this restores the hardware cursor if it was hidden.
             updateCursorVisibility(effective: false)
+            swipeDetector.stop()
             return
         }
 
@@ -780,6 +803,13 @@ final class SpectraEngine {
         for id in renderEngine.activeDisplayIDs where !displays.contains(where: { $0.id == id }) {
             renderEngine.deactivate(id)
             resolvedChains[id] = nil
+        }
+
+        // Run the swipe-start detector only while an overlay is actually live.
+        if displays.contains(where: { wantsOverlay($0.id) }) {
+            swipeDetector.start()
+        } else {
+            swipeDetector.stop()
         }
 
         renderEngine.setCoversMenuBarAndDock(settings.coverMenuBarAndDock)
@@ -904,6 +934,7 @@ final class SpectraEngine {
 
     private func tick() {
         performance.refresh()
+        renderEngine.restartStalledDisplayLinks()     // rebuild any clock that died on a carry (fixes the freeze)
         renderEngine.ensureOverlaysOnActiveSpace()   // follow the user across Spaces (focused-display, occlusion-gated)
         // Every session sits at exactly the slider value (a no-op when already there).
         for display in displays { applyScale(settings.renderScale, to: display) }

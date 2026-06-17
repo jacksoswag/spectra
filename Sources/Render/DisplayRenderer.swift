@@ -8,19 +8,22 @@ import QuartzCore
 ///
 /// Capture and presentation are decoupled. Frames arrive from the capture queue
 /// via `submit(_:)`, which only stores the most recent frame and returns — it
-/// never touches a drawable or the GPU. A **screen-tied** `CADisplayLink`
-/// (`NSScreen.displayLink`) is the single render clock: it fires on the main run
-/// loop at the display refresh and, at most `maxRenderFPS` times a second, draws
-/// the latest stored frame onto the overlay layer's `nextDrawable()`.
+/// never touches a drawable or the GPU. A window-tied `CAMetalDisplayLink` bound to
+/// the overlay layer is the single render clock: it fires on the main run loop and,
+/// at most `maxRenderFPS` times a second, draws the latest stored frame onto the
+/// layer's `nextDrawable()`.
 ///
-/// Why screen-tied and not a window-tied `CAMetalDisplayLink`/`NSView.displayLink`:
+/// Why a window-tied `CAMetalDisplayLink` and not a screen-tied `NSScreen.displayLink`:
+/// the metal link actively drives the layer at the full display refresh (60), whereas
+/// the screen-tied variant follows the display's *adaptive* rate, which macOS throttles
+/// to ~30 for the opaque, low-motion overlay (tried and reverted). The tradeoff is that
 /// a window-tied link stops delivering callbacks the instant the overlay window is
-/// hidden, re-ordered (a Space carry), or its Space leaves the screen — and never
-/// resumes. A dead clock on an opaque overlay froze it on a stale frame: the
-/// Space-freeze, the ghosted/doubled menu bar, the missing cursor, and the apparent
-/// fps collapse were all that one clock going silent. A screen-tied link keeps
-/// ticking regardless of the overlay's visibility, so following the user across
-/// Spaces can no longer freeze rendering.
+/// hidden via `orderOut`, re-ordered (a Space carry), or its Space leaves the screen —
+/// and never resumes. A dead clock on an opaque overlay froze it on a stale frame (the
+/// Space-freeze / ghosted menu bar / missing cursor cluster). Two things keep it alive:
+/// the overlay is hidden during a swipe with `alphaValue` (which leaves the layer — and
+/// the link — attached) rather than `orderOut`, and `rebuildDisplayLink` re-creates the
+/// link after every Space carry.
 ///
 /// One clock, one cap. The render rate is deliberately *not* tied to how fast
 /// capture delivers frames: the opaque overlay presenting to the screen makes the
@@ -79,6 +82,24 @@ final class DisplayRenderer: NSObject {
     private var pendingFrame: CapturedFrame?
     private var lastFrame: CapturedFrame?
     private var needsRedraw = false
+    /// Monotonic id of each captured frame, bumped in `submit` (capture queue) and
+    /// carried through the mailbox so the consumer can tell a brand-new capture from a
+    /// redraw of `lastFrame`. Used only by the frame-gated reveal. Guarded by `frameLock`.
+    private var submitSeq: UInt64 = 0
+    private var pendingSeq: UInt64 = 0
+    private var lastFrameSeq: UInt64 = 0
+
+    /// Frame-gated reveal (used by the engine to un-hide the overlay after a Space
+    /// switch only once a FRESH frame for the new Space has actually been presented,
+    /// instead of revealing a stale frame on a timer). Armed on the main actor, fired
+    /// from the render callback — both run on the main thread, so no lock is needed.
+    /// `.max` = disarmed.
+    private var revealTargetSeq: UInt64 = .max
+    private var revealHandler: (() -> Void)?
+    /// How many freshly-captured frames past the arm point must be presented before the
+    /// reveal fires. >1 drains any transition frame the capture queue had buffered when
+    /// the gate was armed, so the reveal never flashes leftover swipe content.
+    private static let revealFreshFrameCount: UInt64 = 2
 
     /// The render clock, created and torn down on the main thread (where its run loop
     /// lives). Activation only flips `isPaused`. See `ensureDisplayLink` for why it's a
@@ -87,6 +108,13 @@ final class DisplayRenderer: NSObject {
     /// The user's Frame Rate setting (0 = use `maxRenderFPS`). Only ever lowers the
     /// effective cap below `maxRenderFPS`.
     private var preferredFrameRate: Int = 0
+
+    /// `CACurrentMediaTime()` of the last display-link callback. The watchdog keys on
+    /// callback DELIVERY (not renders) to detect a clock that has silently stalled — the
+    /// window-tied `CAMetalDisplayLink` stops firing after some Space carries, and without a
+    /// rebuild the overlay freezes on a stale frame until the user re-swipes. Main thread only.
+    private var lastCallbackTime: Double = 0
+    private var lastWatchdogRebuild: Double = 0
 
     /// Whether the overlay is presenting. Set from the main actor. When false the
     /// link is paused and no frames are presented (e.g. the display is hidden).
@@ -154,8 +182,40 @@ final class DisplayRenderer: NSObject {
     /// capture queue keeps delivering frames at full rate.
     func submit(_ frame: CapturedFrame) {
         frameLock.lock()
+        submitSeq += 1
         pendingFrame = frame
+        pendingSeq = submitSeq
         frameLock.unlock()
+    }
+
+    // MARK: - Frame-gated reveal (main thread)
+
+    /// Arm a one-shot reveal that fires once `revealFreshFrameCount` freshly-captured
+    /// frames have been PRESENTED after this call — i.e. once the new Space's content is
+    /// actually on screen. Called on the main actor by the engine right after a Space
+    /// carry + capture re-issue. Re-arming replaces any pending arm.
+    func armFrameGatedReveal(_ onReveal: @escaping () -> Void) {
+        frameLock.lock()
+        let base = submitSeq
+        frameLock.unlock()
+        revealTargetSeq = base + Self.revealFreshFrameCount
+        revealHandler = onReveal
+    }
+
+    /// Cancel a pending frame-gated reveal (e.g. another Space change supersedes it).
+    func disarmFrameGatedReveal() {
+        revealTargetSeq = .max
+        revealHandler = nil
+    }
+
+    /// Fire the armed reveal if a fresh enough frame has now been presented. Main thread
+    /// only (the render callback), matching `armFrameGatedReveal`.
+    private func fireRevealIfReady(presentedSeq: UInt64) {
+        guard revealHandler != nil, presentedSeq >= revealTargetSeq else { return }
+        let handler = revealHandler
+        revealHandler = nil
+        revealTargetSeq = .max
+        handler?()
     }
 
     // MARK: - Display-link lifecycle (main thread)
@@ -186,7 +246,24 @@ final class DisplayRenderer: NSObject {
         displayLink = nil
         ensureDisplayLink()
         displayLink?.isPaused = false
+        lastCallbackTime = CACurrentMediaTime()   // give the fresh link time before the watchdog re-checks
         requestRedraw()
+    }
+
+    /// Engine-tick safety net: rebuild the render clock if it has stopped delivering
+    /// callbacks while the overlay is on screen. The window-tied `CAMetalDisplayLink`
+    /// silently dies on some Space carries (the carry's rebuild can race and miss); without
+    /// this the overlay stays frozen on a stale frame until the user manually re-swipes.
+    /// Gated on the overlay actually being visible so a legitimately-dormant link (overlay on
+    /// a Space that isn't currently displayed) isn't churned, plus a cooldown.
+    func restartDisplayLinkIfStalled() {
+        guard isActive, lastCallbackTime > 0,
+              overlay.occlusionState.contains(.visible) else { return }
+        let now = CACurrentMediaTime()
+        guard now - lastCallbackTime > 0.75 else { return }     // stalled: no callback for >0.75s
+        guard now - lastWatchdogRebuild > 3.0 else { return }   // cooldown
+        lastWatchdogRebuild = now
+        rebuildDisplayLink()
     }
 
     /// Lower the render/present rate to the user's Frame Rate setting. Never raises
@@ -234,20 +311,22 @@ final class DisplayRenderer: NSObject {
 
     /// Render and present a captured frame onto `drawable` (supplied by the display-link
     /// callback). Drops the frame (reporting it) if no in-flight slot is available.
-    private func renderFrame(_ frame: CapturedFrame, drawable: CAMetalDrawable) {
+    /// Returns whether the drawable was actually presented (used to gate the reveal).
+    @discardableResult
+    private func renderFrame(_ frame: CapturedFrame, drawable: CAMetalDrawable) -> Bool {
         let encodeStart = CACurrentMediaTime()
 
         guard inFlight.wait(timeout: .now()) == .success else {
             requestRedraw()   // no GPU slot this tick; retry on the next one
             report(dropped: true, cpu: 0, gpu: 0, latency: 0, passes: 0)
-            return
+            return false
         }
 
         guard let commandBuffer = context.commandQueue.makeCommandBuffer() else {
             inFlight.signal()
             requestRedraw()
             report(dropped: true, cpu: 0, gpu: 0, latency: 0, passes: 0)
-            return
+            return false
         }
         commandBuffer.label = "Spectra.display.\(displayID)"
 
@@ -327,6 +406,7 @@ final class DisplayRenderer: NSObject {
             requestRedraw()
         }
         commandBuffer.commit()
+        return presented
     }
 
     /// Ask the next display-link tick to repaint (used when a frame is dropped or
@@ -388,13 +468,20 @@ final class DisplayRenderer: NSObject {
 extension DisplayRenderer: CAMetalDisplayLinkDelegate {
     func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
         guard isActive else { return }
+        lastCallbackTime = CACurrentMediaTime()   // watchdog heartbeat (keyed on delivery, not renders)
 
         frameLock.lock()
         let hasNew = pendingFrame != nil
         let redraw = needsRedraw
         needsRedraw = false
-        let frame = pendingFrame ?? lastFrame
-        if let pendingFrame { lastFrame = pendingFrame }
+        let frame: CapturedFrame?
+        let frameSeq: UInt64
+        if let pending = pendingFrame {
+            frame = pending; frameSeq = pendingSeq
+            lastFrame = pending; lastFrameSeq = pendingSeq
+        } else {
+            frame = lastFrame; frameSeq = lastFrameSeq
+        }
         pendingFrame = nil
         frameLock.unlock()
 
@@ -417,6 +504,9 @@ extension DisplayRenderer: CAMetalDisplayLinkDelegate {
         }
         lastRenderHostTime = now
 
-        renderFrame(frame, drawable: update.drawable)
+        let presented = renderFrame(frame, drawable: update.drawable)
+        // Reveal the overlay only on a genuinely-new captured frame that actually went to
+        // the drawable, so a frame-gated reveal never un-hides on a stale redraw.
+        if presented, hasNew { fireRevealIfReady(presentedSeq: frameSeq) }
     }
 }

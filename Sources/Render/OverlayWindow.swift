@@ -105,14 +105,33 @@ final class OverlayWindow: NSWindow {
             max(Int(CGWindowLevelForKey(.statusWindow)),
                 Int(CGWindowLevelForKey(.dockWindow)))) + 1)
 
+    /// The screen-lock shield level — above the ENTIRE Space system (Mission Control,
+    /// full-screen apps, every Space and transition). A window here composites over every
+    /// pixel regardless of Space membership, which is the ONLY thing that makes the overlay
+    /// appear over another app's native-full-screen window (`.canJoinAllSpaces` and the
+    /// Space-move SPIs do not reach a full-screen app's Space — verified on-device). Used
+    /// only while the active Space is full-screen; ordinary Spaces keep the lower level.
+    static let shieldingLevel = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
+
     let displayID: CGDirectDisplayID
     private let host: MetalLayerHostView
 
     /// Steady-state behavior: present on the current Space only, follows the user.
-    static let singleSpaceBehavior: NSWindow.CollectionBehavior = [.transient, .fullScreenAuxiliary, .ignoresCycle]
+    /// `.stationary` keeps the overlay anchored to the screen during a Space-switch
+    /// animation instead of sliding off with the outgoing Space — so the user sees the
+    /// overlay's processed rendering of the transition (the real system slide happens
+    /// hidden behind the opaque overlay) rather than the doubled "2× / shattering" ghost
+    /// that the sliding overlay produced.
+    static let singleSpaceBehavior: NSWindow.CollectionBehavior = [.transient, .fullScreenAuxiliary, .ignoresCycle, .stationary]
     /// Transient behavior used only for an instant while carrying the window onto a
     /// newly-active Space (never left set, or it merges every desktop).
     static let allSpacesBehavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+    /// Behavior while the overlay sits on a native-fullscreen Space. `.transient` is
+    /// dropped because AppKit suppresses a transient window on a fullscreen Space; the
+    /// window is placed there explicitly via the Space SPI (see `SpaceManager`) instead.
+    /// Restored to `singleSpaceBehavior` (transient) on return to a normal Space, so
+    /// Mission Control hiding is preserved everywhere except the fullscreen Space.
+    static let fullscreenSpaceBehavior: NSWindow.CollectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
 
     init(displayID: CGDirectDisplayID, frame: CGRect, scale: CGFloat, device: MTLDevice) {
         self.displayID = displayID

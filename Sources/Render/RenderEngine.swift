@@ -13,6 +13,13 @@ final class RenderEngine {
 
     private var renderers: [CGDirectDisplayID: DisplayRenderer] = [:]
     private var overlays: [CGDirectDisplayID: OverlayWindow] = [:]
+    /// Lifts the overlay into an app-owned elevated Space so it composites over native
+    /// fullscreen apps (a high window level alone does not). No-ops if the SPIs are
+    /// unavailable, falling back to the AppKit carry (fullscreen stays unshaded).
+    private let spaceManager = SpaceManager()
+    /// Displays whose overlay is currently lifted into the elevated Space (in fullscreen),
+    /// so it is dropped back to the ordinary Space exactly once on fullscreen exit.
+    private var elevatedDisplays: Set<CGDirectDisplayID> = []
     /// Displays whose overlay is currently meant to be visible. The overlay is
     /// re-ordered onto the active Space when the user switches Spaces, so the shader
     /// follows them across desktops and onto full-screen apps.
@@ -30,6 +37,14 @@ final class RenderEngine {
     /// Bumped on every Space change so a carry scheduled for an earlier change is
     /// superseded — only the last change in a rapid multi-Space swipe actually carries.
     private var spaceCarryGeneration = 0
+
+    /// EXPERIMENT (owner's design): keep the overlay anchored (`.stationary`) and VISIBLE
+    /// through a Space swipe so its processed rendering of the transition IS the swipe the
+    /// user sees — the real system slide runs hidden behind the opaque overlay — instead of
+    /// hiding the overlay and exposing the raw slide. When true the alpha-hide on swipe-start
+    /// and on the Space-change notification is skipped. Flip to false AND drop `.stationary`
+    /// from `OverlayWindow.singleSpaceBehavior` to restore the hide-during-swipe behavior.
+    static let keepOverlayVisibleDuringSwipe = true
 
     /// Spectra's tracked control windows (Studio/Settings), supplied by the engine.
     /// They carry `.moveToActiveSpace` and are key/main-capable, so — unlike the overlay
@@ -70,7 +85,12 @@ final class RenderEngine {
     /// the carry itself, superseding it if another change arrives first (debounce). The
     /// overlay still follows the user — just once they've actually landed on a Space.
     private func activeSpaceDidChange() {
-        spaceSettleDeadline = CACurrentMediaTime() + 0.7
+        // Short settle window. The long 0.7s/0.45s values existed to avoid carrying the
+        // overlay mid-SLIDE (force-fronting during the slide snapped the gesture back). With
+        // the slide gone (Reduce Motion crossfade), the notification already arrives settled,
+        // so a short debounce just coalesces rapid multi-Space swipes and gets the shader onto
+        // the new Space fast — shrinking the "new Space briefly unshaded" gap.
+        spaceSettleDeadline = CACurrentMediaTime() + 0.3
         spaceCarryGeneration += 1
         let generation = spaceCarryGeneration
         // Make the overlay TRANSPARENT (not hidden) for the duration of the swipe, and
@@ -82,17 +102,24 @@ final class RenderEngine {
         // mid-swipe literally shows the overlay on every Space at once. Both vanish if the
         // overlay is invisible until the swipe is done.
         //
-        // We use alpha, NOT orderOut: the render clock is screen-tied (`NSScreen.displayLink`)
-        // so alpha leaves it ticking, whereas orderOut detaches the layer (the old freeze).
-        // Alpha also can't strand the window the way a missed re-show (orderFront) could.
-        for id in visibleDisplayIDs { overlays[id]?.alphaValue = 0 }
+        // With the stationary-overlay design the overlay stays VISIBLE through the swipe
+        // (its processed rendering is the swipe), so the hide is skipped. Otherwise hide via
+        // alpha, NOT orderOut: the render clock is a window-tied `CAMetalDisplayLink` bound to
+        // the overlay layer, and alpha leaves the layer (and the link) attached so it keeps
+        // ticking, whereas orderOut detaches the layer and stops the link (the old freeze).
+        if !Self.keepOverlayVisibleDuringSwipe {
+            for id in visibleDisplayIDs {
+                overlays[id]?.alphaValue = 0
+                renderers[id]?.disarmFrameGatedReveal()
+            }
+        }
         // Strip the migrate flag from the control windows for the duration of the swipe,
         // so WindowServer can't pull a key-capable .normal window onto the in-flight Space
         // and reverse the gesture (the snap-back). Restored once settled, below.
         for window in controlWindowsProvider() {
             window.collectionBehavior.remove(.moveToActiveSpace)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, generation == self.spaceCarryGeneration else { return }
                 self.followActiveSpace()
@@ -115,6 +142,42 @@ final class RenderEngine {
             window.collectionBehavior.insert(.moveToActiveSpace)
         }
         onActiveSpaceSettled()
+        // Reveal each overlay the instant a FRESH frame for the now-active Space has been
+        // presented (armed after the carry + capture re-issue above), instead of revealing a
+        // stale frame on the next timer tick. This removes the post-settle "shader only works
+        // after a beat" flash; the tick reveal in `ensureOverlaysOnActiveSpace` stays as a
+        // time failsafe for a fully-static new Space that never delivers a fresh frame. The
+        // closure fires on the render callback (main thread, non-isolated) — assume isolation.
+        for id in visibleDisplayIDs {
+            renderers[id]?.armFrameGatedReveal { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.overlays[id]?.alphaValue = 1
+                    self.overlayOccludedTicks[id] = 0
+                }
+            }
+        }
+    }
+
+    /// Hide every visible overlay the instant a Space-switch swipe BEGINS — before
+    /// `activeSpaceDidChangeNotification`, which only fires at swipe commit. During the live
+    /// drag the opaque overlay would otherwise slide out with the outgoing Space while still
+    /// rendering the live capture (the swipe animation itself), producing the doubled,
+    /// "shattering" ghost the user sees. Only `alphaValue` is touched (never `orderOut`,
+    /// which would stop the render clock), and a SHORT settle window is set: if the swipe
+    /// never commits — or this was a false-positive horizontal gesture — the overlay reveals
+    /// again within ~0.45s via `ensureOverlaysOnActiveSpace`; if it does commit,
+    /// `activeSpaceDidChange` extends the window and the frame-gated reveal restores it on
+    /// the new Space. Called (repeatedly, idempotently) by the swipe detector.
+    func hideOverlaysForSwipeStart() {
+        // Disabled while the stationary overlay stays visible through the swipe.
+        guard !Self.keepOverlayVisibleDuringSwipe else { return }
+        spaceSettleDeadline = max(spaceSettleDeadline, CACurrentMediaTime() + 0.45)
+        for id in visibleDisplayIDs {
+            guard let overlay = overlays[id] else { continue }
+            if overlay.alphaValue != 0 { overlay.alphaValue = 0 }
+            renderers[id]?.disarmFrameGatedReveal()
+        }
     }
 
     /// Consecutive ticks each overlay has been occluded, so the safety-net carry fires only
@@ -161,11 +224,49 @@ final class RenderEngine {
 
     /// Carry an overlay onto the active Space and rebuild its render clock. The carry
     /// re-orders the window, which permanently stops the window-tied `CAMetalDisplayLink`;
-    /// the rebuild is queued AFTER `carryToActiveSpace`'s deferred revert (main-queue FIFO),
-    /// so the revert's own `orderFront` can't re-kill the fresh link, and the overlay
-    /// resumes painting on the new Space instead of freezing.
+    /// the rebuild is queued AFTER the carry's deferred revert (main-queue FIFO), so the
+    /// revert's own `orderFront` can't re-kill the fresh link, and the overlay resumes
+    /// painting on the new Space instead of freezing.
+    ///
+    /// Two carry mechanisms by Space type. An ordinary user Space uses the AppKit dance
+    /// (`carryToActiveSpace`: a momentary `.canJoinAllSpaces`, then revert to the
+    /// `.transient` single-Space behavior — which keeps Mission Control clean). A
+    /// native-fullscreen Space suppresses a `.transient` window, so there the overlay is
+    /// placed explicitly via the window-server Space SPI (`SpaceManager.moveWindow`) with
+    /// `.transient` dropped for the duration. `SpaceManager` no-ops if the SPIs are
+    /// unavailable, so this falls back to the plain AppKit carry.
+    /// Engine-tick safety net: rebuild any render clock that has silently stalled (the
+    /// window-tied link dies on some carries), so the overlay never stays frozen on a stale
+    /// frame until a manual re-swipe.
+    func restartStalledDisplayLinks() {
+        for renderer in renderers.values { renderer.restartDisplayLinkIfStalled() }
+    }
+
     private func carryAndRebuild(_ id: CGDirectDisplayID) {
-        overlays[id]?.carryToActiveSpace()
+        guard let overlay = overlays[id] else { return }
+        if spaceManager.activeSpaceNeedsExplicitPlacement(displayID: id) {
+            // Native-fullscreen Space. Nothing about the WINDOW (level, collectionBehavior,
+            // the Space-move SPI) puts it over a foreign fullscreen app — all verified to fail.
+            // The only thing that works is lifting the overlay into our OWN elevated Space
+            // (SpaceManager): macOS allows adding the window to a Space we created and raised
+            // above the fullscreen compositing band, so it composites over the fullscreen app
+            // without merging desktops. The shield NSWindow.level is kept as belt-and-suspenders
+            // in-Space z-order. Order front first so the window has a real number for the add.
+            overlay.level = OverlayWindow.shieldingLevel
+            overlay.collectionBehavior = OverlayWindow.allSpacesBehavior
+            overlay.orderFrontRegardless()
+            spaceManager.placeWindowAboveFullscreen(overlay.windowNumber)
+            elevatedDisplays.insert(id)
+        } else {
+            // Ordinary Space. If we just left fullscreen, drop the overlay out of the elevated
+            // Space back onto the active Space first, then resume the normal single-Space
+            // follow (restored level + `.transient`, so Mission Control stays clean, no merge).
+            if elevatedDisplays.remove(id) != nil {
+                spaceManager.restoreWindowToActiveSpace(overlay.windowNumber, displayID: id)
+            }
+            overlay.setCoversMenuBarAndDock(coversMenuBarAndDock)
+            overlay.carryToActiveSpace()
+        }
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated { self?.renderers[id]?.rebuildDisplayLink() }
         }

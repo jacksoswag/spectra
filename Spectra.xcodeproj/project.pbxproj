@@ -51,6 +51,7 @@
 		5AB1FFC832734BD1A2402F2A /* Retro.metal in Sources */ = {isa = PBXBuildFile; fileRef = C40ED1AF624A83E5D6A8F77C /* Retro.metal */; };
 		5AC084A9BB74A49A8AAA003F /* EnvironmentEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BE2018CC7497E6DDB23C625 /* EnvironmentEffects.swift */; };
 		5EDE0C826491F884E6543EAC /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B02355D489CEEC8B1E33227 /* SettingsStore.swift */; };
+		61469567AD2D8F1AA6885217 /* SwipeStartDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6F9690BAF9146291561FE72 /* SwipeStartDetector.swift */; };
 		63C384407FC43CDA7A0F4931 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FEC559724B156142FF06F5BD /* Metal.framework */; };
 		685449413BB5D7868F960CFC /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FE9180E529D5E076DC070F3B /* MetalKit.framework */; };
 		6984BDE8DCBA1FDFAB333C84 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BA97C755B881F1C1865FFA3B /* UniformTypeIdentifiers.framework */; };
@@ -88,6 +89,7 @@
 		B1C1C04F0BF123D78C3689D7 /* Noise.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1EB1FE31D4BEB7AB852795A3 /* Noise.metal */; };
 		B29E1083EE5BE6ADF6F9E908 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B5E953304864E355F7B1B95E /* IOKit.framework */; };
 		B34731D7ABD3E2A2AEBCD34E /* EffectsWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBFB40EBFCDC3D3B2CD9C2F /* EffectsWorkspaceView.swift */; };
+		B56063F3BDFFBA3113FE117B /* SpaceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1378C4A9E9DADCB3B67BD458 /* SpaceManager.swift */; };
 		B5EA7DB3D78E49FAE99AB262 /* UniversalParameters.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60B56C75653A5F227B2653E /* UniversalParameters.swift */; };
 		B5FE37F614FBDDE59B2D2EF2 /* FilmEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B599C505A4A41CD5468AFF6 /* FilmEffects.swift */; };
 		B9452F96CD232E1C21D86315 /* AuxTextureFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE41201305BD9FF34AAB979 /* AuxTextureFactory.swift */; };
@@ -126,6 +128,7 @@
 		0C8905E9E7E264AC0801F926 /* AppPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPaths.swift; sourceTree = "<group>"; };
 		1008583F1E43ACAC9DDCD052 /* DisplayRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayRenderer.swift; sourceTree = "<group>"; };
 		1097DCFC978E64CE21C0DDDA /* CursorCompositor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorCompositor.swift; sourceTree = "<group>"; };
+		1378C4A9E9DADCB3B67BD458 /* SpaceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceManager.swift; sourceTree = "<group>"; };
 		158942DE51BCA04AD8AE6A2E /* ResolvedEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResolvedEffect.swift; sourceTree = "<group>"; };
 		1599C28A4CB638A35DFD0234 /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
 		1AB5E048FA00E7FD4404A58E /* Uniforms.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Uniforms.swift; sourceTree = "<group>"; };
@@ -224,6 +227,7 @@
 		F5607D2E4650B96DF5FCD17C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F58B8CDE44B3645D4CCB05E1 /* ChainProfiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainProfiler.swift; sourceTree = "<group>"; };
 		F65418F91E245D94A1DE9F9F /* DisplayGrade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayGrade.swift; sourceTree = "<group>"; };
+		F6F9690BAF9146291561FE72 /* SwipeStartDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeStartDetector.swift; sourceTree = "<group>"; };
 		F79E8229458605184B001A58 /* VHS.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = VHS.metal; sourceTree = "<group>"; };
 		F7DBEF059BCC82AF8433F942 /* PerformanceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMonitor.swift; sourceTree = "<group>"; };
 		F92C725B9EA33AC2898E0DF0 /* EffectDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectDescriptor.swift; sourceTree = "<group>"; };
@@ -462,6 +466,7 @@
 				71310B95BE29EE617DAE60A4 /* RenderEngine.swift */,
 				158942DE51BCA04AD8AE6A2E /* ResolvedEffect.swift */,
 				2B04916991AE44E17EB469C1 /* ShaderLibrary.swift */,
+				1378C4A9E9DADCB3B67BD458 /* SpaceManager.swift */,
 				2929E4F9B23CBF4439A6FDAE /* TexturePool.swift */,
 				1AB5E048FA00E7FD4404A58E /* Uniforms.swift */,
 				2C27306DC3BC6D0F18EB85E4 /* WallpaperProvider.swift */,
@@ -477,6 +482,7 @@
 				5E48F1BA38D24C7E3D4B5551 /* CursorVisibilityEnforcer.swift */,
 				FD11513CF174C44FA8C3183E /* GlobalHotKey.swift */,
 				2E19C828A239A7CE1415F420 /* SpectraApp.swift */,
+				F6F9690BAF9146291561FE72 /* SwipeStartDetector.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -799,10 +805,12 @@
 				EDD849AD16D6B0F41EB669F7 /* ShaderPrelude.swift in Sources */,
 				3288658004E64D3CBFBB45AB /* Sharpen.metal in Sources */,
 				92AB9CAB11FA4A2E4DD4D3D5 /* SharpenEffects.swift in Sources */,
+				B56063F3BDFFBA3113FE117B /* SpaceManager.swift in Sources */,
 				7EB07BC36FF0E2DF61CE79F4 /* SpectraApp.swift in Sources */,
 				4292E7433B0C5A8E4FCB82C5 /* SpectraControls.swift in Sources */,
 				25103B756D23B703F069D720 /* SpectraEngine.swift in Sources */,
 				F69C94AFA1E230F448B9CD30 /* StudioView.swift in Sources */,
+				61469567AD2D8F1AA6885217 /* SwipeStartDetector.swift in Sources */,
 				E2D4896E67DB2C2771AFF062 /* SystemAccessibility.swift in Sources */,
 				3BAC9621D3ADF4FC174C012B /* TexturePool.swift in Sources */,
 				18CF58EFD9BCA34F1133B7D2 /* Theme.swift in Sources */,

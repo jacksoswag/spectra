@@ -73,3 +73,6 @@ research/experimental/findings/imgstat
 
 # ---- OS junk ----
 .DS_Store
+
+# Local-only Claude skills (per-repo tooling, not published)
+.claude/skills/
