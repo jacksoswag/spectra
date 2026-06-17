@@ -25,7 +25,6 @@ final class SpaceManager {
     private typealias MainConnFn = @convention(c) () -> Int32
     private typealias CurrentSpaceFn = @convention(c) (Int32, CFString) -> UInt64
     private typealias SpaceTypeFn = @convention(c) (Int32, UInt64) -> Int32
-    private typealias SpacesForWindowsFn = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
     private typealias SpaceCreateFn = @convention(c) (Int32, Int32, Int32) -> UInt64
     private typealias SetAbsoluteLevelFn = @convention(c) (Int32, UInt64, Int32) -> Int32
     private typealias ShowSpacesFn = @convention(c) (Int32, CFArray) -> Void
@@ -34,7 +33,6 @@ final class SpaceManager {
     private let mainConnection: MainConnFn?
     private let currentSpace: CurrentSpaceFn?
     private let spaceType: SpaceTypeFn?
-    private let spacesForWindows: SpacesForWindowsFn?
     private let spaceCreate: SpaceCreateFn?
     private let setAbsoluteLevel: SetAbsoluteLevelFn?
     private let showSpaces: ShowSpacesFn?
@@ -52,8 +50,6 @@ final class SpaceManager {
 
     /// Our created elevated Space (made once, reused for every overlay window).
     private var elevatedSpaceID: UInt64?
-    private static let maxProbeLines = 40
-    private var probeLines = 0
 
     init() {
         let rtld = UnsafeMutableRawPointer(bitPattern: -2)   // RTLD_DEFAULT
@@ -67,8 +63,6 @@ final class SpaceManager {
             .map { unsafeBitCast($0, to: CurrentSpaceFn.self) }
         spaceType = resolve(["SLSSpaceGetType", "CGSSpaceGetType"])
             .map { unsafeBitCast($0, to: SpaceTypeFn.self) }
-        spacesForWindows = resolve(["SLSCopySpacesForWindows", "CGSCopySpacesForWindows"])
-            .map { unsafeBitCast($0, to: SpacesForWindowsFn.self) }
         spaceCreate = resolve(["SLSSpaceCreate", "CGSSpaceCreate"])
             .map { unsafeBitCast($0, to: SpaceCreateFn.self) }
         setAbsoluteLevel = resolve(["SLSSpaceSetAbsoluteLevel", "CGSSpaceSetAbsoluteLevel"])
@@ -92,7 +86,6 @@ final class SpaceManager {
         let sid = currentSpace(cid, uuid)
         guard sid != 0 else { return false }
         let type = spaceType(cid, sid)
-        probe("space display=\(displayID) sid=\(sid) type=\(type) needsPlacement=\(type != Self.userSpaceType)")
         return type != Self.userSpaceType
     }
 
@@ -105,7 +98,6 @@ final class SpaceManager {
         // Re-show in case the Space's show-state was reset by a display/fullscreen transition.
         showSpaces?(cid, [sid] as CFArray)
         addWindows(cid, sid, [windowNumber] as CFArray, Self.addAndRemoveSelector)
-        probe("ELEVATE window=\(windowNumber) -> ownSpace=\(sid); onSpaces=\(spaceIDs(forWindow: windowNumber, cid: cid))")
     }
 
     /// Drop the window back onto the display's current (ordinary) Space, removing it from our
@@ -117,7 +109,6 @@ final class SpaceManager {
         let userSid = currentSpace(cid, uuid)
         guard userSid != 0 else { return }
         addWindows(cid, userSid, [windowNumber] as CFArray, Self.addAndRemoveSelector)
-        probe("RESTORE window=\(windowNumber) -> userSpace=\(userSid); onSpaces=\(spaceIDs(forWindow: windowNumber, cid: cid))")
     }
 
     private func ensureElevatedSpace() -> UInt64? {
@@ -129,32 +120,11 @@ final class SpaceManager {
         _ = setAbsoluteLevel(cid, sid, Self.elevatedAbsoluteLevel)
         showSpaces(cid, [sid] as CFArray)
         elevatedSpaceID = sid
-        probe("CREATE elevated space sid=\(sid) level=\(Self.elevatedAbsoluteLevel)")
         return sid
-    }
-
-    private func spaceIDs(forWindow windowNumber: Int, cid: Int32) -> [UInt64] {
-        guard let spacesForWindows,
-              let array = spacesForWindows(cid, 0x7, [windowNumber] as CFArray)?.takeRetainedValue() as? [NSNumber]
-        else { return [] }
-        return array.map { $0.uint64Value }
     }
 
     private func displayUUID(_ displayID: CGDirectDisplayID) -> CFString? {
         guard let uuid = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue() else { return nil }
         return CFUUIDCreateString(nil, uuid)
-    }
-
-    private func probe(_ line: String) {
-        guard probeLines < Self.maxProbeLines else { return }
-        probeLines += 1
-        let path = "/tmp/spectra-space-probe.txt"
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(Data((line + "\n").utf8))
-            try? handle.close()
-        } else {
-            try? (line + "\n").write(toFile: path, atomically: true, encoding: .utf8)
-        }
     }
 }
