@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // TEMP build-verification marker: writes which build is actually running to a file,
         // so we can confirm the launched binary contains the latest source (os_log was not
         // surfacing; a file is unambiguous). Remove once the build pipeline is trusted.
-        let marker = "STEP2-SHIELD shieldingLevel=\(Int(CGShieldingWindowLevel())) launched=\(Date())"
+        let marker = "FS-OWNSPACE build launched=\(Date())"
         try? marker.write(toFile: "/tmp/spectra-build-check.txt", atomically: true, encoding: .utf8)
     }
 
