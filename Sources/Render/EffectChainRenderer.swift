@@ -19,7 +19,7 @@ struct FrameContext {
     var batteryLevel: Float = 1.0
     /// Global intensity multiplier applied to every effect's universal strength
     /// (the master "intensity" slider). 1.0 = render each effect at its authored
-    /// strength; the engine derives this from the user's setting (0.7 → 1.0×).
+    /// strength; the engine derives this linearly from the user's setting (100% → 1.0×).
     var intensityScale: Float = 1.0
 
     /// Sample the system wall clock for the live REC OSD: seconds since local

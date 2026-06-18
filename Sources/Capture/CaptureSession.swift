@@ -38,10 +38,6 @@ final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
     private var targetFPS: Int
     private var showsCursor: Bool
 
-    private let latestLock = NSLock()
-    private var latestCVTexture: CVMetalTexture?
-    private var latestMTLTexture: MTLTexture?
-
     /// Invoked on the capture queue for every completed frame. Consumers must not
     /// block here (the queue also drives capture); store the frame and return.
     var frameHandler: ((CapturedFrame) -> Void)?
@@ -58,12 +54,6 @@ final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
         self.context = context
         self.queue = DispatchQueue(label: "com.spectra.capture.\(displayID)", qos: .userInteractive)
         super.init()
-    }
-
-    /// The most recently captured frame, retained for off-thread consumers
-    /// (e.g. the studio preview). May be nil before the first frame.
-    func latestTexture() -> MTLTexture? {
-        latestLock.withLock { latestMTLTexture }
     }
 
     // MARK: - Lifecycle
@@ -110,10 +100,6 @@ final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
             try await stream.stopCapture()
         } catch {
             Log.capture.error("Stop capture failed: \(error.localizedDescription)")
-        }
-        latestLock.withLock {
-            latestCVTexture = nil
-            latestMTLTexture = nil
         }
     }
 
@@ -194,11 +180,6 @@ final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
         guard status == kCVReturnSuccess, let cvTexture,
               let texture = CVMetalTextureGetTexture(cvTexture) else {
             return nil
-        }
-
-        latestLock.withLock {
-            latestCVTexture = cvTexture  // retain backing while the texture is referenced
-            latestMTLTexture = texture
         }
 
         // Release texture-cache entries that no longer have an external reference.

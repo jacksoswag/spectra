@@ -1,24 +1,42 @@
 import SwiftUI
 
-/// Real-time performance dashboard: frame/GPU timing, latency, dropped frames,
-/// VRAM, refresh tracking, and the render-quality control.
+/// Real-time performance dashboard, the permanent left column of the Studio. Live
+/// trackers up top, a full timeline per relevant stat below them, then pipeline,
+/// shader-cost, render-quality, and per-display detail. Built to read well in a
+/// narrow column: trackers and timelines flow in adaptive grids that collapse to a
+/// single column when the panel is tight and pack two-up when it's widened.
 struct PerformanceView: View {
     @Bindable var engine: SpectraEngine
+
+    /// One rolling buffer per tracked stat. 120 samples at the 0.5s cadence below is
+    /// a 60-second window.
     @State private var fpsHistory: [Double] = []
     @State private var gpuHistory: [Double] = []
+    @State private var gpuPeakHistory: [Double] = []
+    @State private var latencyHistory: [Double] = []
+    @State private var cpuHistory: [Double] = []
+    @State private var frameIntervalHistory: [Double] = []
+    @State private var droppedHistory: [Double] = []
+    @State private var vramHistory: [Double] = []
+
     @State private var costs: [EffectCost] = []
     @State private var profiling = false
+
+    private let maxSamples = 120
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
-                TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                header
+                // A steady 0.5s tick drives both the live trackers and the timeline
+                // sampling, so every chart advances even when a stat sits flat.
+                TimelineView(.periodic(from: .now, by: 0.5)) { context in
                     let snapshot = engine.performance.combined
                     summaryGrid(snapshot)
+                        .onChange(of: context.date) { _, _ in record(snapshot) }
                         .onAppear { record(snapshot) }
-                        .onChange(of: snapshot.fps) { _, _ in record(snapshot) }
                 }
-                charts
+                timelinesSection
                 pipelineSection
                 costSection
                 renderQualitySection
@@ -26,12 +44,16 @@ struct PerformanceView: View {
             }
             .padding(Theme.Spacing.lg)
         }
-        .navigationTitle("Performance")
+    }
+
+    private var header: some View {
+        Label("Performance", systemImage: "speedometer")
+            .font(.title3.weight(.semibold))
     }
 
     private func summaryGrid(_ s: PerformanceSnapshot) -> some View {
         let budget = budgetMilliseconds
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: Theme.Spacing.md)], spacing: Theme.Spacing.md) {
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: Theme.Spacing.sm)], spacing: Theme.Spacing.sm) {
             MetricTile(title: "Frame Rate", value: String(format: "%.0f", s.fps), unit: "fps",
                        symbol: "speedometer", tint: s.fps >= 55 ? .green : .orange)
             MetricTile(title: "GPU Time", value: String(format: "%.2f", s.gpuMilliseconds), unit: "ms",
@@ -52,6 +74,27 @@ struct PerformanceView: View {
                        symbol: "memorychip", tint: .accentColor)
             MetricTile(title: "Peak GPU", value: String(format: "%.2f", s.gpuPeakMilliseconds), unit: "ms",
                        symbol: "chart.line.uptrend.xyaxis", tint: .accentColor)
+        }
+    }
+
+    // MARK: - Timelines
+
+    /// A timeline per relevant stat. Fixed-scale charts (fps, frame interval) keep a
+    /// stable y-axis so the line reads against a known target; the rest auto-scale to
+    /// their own recent peak so a flat-but-nonzero stat still fills the card.
+    private var timelinesSection: some View {
+        let budget = budgetMilliseconds
+        return InspectorSection(title: "Timelines") {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Theme.Spacing.md)], spacing: Theme.Spacing.md) {
+                ChartCard(title: "Frame Rate", values: fpsHistory, maximum: 130, tint: .green, suffix: "fps")
+                ChartCard(title: "GPU Time", values: gpuHistory, maximum: max(budget * 1.5, 8), tint: .orange, suffix: "ms", decimals: 1)
+                ChartCard(title: "Peak GPU", values: gpuPeakHistory, maximum: max(budget * 2, 12), tint: .pink, suffix: "ms", decimals: 1)
+                ChartCard(title: "Latency", values: latencyHistory, maximum: dynamicMax(latencyHistory, floor: 33), tint: .blue, suffix: "ms", decimals: 1)
+                ChartCard(title: "CPU Encode", values: cpuHistory, maximum: max(budget, 8), tint: .purple, suffix: "ms", decimals: 2)
+                ChartCard(title: "Frame Interval", values: frameIntervalHistory, maximum: 40, tint: .teal, suffix: "ms", decimals: 1)
+                ChartCard(title: "Dropped", values: droppedHistory, maximum: dynamicMax(droppedHistory, floor: 5), tint: .red, suffix: "/s", decimals: 1)
+                ChartCard(title: "VRAM", values: vramHistory, maximum: dynamicMax(vramHistory, floor: 64), tint: .indigo, suffix: "MB")
+            }
         }
     }
 
@@ -101,13 +144,6 @@ struct PerformanceView: View {
         }
     }
 
-    private var charts: some View {
-        HStack(spacing: Theme.Spacing.md) {
-            ChartCard(title: "Frame Rate", values: fpsHistory, maximum: 130, tint: .green, suffix: "fps")
-            ChartCard(title: "GPU Time", values: gpuHistory, maximum: max(budgetMilliseconds * 1.5, 8), tint: .orange, suffix: "ms")
-        }
-    }
-
     private var renderQualitySection: some View {
         InspectorSection(title: "Render Quality") {
             HStack {
@@ -149,9 +185,24 @@ struct PerformanceView: View {
         return 1000.0 / max(refresh, 30)
     }
 
+    private func dynamicMax(_ values: [Double], floor: Double) -> Double {
+        max(values.max() ?? floor, floor)
+    }
+
     private func record(_ s: PerformanceSnapshot) {
-        fpsHistory.append(s.fps); if fpsHistory.count > 120 { fpsHistory.removeFirst() }
-        gpuHistory.append(s.gpuMilliseconds); if gpuHistory.count > 120 { gpuHistory.removeFirst() }
+        push(&fpsHistory, s.fps)
+        push(&gpuHistory, s.gpuMilliseconds)
+        push(&gpuPeakHistory, s.gpuPeakMilliseconds)
+        push(&latencyHistory, s.latencyMilliseconds)
+        push(&cpuHistory, s.cpuMilliseconds)
+        push(&frameIntervalHistory, s.frameInterval)
+        push(&droppedHistory, s.droppedPerSecond)
+        push(&vramHistory, engine.performance.vramMegabytes)
+    }
+
+    private func push(_ buffer: inout [Double], _ value: Double) {
+        buffer.append(value)
+        if buffer.count > maxSamples { buffer.removeFirst(buffer.count - maxSamples) }
     }
 }
 
@@ -189,14 +240,15 @@ private struct MetricTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-            Label(title, systemImage: symbol).font(.caption).foregroundStyle(.secondary)
+            Label(title, systemImage: symbol).font(.caption2).foregroundStyle(.secondary)
+                .lineLimit(1)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value).font(.title.monospacedDigit().weight(.semibold)).foregroundStyle(tint)
-                Text(unit).font(.caption).foregroundStyle(.secondary)
+                Text(value).font(.title2.monospacedDigit().weight(.semibold)).foregroundStyle(tint)
+                Text(unit).font(.caption2).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Theme.Spacing.md)
+        .padding(Theme.Spacing.sm)
         .spectraCard()
     }
 }
@@ -207,10 +259,16 @@ private struct ChartCard: View {
     let maximum: Double
     let tint: Color
     let suffix: String
+    var decimals: Int = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            HStack {
+                Text(title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Text(values.last.map { String(format: "%.\(decimals)f %@", $0, suffix) } ?? "—")
+                    .font(.caption2.monospacedDigit()).foregroundStyle(tint)
+            }
             Canvas { context, size in
                 guard values.count > 1 else { return }
                 let stepX = size.width / CGFloat(max(values.count - 1, 1))
@@ -221,7 +279,7 @@ private struct ChartCard: View {
                     if index == 0 { path.move(to: CGPoint(x: x, y: y)) }
                     else { path.addLine(to: CGPoint(x: x, y: y)) }
                 }
-                context.stroke(path, with: .color(tint), lineWidth: 2)
+                context.stroke(path, with: .color(tint), lineWidth: 1.5)
                 var fill = path
                 fill.addLine(to: CGPoint(x: size.width, y: size.height))
                 fill.addLine(to: CGPoint(x: 0, y: size.height))
@@ -230,11 +288,9 @@ private struct ChartCard: View {
                     Gradient(colors: [tint.opacity(0.3), tint.opacity(0.02)]),
                     startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
             }
-            .frame(height: 100)
-            Text(values.last.map { String(format: "%.0f %@", $0, suffix) } ?? "—")
-                .font(.caption.monospacedDigit()).foregroundStyle(tint)
+            .frame(height: 64)
         }
-        .padding(Theme.Spacing.md)
+        .padding(Theme.Spacing.sm)
         .frame(maxWidth: .infinity)
         .spectraCard()
     }

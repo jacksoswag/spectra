@@ -46,6 +46,47 @@ final class SpectraEngine {
     @ObservationIgnored private var resolvedChains: [CGDirectDisplayID: [ResolvedEffect]] = [:]
     @ObservationIgnored private var sessions: [CGDirectDisplayID: CaptureSession] = [:]
     @ObservationIgnored private var appliedScale: [CGDirectDisplayID: Double] = [:]
+
+    // Adaptive quality governor (the menu-bar "Auto" toggle). When `settings.autoQuality`
+    // is on, the engine owns the render scale via `autoScale` instead of the fixed Quality
+    // slider. It targets GPU TIME, not fps: render scale only moves GPU cost (it's a
+    // pixel-count lever), so reacting to GPU time keeps the loop honest. fps can fall for
+    // reasons render scale can't touch — an erratic display-link callback rate, the window
+    // server throttling the overlay on battery — and keying on fps made the governor ratchet
+    // quality down chasing a drop that wasn't GPU-bound. So it lowers only when smoothed GPU
+    // time sustains over the frame budget, raises when there's real GPU headroom, and holds
+    // in between. State is touched only on the main-actor tick.
+    /// Observed (not `@ObservationIgnored`) so the menu-bar Quality bar tracks the
+    /// governor live as it adjusts; reads go through `effectiveRenderScale`.
+    private var autoScale = 1.0
+    /// Exponential moving average of GPU ms, so a single spike/dip doesn't whip the scale.
+    @ObservationIgnored private var smoothedGPUMilliseconds: Double = 0
+    /// `CACurrentMediaTime()` when GPU time first sustained over budget this episode (0 = no).
+    @ObservationIgnored private var autoUnderSince: Double = 0
+    /// `CACurrentMediaTime()` when GPU time first showed sustained headroom (0 = no).
+    @ObservationIgnored private var autoAboveSince: Double = 0
+    /// `CACurrentMediaTime()` of the last scale change, so a reconfigure + stats reset can
+    /// settle before the next decision.
+    @ObservationIgnored private var lastAutoAdjust: Double = 0
+
+    /// Frame rate the governor protects. The GPU thresholds below are derived from it.
+    private static let autoTargetFPS = 54.0
+    /// GPU ms above which a frame can't hold the target (budget minus headroom for the
+    /// present + CPU encode): start lowering. ≈ 1000/54 − 2.5 ≈ 16 ms.
+    private static let autoGPULowerMs = 16.0
+    /// GPU ms below which there's clear headroom to spend on resolution: start raising.
+    /// A wide dead band [raise, lower] keeps the scale from hunting.
+    private static let autoGPURaiseMs = 12.0
+    /// Sustained seconds over budget before the first quality cut.
+    private static let autoUnderGrace = 5.0
+    /// Quiet period after any change (covers the capture reconfigure + stats rebuild).
+    private static let autoAdjustCooldown = 2.5
+    /// Sustained seconds of GPU headroom before each step back up.
+    private static let autoRaiseHold = 10.0
+    /// Additive step when raising — small, so recovering can't bounce back over budget.
+    private static let autoRaiseStep = 0.05
+    /// EMA weight for new GPU samples (tick is 0.5s, so ≈1.5s time constant).
+    private static let autoGPUSmoothing = 0.3
     @ObservationIgnored private let startHostTime = CACurrentMediaTime()
     @ObservationIgnored private var refreshTimer: Timer?
     @ObservationIgnored private var gpuFaultCounts: [CGDirectDisplayID: Int] = [:]
@@ -141,10 +182,17 @@ final class SpectraEngine {
         for id in stacks.keys { rebuildResolvedChain(for: id) }
     }
 
-    /// The capture/render scale for a display: the user's fixed Quality slider value.
+    /// The capture/render scale for a display: the governor's value when Auto is on,
+    /// otherwise the user's fixed Quality slider value.
     private func captureScale(for display: DisplayInfo) -> Double {
-        settings.renderScale
+        settings.autoQuality ? autoScale : settings.renderScale
     }
+
+    /// The render scale currently in effect, for display in the UI — the governor's live
+    /// value while Auto is on, otherwise the user's Quality slider. `@ObservationIgnored`
+    /// `autoScale` isn't observed, so the menu-bar tick (which re-reads this each refresh)
+    /// is what keeps the shown value current while Auto adjusts.
+    var effectiveRenderScale: Double { settings.autoQuality ? autoScale : settings.renderScale }
 
     // MARK: - Lifecycle
 
@@ -158,6 +206,24 @@ final class SpectraEngine {
         cursorEnforcer.isOverlayWindow = { [weak self] number in
             self?.renderEngine.overlayWindowNumbers.contains(number) ?? false
         }
+        // Except the menu-bar popover into the capture while it's open, so the dropdown
+        // renders through the chain instead of being painted over by the opaque overlay (it's
+        // our own window, excluded with the rest of the app, and — unlike Studio/Settings —
+        // never registered as a control window). Mirrors the cursor enforcer's discriminators.
+        menuPanelCaptureBridge.isOverlayWindow = { [weak self] number in
+            self?.renderEngine.overlayWindowNumbers.contains(number) ?? false
+        }
+        menuPanelCaptureBridge.isControlWindow = { [weak self] window in
+            self?.controlWindows.contains(window) ?? false
+        }
+        menuPanelCaptureBridge.onPanelVisibilityChanged = { [weak self] window in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.menuPanelWindow = window
+                self.refreshCaptureExceptions()   // start/stop rendering it through the chain
+            }
+        }
+        menuPanelCaptureBridge.start()
         // Let the render engine neutralize the control windows' Space-migrate flag during
         // a Space swipe (they'd otherwise snap the gesture back) and wake capture once it
         // settles.
@@ -182,6 +248,7 @@ final class SpectraEngine {
         if settings.startEnabledOnLaunch && permissionAuthorized {
             isEnabled = true
         }
+        autoScale = settings.renderScale   // governor starts from the saved quality if Auto is on
         updatePipelines()
         startRefreshTimer()
         startFolderWatch()
@@ -350,6 +417,14 @@ final class SpectraEngine {
     /// pair plus a global motion monitor that re-asserts the hide so it holds across
     /// pointer movement, not only after a keystroke.
     @ObservationIgnored private let cursorEnforcer = CursorVisibilityEnforcer()
+
+    /// Excepts the `MenuBarExtra(.window)` popover into the capture while it is open, so the
+    /// dropdown renders through the chain like the Studio/Settings windows (and like every
+    /// other app's dropdown) instead of being painted over by the opaque overlay.
+    @ObservationIgnored private let menuPanelCaptureBridge = MenuPanelCaptureBridge()
+    /// The menu-bar popover while it is open, excepted into the capture like a control window.
+    /// Weak: it is a transient window owned by AppKit/SwiftUI, tracked only while visible.
+    @ObservationIgnored private weak var menuPanelWindow: NSWindow?
 
     /// Push the effective custom-cursor state to every renderer, session, and the
     /// hardware cursor in one place. The effective state folds in the setting *and*
@@ -633,10 +708,6 @@ final class SpectraEngine {
 
     // MARK: - Preview data
 
-    func latestTexture(for displayID: CGDirectDisplayID) -> MTLTexture? {
-        sessions[displayID]?.latestTexture()
-    }
-
     /// Source texture for the Studio preview: the display's wallpaper, processed
     /// through the chain. Using the wallpaper (not a live capture) avoids the
     /// Studio window mirroring into its own preview.
@@ -686,6 +757,9 @@ final class SpectraEngine {
         return enabled.allSatisfy { Self.globalGradeEffectIDs.contains($0.descriptorID) }
     }
 
+    /// Last grade-diag string written to /tmp, so redundant writes are skipped.
+    @ObservationIgnored private var lastGradeDiag = ""
+
     /// Route per-channel color chains to the global scanout LUT and keep
     /// `gradeDisplays` in sync. Independent of capture permission — a pure colour
     /// grade needs no screen capture. Called at the top of `updatePipelines` and
@@ -718,7 +792,14 @@ final class SpectraEngine {
         }
         gradeDisplays = next
         diag += "gradeDisplays=\(next) overlayWanted(selected)=\(selectedDisplayID.map { wantsOverlay($0) } ?? false)\n"
-        try? diag.write(toFile: "/tmp/spectra-grade-check.txt", atomically: true, encoding: .utf8)
+        // Diagnostic probe, OFF by default. The synchronous atomic write (~0.13ms) used
+        // to fire on every chain/slider tick, stalling live grade drags on the main
+        // thread. Gate it behind an env var (re-enable with SPECTRA_GRADE_DIAG=1 — this
+        // SIP-off box has no working os_log) and skip redundant identical writes.
+        if ProcessInfo.processInfo.environment["SPECTRA_GRADE_DIAG"] != nil, diag != lastGradeDiag {
+            lastGradeDiag = diag
+            try? diag.write(toFile: "/tmp/spectra-grade-check.txt", atomically: true, encoding: .utf8)
+        }
     }
 
     private func wantsCapture(_ displayID: CGDirectDisplayID) -> Bool {
@@ -843,8 +924,12 @@ final class SpectraEngine {
     /// belt-and-suspenders guard: the overlay must never be captured, or it feeds back.
     private func controlWindowSCWindows() async -> [SCWindow] {
         let overlayNumbers = renderEngine.overlayWindowNumbers
-        let numbers = Set(controlWindows.allObjects.map { $0.windowNumber })
-            .subtracting(overlayNumbers)
+        var numbers = Set(controlWindows.allObjects.map { $0.windowNumber })
+        // The menu-bar popover, while open, is excepted too so it renders through the chain
+        // rather than being hidden behind the overlay (its window number changes per open, so
+        // it is tracked live by `MenuPanelCaptureBridge`, not registered like a control window).
+        if let menuPanelWindow { numbers.insert(menuPanelWindow.windowNumber) }
+        numbers.subtract(overlayNumbers)
         return await displayManager.shareableWindows(matching: numbers)
     }
 
@@ -916,8 +1001,9 @@ final class SpectraEngine {
         performance.refresh()
         renderEngine.restartStalledDisplayLinks()     // rebuild any clock that died on a carry (fixes the freeze)
         renderEngine.ensureOverlaysOnActiveSpace()   // follow the user across Spaces (focused-display, occlusion-gated)
-        // Every session sits at exactly the slider value (a no-op when already there).
-        for display in displays { applyScale(settings.renderScale, to: display) }
+        governAutoQuality()                          // adaptive quality (the "Auto" toggle), no-op unless enabled
+        // Render scale is applied on every path that changes it (setRenderScale) or
+        // creates a session (startCapture), so no per-tick reconcile is needed.
     }
 
     /// Reconfigure one display's capture session to `scale` (a fraction of native)
@@ -939,7 +1025,77 @@ final class SpectraEngine {
     func setRenderScale(_ scale: Double) {
         let clamped = min(RenderScale.max, max(RenderScale.min, scale))
         settings.renderScale = clamped
-        for display in displays { applyScale(clamped, to: display) }
+        // A manual quality change hands control back from the governor: adjusting the
+        // slider turns Auto off and pins the chosen scale. (setAutoQuality(false) applies
+        // settings.renderScale — now `clamped` — to every display, so don't apply twice.)
+        if settings.autoQuality {
+            setAutoQuality(false)
+        } else {
+            for display in displays { applyScale(clamped, to: display) }
+        }
+    }
+
+    /// Toggle the adaptive quality governor (the menu-bar "Auto" switch). Turning it on
+    /// hands render-scale control to `governAutoQuality`, starting from the current
+    /// quality; turning it off restores the fixed Quality slider value.
+    func setAutoQuality(_ on: Bool) {
+        guard settings.autoQuality != on else { return }
+        settings.autoQuality = on
+        autoUnderSince = 0
+        autoAboveSince = 0
+        smoothedGPUMilliseconds = 0
+        lastAutoAdjust = CACurrentMediaTime()
+        if on {
+            autoScale = settings.renderScale   // start where the slider left off; adjust from here
+        } else {
+            for display in displays { applyScale(settings.renderScale, to: display) }
+        }
+    }
+
+    /// Adaptive quality control loop, run on the engine tick. Tracks a smoothed GPU
+    /// time and: lowers the render scale (in proportional steps) once GPU time sustains
+    /// over `autoGPULowerMs` for `autoUnderGrace`; raises it one small step at a time
+    /// once GPU time sits under `autoGPURaiseMs` for `autoRaiseHold`; holds in the dead
+    /// band between. Targeting GPU time (not fps) means a low-fps spell that render scale
+    /// can't fix — an erratic display-link rate, the OS throttling the overlay on battery —
+    /// no longer drags quality down, because GPU time stays low through it. Each change
+    /// resets the per-display stats, so a cooldown lets the new resolution re-measure.
+    private func governAutoQuality() {
+        guard settings.autoQuality, isEnabled, !displays.isEmpty else { return }
+        let now = CACurrentMediaTime()
+        let gpu = performance.combined.gpuMilliseconds
+        guard gpu > 0 else { return }   // stats just reset; wait for fresh samples
+        smoothedGPUMilliseconds = smoothedGPUMilliseconds == 0
+            ? gpu
+            : smoothedGPUMilliseconds + Self.autoGPUSmoothing * (gpu - smoothedGPUMilliseconds)
+
+        guard now - lastAutoAdjust >= Self.autoAdjustCooldown else { return }
+        let g = smoothedGPUMilliseconds
+
+        if g > Self.autoGPULowerMs {
+            autoAboveSince = 0
+            if autoUnderSince == 0 { autoUnderSince = now }
+            guard now - autoUnderSince >= Self.autoUnderGrace, autoScale > RenderScale.min else { return }
+            // Proportional cut: bigger the further over budget, so a hard overload
+            // recovers in a few steps while a slight overrun only nudges.
+            let over = (g - Self.autoGPULowerMs) / Self.autoGPULowerMs
+            let step = min(0.10, max(0.03, over * 0.4))
+            autoScale = max(RenderScale.min, autoScale - step)
+            for display in displays { applyScale(autoScale, to: display) }
+            lastAutoAdjust = now
+        } else if g < Self.autoGPURaiseMs {
+            autoUnderSince = 0
+            guard autoScale < RenderScale.max else { return }
+            if autoAboveSince == 0 { autoAboveSince = now }
+            guard now - autoAboveSince >= Self.autoRaiseHold else { return }
+            autoScale = min(RenderScale.max, autoScale + Self.autoRaiseStep)
+            for display in displays { applyScale(autoScale, to: display) }
+            lastAutoAdjust = now
+            autoAboveSince = now              // require another full hold before raising again
+        } else {
+            autoUnderSince = 0               // in the dead band: stable, reset both timers
+            autoAboveSince = 0
+        }
     }
 
     /// Set the global intensity live (the Intensity slider). Pushed to every renderer
@@ -953,14 +1109,12 @@ final class SpectraEngine {
         if !gradeDisplays.isEmpty { reconcileGlobalGrade() }
     }
 
-    /// Map the 0…1 Intensity setting to a per-effect strength multiplier. The shipped
-    /// presets are tuned to read as "current" at the 0.7 default, so 0.7 maps to 1.0×
-    /// (identity); 1.0 maps to 1.3× (+30%, as specified); and the bottom of the range
-    /// fades proportionally to 0× so the slider also dials effects down toward off.
+    /// Map the 0…1 Intensity setting to a per-effect strength multiplier. 100% renders
+    /// every effect at its authored strength (the look the presets ship at); the slider
+    /// only fades effects down toward off, reaching 0× at 0%. The mapping is linear, so
+    /// there's no breakpoint or overdrive — 100% is the ceiling, not a midpoint.
     static func intensityScale(forSetting value: Double) -> Float {
-        let c = min(1.0, max(0.0, value))
-        let scale = c <= 0.7 ? c / 0.7 : 1.0 + (c - 0.7)
-        return Float(scale)
+        Float(min(1.0, max(0.0, value)))
     }
 
     // MARK: - Persistence

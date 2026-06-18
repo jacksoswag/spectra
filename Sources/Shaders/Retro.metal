@@ -57,6 +57,16 @@ inline float3 fx_crt_sampleTube(texture2d<float> src, float2 wuv, float2 texel) 
     return spectra_tex(src, wuv).rgb * inside;
 }
 
+// Feather-free tube sample: zeroes out-of-[0,1] taps with four cheap `step`s instead
+// of the four `smoothstep`s `fx_crt_sampleTube` runs for its half-texel edge feather.
+// Used for the interior bloom neighbours, where the feather is invisible but the hard
+// cutoff still prevents a bright desktop edge bleeding into the curved border.
+inline float3 fx_crt_sampleTubeHard(texture2d<float> src, float2 wuv) {
+    float inside = step(0.0, wuv.x) * step(wuv.x, 1.0)
+                 * step(0.0, wuv.y) * step(wuv.y, 1.0);
+    return spectra_tex(src, wuv).rgb * inside;
+}
+
 // RGB shadow-mask triad weight for a pixel. `scale` is the triad size in pixels.
 inline float3 fx_crt_shadowMask(float2 pixel, float scale) {
     float2 cell = pixel / max(scale, 1.0);
@@ -146,13 +156,15 @@ fragment float4 fx_crt_crtAdvanced(RasterizerData in [[stage_in]],
 
     float3 c = fx_crt_sampleTube(src, wuv, u.texelSize);
 
-    // Bloom: sample a small neighborhood, keep bright energy.
+    // Bloom: sample a small neighborhood, keep bright energy. The neighbour taps use
+    // the feather-free sampler (the edge feather is imperceptible on a bloom tap but
+    // costs four smoothsteps each); the centre image keeps the feathered sampler above.
     float3 glow = float3(0.0);
     float2 px = u.texelSize * 2.0;
-    glow += fx_crt_sampleTube(src, wuv + float2(px.x, 0.0), u.texelSize);
-    glow += fx_crt_sampleTube(src, wuv - float2(px.x, 0.0), u.texelSize);
-    glow += fx_crt_sampleTube(src, wuv + float2(0.0, px.y), u.texelSize);
-    glow += fx_crt_sampleTube(src, wuv - float2(0.0, px.y), u.texelSize);
+    glow += fx_crt_sampleTubeHard(src, wuv + float2(px.x, 0.0));
+    glow += fx_crt_sampleTubeHard(src, wuv - float2(px.x, 0.0));
+    glow += fx_crt_sampleTubeHard(src, wuv + float2(0.0, px.y));
+    glow += fx_crt_sampleTubeHard(src, wuv - float2(0.0, px.y));
     glow *= 0.25;
     float3 bright = max(glow - 0.5, 0.0) * 2.0;
     c += bright * bloom;
@@ -236,32 +248,69 @@ fragment float4 fx_crt_curvature(RasterizerData in [[stage_in]],
 
 // MARK: - CRT Bloom
 
-fragment float4 fx_crt_bloom(RasterizerData in [[stage_in]],
-                             texture2d<float> src [[texture(0)]],
-                             texture2d<float> orig [[texture(1)]],
-                             constant SpectraUniforms &u [[buffer(0)]]) {
-    float3 base = spectra_tex(orig, in.uv).rgb;
-    float3 c = spectra_tex(src, in.uv).rgb;
+// The 7×7 Gaussian weight exp(-(i²+j²)·0.18) factors as exp(-i²·0.18)·exp(-j²·0.18),
+// so the bloom is separable: a horizontal thresholded blur then a vertical blur, 7+7
+// taps instead of 49. The threshold lands in the horizontal pass; the combined 1D
+// normalisations multiply to the same total as the old 2D normalisation.
+fragment float4 fx_crt_bloom_h(RasterizerData in [[stage_in]],
+                               texture2d<float> src [[texture(0)]],
+                               texture2d<float> orig [[texture(1)]],
+                               constant SpectraUniforms &u [[buffer(0)]]) {
     float threshold = u.params[0];
-    float intensity = u.params[1];
-
     float3 glow = float3(0.0);
     float total = 0.0;
     for (int i = -3; i <= 3; i++) {
-        for (int j = -3; j <= 3; j++) {
-            float2 off = float2(float(i), float(j)) * u.texelSize * 1.5;
-            float w = exp(-float(i * i + j * j) * 0.18);
-            float3 s = spectra_tex(src, in.uv + off).rgb;
-            glow += max(s - threshold, 0.0) * w;
-            total += w;
-        }
+        float w = exp(-float(i * i) * 0.18);
+        float2 off = u.direction * u.texelSize * (1.5 * float(i));
+        glow += max(spectra_tex(src, in.uv + off).rgb - threshold, 0.0) * w;
+        total += w;
+    }
+    return float4(glow / max(total, 1.0e-4), 1.0);
+}
+
+fragment float4 fx_crt_bloom_v(RasterizerData in [[stage_in]],
+                               texture2d<float> src [[texture(0)]],
+                               texture2d<float> orig [[texture(1)]],
+                               constant SpectraUniforms &u [[buffer(0)]]) {
+    float intensity = u.params[1];
+    float3 base = spectra_tex(orig, in.uv).rgb;   // un-bloomed effect input
+    float3 glow = float3(0.0);
+    float total = 0.0;
+    for (int j = -3; j <= 3; j++) {
+        float w = exp(-float(j * j) * 0.18);
+        float2 off = u.direction * u.texelSize * (1.5 * float(j));
+        glow += spectra_tex(src, in.uv + off).rgb * w;
+        total += w;
     }
     glow /= max(total, 1.0e-4);
-    float3 processed = c + glow * intensity;
+    float3 processed = base + glow * intensity;
     return spectra_compositeRGBA(base, processed, u);
 }
 
-// MARK: - Phosphor Glow (separable two-pass smear)
+// MARK: - Phosphor Glow (half-res blur pyramid + temporal smear)
+//
+// Pipeline: box-downsample (fx_blur_downsample, scale 0.5) → half-res H blur+seed →
+// half-res V blur → full-res composite/upsample. Running the smear at half resolution
+// quarters its fragment count; the radius is scaled by the pass scale so the smear
+// covers the same screen distance as the old full-res blur. The temporal persistence
+// (history feedback) and final composite stay at full resolution in the upsample pass.
+
+// Shared 1D smear on the half-res image, matching the old kernel (5 taps/side, weight
+// exp(-i²/8), spacing `radius` texels along u.direction).
+inline float3 fx_crt_phosphorBlur1D(texture2d<float> src, float2 uv,
+                                    constant SpectraUniforms &u, float radius) {
+    float3 sum = spectra_tex(src, uv).rgb;   // centre tap, weight exp(0)=1
+    float total = 1.0;
+    for (int i = 1; i <= 5; i++) {
+        float fi = float(i);
+        float w = exp(-fi * fi / 8.0);
+        float2 off = u.direction * u.texelSize * (fi * radius);
+        sum += spectra_tex(src, uv + off).rgb * w;
+        sum += spectra_tex(src, uv - off).rgb * w;
+        total += 2.0 * w;
+    }
+    return sum / total;
+}
 
 fragment float4 fx_crt_phosphor_h(RasterizerData in [[stage_in]],
                                   texture2d<float> src [[texture(0)]],
@@ -269,18 +318,9 @@ fragment float4 fx_crt_phosphor_h(RasterizerData in [[stage_in]],
                                   constant SpectraUniforms &u [[buffer(0)]]) {
     float intensity = u.params[0];
     float persistence = u.params[1];
-    float radius = mix(1.0, 5.0, persistence);
+    float radius = mix(1.0, 5.0, persistence) * max(u.passScale, 0.001);
 
-    float3 sum = float3(0.0);
-    float total = 0.0;
-    for (int i = -5; i <= 5; i++) {
-        float fi = float(i);
-        float w = exp(-fi * fi / 8.0);
-        float2 off = u.direction * u.texelSize * fi * radius;
-        sum += spectra_tex(src, in.uv + off).rgb * w;
-        total += w;
-    }
-    float3 blurred = sum / max(total, 1.0e-4);
+    float3 blurred = fx_crt_phosphorBlur1D(src, in.uv, u, radius);
     float3 c = spectra_tex(src, in.uv).rgb;
     // Carry intensity through to the vertical pass via additive smear seed.
     float3 out = mix(c, max(c, blurred), 0.5 + 0.5 * intensity);
@@ -290,23 +330,23 @@ fragment float4 fx_crt_phosphor_h(RasterizerData in [[stage_in]],
 fragment float4 fx_crt_phosphor_v(RasterizerData in [[stage_in]],
                                   texture2d<float> src [[texture(0)]],
                                   texture2d<float> orig [[texture(1)]],
-                                  texture2d<float> history [[texture(10)]],
                                   constant SpectraUniforms &u [[buffer(0)]]) {
+    float persistence = u.params[1];
+    float radius = mix(1.0, 5.0, persistence) * max(u.passScale, 0.001);
+    // Glow seed for the upsample pass (no composite/history here — those run full-res).
+    return float4(fx_crt_phosphorBlur1D(src, in.uv, u, radius), 1.0);
+}
+
+fragment float4 fx_crt_phosphor_up(RasterizerData in [[stage_in]],
+                                   texture2d<float> src [[texture(0)]],
+                                   texture2d<float> orig [[texture(1)]],
+                                   texture2d<float> history [[texture(10)]],
+                                   constant SpectraUniforms &u [[buffer(0)]]) {
     float3 base = spectra_tex(orig, in.uv).rgb;
     float intensity = u.params[0];
     float persistence = u.params[1];
-    float radius = mix(1.0, 5.0, persistence);
 
-    float3 sum = float3(0.0);
-    float total = 0.0;
-    for (int i = -5; i <= 5; i++) {
-        float fi = float(i);
-        float w = exp(-fi * fi / 8.0);
-        float2 off = u.direction * u.texelSize * fi * radius;
-        sum += spectra_tex(src, in.uv + off).rgb * w;
-        total += w;
-    }
-    float3 blurred = sum / max(total, 1.0e-4);
+    float3 blurred = spectra_tex(src, in.uv).rgb;   // bilinear upsample of half-res glow
     float3 glow = max(blurred - 0.25, 0.0);
     float3 processed = base + glow * intensity;
 

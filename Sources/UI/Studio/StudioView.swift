@@ -1,16 +1,16 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The root Studio surface: one coherent workspace, no modes. The Effect Library
-/// (left) is the primary interface; the live preview sits centre; the effect
-/// stack and its parameters occupy the right; performance metrics drop in along
-/// the bottom on demand. Creating, editing, duplicating, and importing all funnel
-/// through the single shader editor presented over this surface.
+/// The root Studio surface: one coherent workspace, no modes. Three columns left
+/// to right — the live performance dashboard, the Effect Library (presets and
+/// effects), and the active effect stack with its parameters. Effects render
+/// directly on the desktop, so there's no separate preview. Creating, editing,
+/// duplicating, and importing all funnel through the single shader editor
+/// presented over this surface.
 struct StudioView: View {
     @Bindable var engine: SpectraEngine
     @Environment(\.openWindow) private var openWindow
 
-    @State private var showPerformance = false
     @State private var editorTarget: EditorTarget?
     @State private var showingImporter = false
     @State private var savingPreset = false
@@ -64,26 +64,19 @@ struct StudioView: View {
             if !engine.permissionAuthorized {
                 PermissionBanner(engine: engine)
             }
-            VSplitView {
-                HSplitView {
-                    libraryPanel
-                        .frame(minWidth: 260, idealWidth: 300, maxWidth: 440)
-                    centerPanel
-                        .frame(minWidth: 380)
-                    rightPanel
-                        .frame(minWidth: 300, idealWidth: 340, maxWidth: 480)
-                }
-                .frame(minHeight: 320)
-
-                if showPerformance {
-                    PerformanceView(engine: engine)
-                        .frame(minHeight: 220, idealHeight: 300, maxHeight: 460)
-                }
+            HSplitView {
+                PerformanceView(engine: engine)
+                    .frame(minWidth: 240, idealWidth: 300, maxWidth: 420)
+                libraryPanel
+                    .frame(minWidth: 230, idealWidth: 280)
+                rightPanel
+                    .frame(minWidth: 250, idealWidth: 300, maxWidth: 460)
             }
+            .frame(minHeight: 320)
         }
     }
 
-    // MARK: Left — Effect Library
+    // MARK: Centre — Effect Library
 
     private var libraryPanel: some View {
         LibraryView(
@@ -128,28 +121,6 @@ struct StudioView: View {
             toggleEnabled: { descriptor in engine.toggleInActiveStack(descriptor) })
     }
 
-    // MARK: Centre — Live status
-
-    private var centerPanel: some View {
-        VStack(spacing: Theme.Spacing.sm) {
-            if engine.selectedDisplayID != nil {
-                ContentUnavailableView {
-                    Label("Rendering live on your screen", systemImage: "sparkles.tv")
-                } description: {
-                    Text("Effects apply directly to your desktop — including this window — so there's no separate preview.")
-                }
-                PreviewStatusBar(engine: engine)
-            } else {
-                ContentUnavailableView(
-                    "No Display Selected",
-                    systemImage: "display",
-                    description: Text("Connect a display or choose a target in the toolbar."))
-            }
-        }
-        .padding(Theme.Spacing.md)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     // MARK: Right — Effect Stack
 
     private var rightPanel: some View {
@@ -189,9 +160,6 @@ struct StudioView: View {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
-            Toggle(isOn: $showPerformance) { Label("Performance", systemImage: "speedometer") }
-                .toggleStyle(.button)
-                .help("Show performance metrics")
             Button {
                 openWindow(id: "settings")
                 NSApp.activate(ignoringOtherApps: true)

@@ -24,9 +24,13 @@ struct MenuBarView: View {
 
             Divider()
 
-            presetPicker
+            PresetPicker(engine: engine, openStudio: {
+                openWindow(id: "studio")
+                NSApp.activate(ignoringOtherApps: true)
+                engine.frontStudioWindow()
+            })
             intensityControls
-            qualityControls
+            QualityControl(engine: engine)
 
             Divider()
 
@@ -50,30 +54,11 @@ struct MenuBarView: View {
         .frame(width: 260)
     }
 
-    /// Presets as a single submenu grouped by category. Group headers are a disabled
-    /// `Text` plus a `Divider` rather than `Section`, because the NSMenu that backs an
-    /// open SwiftUI `Menu` discards `Section` header titles.
-    @ViewBuilder
-    private var presetPicker: some View {
-        Menu(engine.activePresetName.map { "Preset: \($0)" } ?? "Apply a Preset…") {
-            ForEach(engine.presets.categories) { category in
-                Text(category.displayName)
-                ForEach(engine.presets.presets(in: category)) { preset in
-                    Button(preset.name) { engine.apply(preset) }
-                }
-                Divider()
-            }
-            Button("Browse All in Studio…") {
-                openWindow(id: "studio")
-                NSApp.activate(ignoringOtherApps: true)
-                engine.frontStudioWindow()
-            }
-        }
-    }
 
     /// Overall shader intensity as a 0%–100% slider. Scales every effect's strength
     /// at render time (it never edits the stack), so the active-preset label above is
-    /// unaffected. 70% is the look the presets ship at; 100% is +30%.
+    /// unaffected. 100% (the default) is the look the presets ship at; lower values
+    /// fade every effect down toward off.
     @ViewBuilder
     private var intensityControls: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
@@ -92,21 +77,90 @@ struct MenuBarView: View {
         }
     }
 
-    /// Render scale as a native 25%–100% (Native) slider — a fixed fraction of
-    /// display resolution (mirrors the Settings and Performance controls).
-    @ViewBuilder
-    private var qualityControls: some View {
+}
+
+/// Presets grouped by category, presented INLINE (an expanding disclosure) rather
+/// than a nested SwiftUI `Menu`. A `Menu` inside the `.window`-style MenuBarExtra
+/// popover never opens — the panel isn't a key window that can host the NSMenu the
+/// `Menu` tries to present, so clicking it did nothing. An inline list is pure
+/// SwiftUI and always works; it keeps the active-preset name as the header.
+private struct PresetPicker: View {
+    @Bindable var engine: SpectraEngine
+    var openStudio: () -> Void
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+            } label: {
+                HStack {
+                    Text(engine.activePresetName.map { "Preset: \($0)" } ?? "Apply a Preset…")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+
+            if expanded {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                        ForEach(engine.presets.categories) { category in
+                            Text(category.displayName)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 2)
+                            ForEach(engine.presets.presets(in: category)) { preset in
+                                Button(preset.name) {
+                                    engine.apply(preset)
+                                    withAnimation(.easeInOut(duration: 0.15)) { expanded = false }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        Divider()
+                        Button("Browse All in Studio…", action: openStudio)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.leading, Theme.Spacing.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // A definite height, not maxHeight: a ScrollView reports an indefinite height,
+                // so inside the size-to-fit MenuBarExtra panel `maxHeight` collapses it to ~0
+                // (the panel never grows to host it) and the expanded list shows nothing. A
+                // fixed height makes the panel allocate real space, so the presets appear and
+                // scroll within it.
+                .frame(height: 240)
+            }
+        }
+    }
+}
+
+/// Render scale as a 25%–Native slider, isolated into its own view. While Auto is
+/// on, the governor moves `effectiveRenderScale` live; keeping this in its own view
+/// means those updates re-render only this row, never the whole panel (which would
+/// collapse an open Presets submenu). Dragging the slider hands control back from
+/// the governor (`setRenderScale` turns Auto off).
+private struct QualityControl: View {
+    @Bindable var engine: SpectraEngine
+
+    var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
             HStack {
                 Text("Quality")
                 Spacer()
-                Text(RenderScale.label(engine.settings.renderScale))
+                Text(engine.settings.autoQuality
+                     ? "Auto · \(RenderScale.label(engine.effectiveRenderScale))"
+                     : RenderScale.label(engine.settings.renderScale))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
             Slider(
                 value: Binding(
-                    get: { engine.settings.renderScale },
+                    get: { engine.effectiveRenderScale },
                     set: { engine.setRenderScale($0) }),
                 in: RenderScale.min...RenderScale.max)
         }
@@ -121,11 +175,18 @@ private struct PerformanceReadout: View {
 
     var body: some View {
         let combined = engine.performance.combined
-        HStack {
+        HStack(spacing: Theme.Spacing.sm) {
             Label("\(Int(combined.fps.rounded())) fps", systemImage: "speedometer")
-            Spacer()
-            Text("\(Int(combined.latencyMilliseconds.rounded())) ms latency")
+            Text("- \(Int(combined.latencyMilliseconds.rounded())) ms")
                 .foregroundStyle(.secondary)
+            Spacer()
+            Toggle("Auto", isOn: Binding(
+                get: { engine.settings.autoQuality },
+                set: { engine.setAutoQuality($0) }))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .fixedSize()
+                .help("Automatically adjust quality to hold ~54 fps")
         }
         .font(.callout)
         .monospacedDigit()
