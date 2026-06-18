@@ -20,10 +20,10 @@ struct SpectraApp: App {
                     EngineUnavailableView()
                 }
             }
-            .frame(minWidth: 1040, minHeight: 680)
+            .frame(minWidth: 740, minHeight: 460)
         }
         .windowToolbarStyle(.unified)
-        .defaultSize(width: 1280, height: 820)
+        .defaultSize(width: 854, height: 547)
         .commands { SpectraCommands(engine: engine) }
 
         MenuBarExtra {

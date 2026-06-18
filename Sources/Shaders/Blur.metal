@@ -7,8 +7,31 @@
 // bounded tap count. The separable Gaussian declares two passes and reads
 // u.direction to orient its 1D kernel.
 
-// Golden angle (radians) for spiral disc sampling.
-constant float kBlurGoldenAngle = 2.39996322972865332;
+// Unit-direction spiral, float2(cos(a), sin(a)) for a = (i+0.5)·goldenAngle
+// (goldenAngle = 2.39996322972865332).
+// The angle depends only on the tap index, so it is a frame- and fragment-uniform
+// constant table — baked here so the per-tap cos/sin disappear from the gather loops
+// (verified: the Metal compiler does NOT hoist them out of the rolled loop). Holds
+// only the unit direction (tap-count-independent); the per-tap radius keeps its cheap
+// runtime sqrt, so one 48-entry table serves both the 48-tap and 32-tap callers.
+constant float2 kBlurSpiralDir[48] = {
+    float2(0.36237489, 0.93203242), float2(-0.89678282, -0.44247098), float2(0.96014460, -0.27950376),
+    float2(-0.51917867, 0.85466573), float2(-0.19449222, -0.98090406), float2(0.80600368, 0.59191052),
+    float2(-0.99415184, 0.10799126), float2(0.66010958, -0.75116932), float2(0.02066332, 0.99978649),
+    float2(-0.69058256, -0.72325357), float2(0.99776486, 0.06682285), float2(-0.78085894, 0.62470738),
+    float2(0.15379731, -0.98810242), float2(0.55404825, 0.83248456), float2(-0.97087317, -0.23959399),
+    float2(0.87773508, -0.47914625), float2(-0.32355589, 0.94620906), float2(-0.40057500, -0.91626398),
+    float2(0.91429896, 0.40504002), float2(-0.94777620, 0.31893617), float2(0.48342239, -0.87538723),
+    float2(0.23485495, 0.97203043), float2(-0.82977185, -0.55810274), float2(0.98884093, -0.14897524),
+    float2(-0.62850920, 0.77780215), float2(-0.06195468, -0.99807896), float2(0.71987611, 0.69410258),
+    float2(-0.99967379, -0.02554031), float2(0.75438058, -0.65643731), float2(-0.11283973, 0.99361320),
+    float2(-0.58797157, -0.80888159), float2(0.97994360, 0.19927502), float2(-0.85718826, 0.51500319),
+    float2(0.28418429, -0.95876968), float2(0.43809096, 0.89893065), float2(-0.93025357, -0.36691729),
+    float2(0.93378910, -0.35782387), float2(-0.44684047, 0.89461366), float2(-0.27481658, -0.96149667),
+    float2(0.85212286, 0.52334179), float2(-0.98184118, 0.18970478), float2(0.59583539, -0.80310659),
+    float2(0.10314023, 0.99466682), float2(-0.74794018, -0.66376614), float2(0.99987540, -0.01578584),
+    float2(-0.72661381, 0.68704612), float2(0.07168943, -0.99742700), float2(0.62089070, 0.78389714),
+};
 
 // Sample a filled disc around `uv` using a fixed golden-angle spiral. The spiral
 // distributes the bounded tap count evenly over the disc, so with enough taps the
@@ -20,10 +43,8 @@ inline float3 fx_blur_discSample(texture2d<float> src, float2 uv,
     float total = 1.0;
     float fTaps = float(taps);
     for (int i = 0; i < taps; i++) {
-        float fi = float(i) + 0.5;
-        float r = sqrt(fi / fTaps);
-        float a = fi * kBlurGoldenAngle;
-        float2 offset = float2(cos(a), sin(a)) * r;
+        float r = sqrt((float(i) + 0.5) / fTaps);
+        float2 offset = kBlurSpiralDir[i] * r;
         sum += spectra_tex(src, uv + offset * radiusUV).rgb;
         total += 1.0;
     }
@@ -233,10 +254,8 @@ fragment float4 fx_blur_bokeh(RasterizerData in [[stage_in]],
     float3 sum = float3(0.0);
     float total = 0.0;
     for (int i = 0; i < kTaps; i++) {
-        float fi = float(i) + 0.5;
-        float r = sqrt(fi / fTaps);
-        float a = fi * kBlurGoldenAngle;
-        float2 offset = float2(cos(a), sin(a)) * r;
+        float r = sqrt((float(i) + 0.5) / fTaps);
+        float2 offset = kBlurSpiralDir[i] * r;
         float3 s = spectra_tex(src, in.uv + offset * radiusUV).rgb;
         float lum = spectra_luma(s);
         float w = 1.0 + intensity * pow(smoothstep(0.6, 1.0, lum), 2.0) * 4.0;

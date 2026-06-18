@@ -356,9 +356,18 @@ final class DisplayRenderer: NSObject {
             into: commandBuffer, input: chainInput, chain: snapshot, frame: frameContext,
             history: needsHistory ? historyTexture : nil)
 
-        // Capture this frame's output as next frame's history (feedback loop).
+        // Hand this frame's output forward as next frame's history by reference (a
+        // pointer swap) instead of a full-res blit copy. The output texture is kept
+        // OUT of this frame's pool release so it survives into the next frame; the
+        // PREVIOUS history — last read by THIS frame as the feedback input — is
+        // released once this frame's GPU work completes. A retained history texture
+        // never returns to the pool, so the chain renderer can't re-acquire it mid-flight.
+        var transient = result.transientTextures
+        var historyToRelease: MTLTexture?
         if needsHistory {
-            updateHistory(from: result.outputTexture, in: commandBuffer)
+            historyToRelease = historyTexture
+            historyTexture = result.outputTexture
+            transient.removeAll { $0 === result.outputTexture }
         } else {
             historyTexture = nil
         }
@@ -366,7 +375,6 @@ final class DisplayRenderer: NSObject {
         // Present pass: copy the chain output onto the drawable (format convert).
         let presented = presentTexture(result.outputTexture, to: drawable.texture, in: commandBuffer)
 
-        let transient = result.transientTextures
         let passes = result.passCount
 
         let cpuMilliseconds = (CACurrentMediaTime() - encodeStart) * 1000.0
@@ -385,6 +393,7 @@ final class DisplayRenderer: NSObject {
             withExtendedLifetime(frame) {}
             pool.release(transient)
             if let releasedCursor { pool.release([releasedCursor]) }
+            if let historyToRelease { pool.release([historyToRelease]) }
             if buffer.status == .error {
                 Log.render.error("GPU command buffer error on display \(displayID): \(buffer.error?.localizedDescription ?? "unknown")")
                 self?.faultHandler?(buffer.error)
@@ -417,26 +426,14 @@ final class DisplayRenderer: NSObject {
         frameLock.unlock()
     }
 
-    /// Copy the chain output into the persistent history texture (recreating it on
-    /// a size change) so the next frame's feedback effects can sample it.
-    private func updateHistory(from output: MTLTexture, in commandBuffer: MTLCommandBuffer) {
-        if historyTexture?.width != output.width || historyTexture?.height != output.height {
-            let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-                pixelFormat: MetalContext.workingPixelFormat,
-                width: output.width, height: output.height, mipmapped: false)
-            descriptor.usage = [.shaderRead, .renderTarget]
-            descriptor.storageMode = .private
-            historyTexture = context.device.makeTexture(descriptor: descriptor)
-        }
-        guard let history = historyTexture, let blit = commandBuffer.makeBlitCommandEncoder() else { return }
-        blit.copy(from: output, to: history)
-        blit.endEncoding()
-    }
-
     /// Returns true if the drawable was actually rendered into (so it's safe to
     /// present), false if the present pipeline/encoder was unavailable.
     private func presentTexture(_ source: MTLTexture, to target: MTLTexture, in commandBuffer: MTLCommandBuffer) -> Bool {
-        guard let pipeline = try? shaders.pipeline(fragment: "present_fragment", pixelFormat: target.pixelFormat) else {
+        // Bicubic upscale when the chain rendered below native (Quality < 100% or the
+        // Auto governor), so a sub-native frame stays sharp; the cheaper 1:1 present
+        // otherwise (no resampling, so bicubic would only add cost for nothing).
+        let fragment = source.width < target.width ? "present_upscale_fragment" : "present_fragment"
+        guard let pipeline = try? shaders.pipeline(fragment: fragment, pixelFormat: target.pixelFormat) else {
             return false
         }
         let descriptor = MTLRenderPassDescriptor()

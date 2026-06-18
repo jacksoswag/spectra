@@ -78,10 +78,15 @@ enum RetroEffects {
     static let bloom = EffectDescriptor(
         id: "retro.bloom", name: "CRT Bloom", category: .retro,
         subtitle: "Glow from bright phosphor areas.", icon: "sparkles",
-        function: "fx_crt_bloom",
         parameters: [
             .slider("threshold", "Threshold", 0...1, default: 0.6),
             .slider("intensity", "Intensity", 0...2, default: 0.6),
+        ],
+        // Separable: horizontal thresholded blur then vertical blur (7+7 taps),
+        // replacing the old single-pass 7×7 = 49-tap gather.
+        passes: [
+            EffectPass("fx_crt_bloom_h", direction: SIMD2<Float>(1, 0)),
+            EffectPass("fx_crt_bloom_v", direction: SIMD2<Float>(0, 1)),
         ],
         tags: ["bloom", "glow"])
 
@@ -92,9 +97,13 @@ enum RetroEffects {
             .slider("intensity", "Intensity", 0...1, default: 0.5),
             .slider("persistence", "Persistence", 0...1, default: 0.5),
         ],
+        // Half-res smear pyramid: box downsample → half-res H blur+seed → half-res V
+        // blur → full-res composite/upsample (which also does the history feedback).
         passes: [
-            EffectPass("fx_crt_phosphor_h", direction: SIMD2<Float>(1, 0)),
-            EffectPass("fx_crt_phosphor_v", direction: SIMD2<Float>(0, 1)),
+            EffectPass("fx_blur_downsample", scale: 0.5),
+            EffectPass("fx_crt_phosphor_h", scale: 0.5, direction: SIMD2<Float>(1, 0)),
+            EffectPass("fx_crt_phosphor_v", scale: 0.5, direction: SIMD2<Float>(0, 1)),
+            EffectPass("fx_crt_phosphor_up"),
         ],
         tags: ["phosphor", "glow", "smear"], isAnimated: true, needsHistory: true)
 

@@ -46,6 +46,17 @@ final class RenderEngine {
     /// from `OverlayWindow.singleSpaceBehavior` to restore the hide-during-swipe behavior.
     static let keepOverlayVisibleDuringSwipe = true
 
+    /// Keep the overlay lifted into the app-owned elevated Space at ALL times, not only over a
+    /// native-fullscreen app. The elevated Space sits above the Space carousel, so the overlay is
+    /// anchored and never slides during a Space switch — which is exactly what already stops the
+    /// doubled "nested-scroll" swipe ghost over fullscreen, now applied to every ordinary Space
+    /// too. Safe to make the default only because the menu-bar popover now renders through the
+    /// chain (`MenuPanelCaptureBridge`), so the elevated overlay no longer hides Spectra's own
+    /// controls. Trade-off to verify on-device: the overlay also composites over Mission Control
+    /// / Exposé while lifted. Flip to false to restore the follow-one-Space-at-a-time behavior
+    /// (overlay elevated only over fullscreen).
+    static let alwaysElevateOverlay = true
+
     /// Spectra's tracked control windows (Studio/Settings), supplied by the engine.
     /// They carry `.moveToActiveSpace` and are key/main-capable, so — unlike the overlay
     /// (which forces `canBecomeKey/Main = false`) — leaving that flag set during a Space
@@ -223,14 +234,16 @@ final class RenderEngine {
 
     private func carryAndRebuild(_ id: CGDirectDisplayID) {
         guard let overlay = overlays[id] else { return }
-        if spaceManager.activeSpaceNeedsExplicitPlacement(displayID: id) {
-            // Native-fullscreen Space. Nothing about the WINDOW (level, collectionBehavior,
-            // the Space-move SPI) puts it over a foreign fullscreen app — all verified to fail.
-            // The only thing that works is lifting the overlay into our OWN elevated Space
-            // (SpaceManager): macOS allows adding the window to a Space we created and raised
-            // above the fullscreen compositing band, so it composites over the fullscreen app
-            // without merging desktops. The shield NSWindow.level is kept as belt-and-suspenders
-            // in-Space z-order. Order front first so the window has a real number for the add.
+        if Self.alwaysElevateOverlay || spaceManager.activeSpaceNeedsExplicitPlacement(displayID: id) {
+            // Lift the overlay into our OWN elevated Space (SpaceManager): macOS allows adding the
+            // window to a Space we created and raised above the Space carousel / fullscreen
+            // compositing band, so it composites over everything — a foreign fullscreen app, and
+            // (with `alwaysElevateOverlay`) every ordinary Space too — without merging desktops.
+            // Because the elevated Space does not slide with the carousel, the overlay is ANCHORED
+            // during a Space switch, so its content can't double the swipe ("nested scroll"). This
+            // was the original fullscreen-only path; `alwaysElevateOverlay` makes it the default.
+            // The shield NSWindow.level is belt-and-suspenders in-Space z-order. Order front first
+            // so the window has a real number for the add.
             overlay.level = OverlayWindow.shieldingLevel
             overlay.collectionBehavior = OverlayWindow.allSpacesBehavior
             overlay.orderFrontRegardless()
@@ -298,6 +311,10 @@ final class RenderEngine {
     /// display activated later picks up the same choice.
     func setCoversMenuBarAndDock(_ covers: Bool) {
         coversMenuBarAndDock = covers
+        // When the overlay is always elevated it sits at shielding level inside the elevated
+        // Space and covers the menu bar/Dock regardless (both render through the chain, so they
+        // stay visible). Skip the per-overlay level change so it can't fight the elevation.
+        guard !Self.alwaysElevateOverlay else { return }
         for overlay in overlays.values { overlay.setCoversMenuBarAndDock(covers) }
     }
 
@@ -311,8 +328,16 @@ final class RenderEngine {
     func setOverlayVisible(_ visible: Bool, displayID: CGDirectDisplayID) {
         guard let overlay = overlays[displayID] else { return }
         if visible {
+            // Only the not-visible → visible transition should elevate (+ rebuild the display
+            // link); `setOverlayVisible(true)` is otherwise idempotent and called on every
+            // reconcile, and re-elevating each time would thrash the render clock.
+            let freshShow = !visibleDisplayIDs.contains(displayID)
             visibleDisplayIDs.insert(displayID)
             overlay.show()
+            // Lift it into the elevated Space right away so it's anchored from the first swipe,
+            // not only after the first Space change carries it. (`show()` gives it a real window
+            // number, which the elevation SPI needs.)
+            if Self.alwaysElevateOverlay && freshShow { carryAndRebuild(displayID) }
         } else {
             visibleDisplayIDs.remove(displayID)
             overlay.hide()
@@ -355,8 +380,8 @@ final class RenderEngine {
         // present_fragment doubles as the predither (working format) and the final
         // present; the overlay drawable is rgba16Float (EDR) or bgra8Unorm (SDR), and
         // the live preview is bgra8Unorm — warm both. passthrough is used for readback.
-        shaders.prewarm(functions: ["present_fragment", "passthrough_fragment"], pixelFormat: MetalContext.workingPixelFormat)
-        shaders.prewarm(functions: ["present_fragment", "passthrough_fragment"], pixelFormat: .bgra8Unorm)
+        shaders.prewarm(functions: ["present_fragment", "present_upscale_fragment", "passthrough_fragment"], pixelFormat: MetalContext.workingPixelFormat)
+        shaders.prewarm(functions: ["present_fragment", "present_upscale_fragment", "passthrough_fragment"], pixelFormat: .bgra8Unorm)
     }
 
     func shutdown() {

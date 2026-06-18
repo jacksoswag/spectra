@@ -76,3 +76,6 @@ research/experimental/findings/imgstat
 
 # Local-only Claude skills (per-repo tooling, not published)
 .claude/skills/
+
+# Personal Claude permission overrides for this repo
+.claude/settings.local.json

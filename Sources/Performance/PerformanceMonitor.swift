@@ -42,11 +42,20 @@ final class PerformanceMonitor {
         for (id, statistics) in entries {
             perDisplay[id] = statistics.snapshot()
         }
-        self.perDisplay = perDisplay
-        self.combined = combine(perDisplay.values)
+        // @Observable fires on every assignment regardless of value, re-invalidating
+        // each stats view (and any window rendering through the chain) twice a second.
+        // Assign only on change. (The float averages jitter, so this mostly short-
+        // circuits when rendering is idle; vram, below, is the reliable win.)
+        if perDisplay != self.perDisplay { self.perDisplay = perDisplay }
+        let newCombined = combine(perDisplay.values)
+        if newCombined != combined { combined = newCombined }
 
+        // VRAM feeds a live 0.5s timeline, so sample it every refresh. Reading the
+        // allocated size is cheap and the assignment below is change-gated, so a steady
+        // chain still produces no extra observer invalidations.
         if let device {
-            vramMegabytes = Double(device.currentAllocatedSize) / (1024 * 1024)
+            let newVram = Double(device.currentAllocatedSize) / (1024 * 1024)
+            if newVram != vramMegabytes { vramMegabytes = newVram }
         }
     }
 
