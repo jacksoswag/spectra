@@ -8,9 +8,9 @@ Spectra is a desktop-wide GPU visual effects engine for macOS. It captures your 
 - Processes frames entirely on the GPU. There is no CPU image processing and the capture-to-texture path is zero-copy through a `CVMetalTextureCache`.
 - Renders the result back through a per-display overlay window that clicks through to the real desktop beneath it. The overlay presents through an EDR-capable 16-bit layer, so it is HDR-aware on capable displays, follows the user across Spaces, and shades native-fullscreen Spaces by elevating to the shielding window level for the duration of the fullscreen Space.
 - When a display's stack is made up entirely of per-channel color operations (brightness, contrast, exposure, gamma, black/white point, invert, posterize, solarize, levels), Spectra bakes it into a scanout transfer LUT and applies it through `CGSetDisplayTransferByTable` instead of the overlay. The grade then holds across every Space, swipe, and full-screen app without any window involved, and the original profile is restored on stop.
-- Ships 150+ built-in effects across 12 categories, each a real Metal fragment shader.
+- Ships 165+ built-in effects across 13 categories, each a real Metal fragment shader.
 - Stacks effects in any order, with per-effect strength, opacity, blend amount, and one of 16 blend modes applied to every effect for free.
-- Stores presets, and includes a curated library (Noir, Blade Runner, The Matrix, CRT Monitor, VHS, Camcorder, and more).
+- Stores presets, and includes a curated library (Noir, Cyberpunk, Matrix, CRT, VHS, Frutiger Aero, Studio Ghibli, Comic Book, Impressionism, and more).
 - Lets you build new effects visually by composing existing building blocks, with a live preview, auto-generated controls, exposed parameters, and a generated thumbnail. No graphics programming required.
 - Imports and exports `.metal`, `.shader`, `.json`, and `.spectra` files, compiling and validating imported shaders before they ever touch the renderer. Drop a shader file into the library folder and Spectra imports and hot-reloads it automatically.
 
@@ -23,7 +23,7 @@ One unified workspace, no modes. Everything lives in a single coherent window:
 - **Effect Stack and Parameters** on the right: add, remove, reorder (drag and drop), duplicate, rename, group, enable, and disable layered effects, with universal and effect-specific controls beneath.
 - **Performance** along the bottom on demand: frame rate, GPU and CPU time, latency, dropped frames, pipeline analysis, and on-demand per-effect cost profiling.
 
-A menu bar item is always available for quick pause/unpause, preset switching (grouped by category), intensity and quality sliders, live fps and latency at a glance, and shortcuts into the Studio and Settings windows.
+A menu bar item is always available for quick pause/unpause, preset switching (grouped by category), an intensity slider, and a quality slider with an Auto toggle that hands control to the adaptive governor. Live fps and latency read at a glance, with shortcuts into the Studio and Settings windows.
 
 ## Authoring effects
 
@@ -33,7 +33,7 @@ Shader authors who prefer to write Metal directly do so in their own editor and 
 
 ## Effect library
 
-151 effects, grouped into 12 categories:
+166 effects, grouped into 13 categories:
 
 - **Color** (26): brightness, contrast, saturation, vibrance, exposure, gamma, highlights, shadows, whites, blacks, black/white point, temperature, tint, sepia, invert, posterize, solarize, color balance, levels, hue shift, channel mixer, tone curve, freehand curves, color LUT, gradient map.
 - **Sharpen** (6): sharpen, unsharp mask, clarity, local contrast, detail enhancement, edge enhancement.
@@ -42,13 +42,14 @@ Shader authors who prefer to write Metal directly do so in their own editor and 
 - **Retro / CRT** (14): CRT, CRT advanced, scanlines, shadow mask, aperture grille, curvature, bloom, phosphor glow with temporal persistence, composite video, RF signal loss, color bleed, NTSC, PAL, analog television.
 - **VHS** (12): tracking, wrinkle, dropouts, chroma drift, head switch, jitter, vertical roll, noise bands, damage, generation loss, color smear, audio-reactive tracking.
 - **Camcorder** (10): consumer 90s, digital 2000s, MiniDV, Hi8, VHS-C, interlacing, compression, auto-exposure pulse, autofocus hunt, REC on-screen display with ticking timecode, date stamp, and zoom readout.
-- **Film** (14): 16mm, 35mm, 70mm, Kodak, Fuji, grain, dust, scratches, gate weave, light leaks, halation, bloom, flicker, burn.
+- **Film** (16): 16mm, 35mm, 70mm, Kodak, Fuji, grain, dust, scratches, gate weave, debris, light leaks, halation, bloom, glow, flicker, burn.
 - **Noise** (14): white, gaussian, blue, pink, brown, perlin, simplex, cellular, film grain, sensor, compression, dust, speckle, digital.
 - **Pixel** (12): pixelation, pixel sort, dithering, ordered dither, bayer, floyd-steinberg, color quantization, retro resolution, Game Boy, PS1, N64, arcade.
 - **Glitch** (13): datamosh, RGB split, scan corruption, frame tearing, signal corruption, digital failure, compression glitch, buffer corruption, bit crush, macroblocking, frame repeat, frame skip, digital rain. Datamosh and the frame repeat/skip effects use a true previous-frame feedback texture.
-- **Environment** (10): rain, fog, snow, dust, underwater, heat haze, god rays, sun glare, lens flare, cloud overlay.
+- **Environment** (11): rain, fog, snow, dust, bubbles, underwater, heat haze, god rays, sun glare, lens flare, cloud overlay.
+- **Artistic** (12): oil paint (colour-region cells), painterly (SLIC superpixels), flatten, quantize, cel, comic, ink, halftone, hatch, paper, relief, painterly stroke.
 
-An **Accessibility** category (high contrast, color blind modes, focus spotlight, background dim, reading mode, night mode, blue light reduction) is defined in the model but ships no built-in effects yet.
+An **Accessibility** category is defined in the model but ships no built-in effects yet.
 
 Every effect automatically carries strength, opacity, blend amount, blend mode, and an enable toggle, composited by a single shared helper so the behavior is consistent across the whole library. Curves, gradients, and LUTs are edited with dedicated controls and baked into auxiliary GPU textures.
 
@@ -60,7 +61,7 @@ Each display has its own effect stack and its own preset, capturing and renderin
 
 Spectra reports per-display and combined frame rate, CPU encode time, GPU time, frame interval, capture-to-present latency, dropped frames, GPU pass count, and VRAM in use. A pipeline analysis panel summarizes the resolved chain, and an on-demand profiler measures each effect's real GPU cost in isolation. When adaptive quality is on and GPU time runs past the display's frame budget, it lowers capture resolution in steps and restores it when headroom returns.
 
-The target is under 16ms latency with minimal CPU use. Rendering happens on the capture delivery queue with triple buffering, and intermediate textures are recycled through a pool to avoid per-frame allocation.
+The target is under 16ms latency with minimal CPU use. Rendering is driven by a per-window `CAMetalDisplayLink` whose callback fires off the main run loop on a dedicated render thread, gated by triple buffering. Intermediate textures are recycled through a pool to avoid per-frame allocation.
 
 ## Requirements
 
@@ -83,7 +84,7 @@ On first launch, grant Screen Recording access in System Settings when prompted,
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the module breakdown, the effect contract, and the render pipeline. The codebase is organized into focused modules (Core, Capture, Render, Effects, Shaders, Presets, Storage, Performance, Editor, Engine, UI) wired together through a single injected `SpectraEngine` coordinator.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the module breakdown, the effect contract, and the render pipeline. The codebase is organized into focused modules (Core, Capture, Render, Effects, Shaders, Presets, Storage, Performance, Editor, Engine, UI, App) wired together through a single injected `SpectraEngine` coordinator.
 
 ## License
 
