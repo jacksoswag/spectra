@@ -333,7 +333,9 @@ fragment float4 fx_crt_phosphor_v(RasterizerData in [[stage_in]],
                                   constant SpectraUniforms &u [[buffer(0)]]) {
     float persistence = u.params[1];
     float radius = mix(1.0, 5.0, persistence) * max(u.passScale, 0.001);
-    // Glow seed for the upsample pass (no composite/history here — those run full-res).
+    // Glow seed for the upsample pass (no composite/history here — those run full-res). The
+    // vertical blur stays at HALF res here rather than folding into the full-res upsample,
+    // which was ~4x the per-pixel cost.
     return float4(fx_crt_phosphorBlur1D(src, in.uv, u, radius), 1.0);
 }
 

@@ -191,7 +191,11 @@ fragment float4 fx_film_fuji(RasterizerData in [[stage_in]],
 
 // MARK: - Film Grain
 
-// Animated luminance grain with adjustable intensity and grain size.
+// Animated grain with adjustable intensity, grain size, resample rate, and an
+// optional chroma (color) component. `speed` 1 resamples at 60Hz so the grain
+// shimmers on every delivered frame; lower values evolve slowly. `color` blends
+// the shared luminance grain toward three independent per-channel fields, the
+// colored speckle of real film's separate dye-layer grain.
 fragment float4 fx_film_grain(RasterizerData in [[stage_in]],
                               texture2d<float> src [[texture(0)]],
                               texture2d<float> orig [[texture(1)]],
@@ -199,17 +203,29 @@ fragment float4 fx_film_grain(RasterizerData in [[stage_in]],
     float intensity = u.params[0];
     float size = u.params[1];
     float speed = u.params[2];
-    // Resample rate in Hz: speed 1 = 24Hz (projector shimmer), lower = slow evolve.
-    float rate = mix(1.0, 24.0, clamp(speed, 0.0, 1.0));
+    float color = clamp(u.params[3], 0.0, 1.0);
+    // Resample rate in Hz: speed 1 = 60Hz (per-frame shimmer), lower = slow evolve.
+    float rate = mix(1.0, 60.0, clamp(speed, 0.0, 1.0));
 
     float3 base = spectra_tex(orig, in.uv).rgb;
     float3 c = spectra_tex(src, in.uv).rgb;
 
+    // Shared luminance grain.
     float g = fx_film_grainField(in.uv, u.resolution, size, u.time, u.seed, rate);
+    float3 grain = float3(g);
+    // Color grain: three decorrelated fields (offset seeds) so the channels differ
+    // and the grain carries color, like the independent grain of each film dye layer.
+    if (color > 0.0) {
+        float3 cg = float3(
+            fx_film_grainField(in.uv, u.resolution, size, u.time, u.seed + 0.137, rate),
+            fx_film_grainField(in.uv, u.resolution, size, u.time, u.seed + 0.391, rate),
+            fx_film_grainField(in.uv, u.resolution, size, u.time, u.seed + 0.713, rate));
+        grain = mix(float3(g), cg, color);
+    }
     // Grain is most visible in midtones, fading toward pure black/white.
     float l = spectra_luma(c);
     float vis = 1.0 - pow(abs(l - 0.5) * 2.0, 1.5);
-    float3 processed = clamp(c + g * intensity * 0.2 * vis, 0.0, 1.0);
+    float3 processed = clamp(c + grain * intensity * 0.2 * vis, 0.0, 1.0);
     return spectra_compositeRGBA(base, processed, u);
 }
 
@@ -455,8 +471,9 @@ fragment float4 fx_film_glow_blur(RasterizerData in [[stage_in]],
 
 // MARK: - Halation (prefilter → separable blur → warm combine)
 
-// Final pass (full-res): tint the upsampled glow warm and add it onto the
-// original, preserving full-resolution sharpness. params[1] = intensity.
+// Final pass (full-res): tint the upsampled half-res glow warm and add it onto the original,
+// preserving full-resolution sharpness. The blur runs at half res in its own passes (cheaper
+// than folding it in here at full res). params[1] = intensity.
 fragment float4 fx_film_halation_combine(RasterizerData in [[stage_in]],
                                          texture2d<float> src [[texture(0)]],
                                          texture2d<float> orig [[texture(1)]],
@@ -471,8 +488,9 @@ fragment float4 fx_film_halation_combine(RasterizerData in [[stage_in]],
 
 // MARK: - Bloom (prefilter → separable blur → screen combine)
 
-// Final pass (full-res): screen the upsampled, intensity-scaled glow over the
-// original. params[1] = intensity.
+// Final pass (full-res): screen the upsampled, intensity-scaled half-res glow over the
+// original. The blur runs at half res in its own passes (cheaper than folding it in here at
+// full res). params[1] = intensity.
 fragment float4 fx_film_bloom_combine(RasterizerData in [[stage_in]],
                                       texture2d<float> src [[texture(0)]],
                                       texture2d<float> orig [[texture(1)]],
@@ -482,6 +500,49 @@ fragment float4 fx_film_bloom_combine(RasterizerData in [[stage_in]],
     float3 glow = clamp(max(spectra_tex(src, in.uv).rgb, 0.0) * intensity, 0.0, 1.0);
     float3 processed = 1.0 - (1.0 - base) * (1.0 - glow);
     return spectra_compositeRGBA(base, clamp(processed, 0.0, 1.0), u);
+}
+
+// MARK: - Combined Glow (Bloom + Halation from one shared pyramid)
+//
+// Bloom and Halation run an IDENTICAL prefilter + horizontal blur and differ only in
+// their final combine (screen vs warm tint). This effect runs that shared pyramid once
+// and emits BOTH looks together, so a preset that wanted both pays one pyramid instead of
+// two (8 passes → ~3). The vertical half of the separable Gaussian is folded into this
+// full-res combine — it reads the horizontally-blurred half-res glow on texture(0) and
+// completes the blur vertically while compositing — so the whole effect is 3 passes, not 4.
+// An optional finishing grain (params[3..4]) folds a preset's trailing film grain in here
+// too, costing no extra pass; it animates whenever a live frame arrives (no isAnimated
+// idle-repaint needed) and is imperceptibly static on a frozen screen.
+// params: 0 threshold (prefilter), 1 bloom, 2 halation, 3 grain, 4 grainSize.
+fragment float4 fx_film_glow_combine(RasterizerData in [[stage_in]],
+                                     texture2d<float> src [[texture(0)]],
+                                     texture2d<float> orig [[texture(1)]],
+                                     constant SpectraUniforms &u [[buffer(0)]]) {
+    float bloomI = max(u.params[1], 0.0);
+    float halaI  = max(u.params[2], 0.0);
+    float grainI = max(u.params[3], 0.0);
+
+    float3 base = spectra_tex(orig, in.uv).rgb;
+    // The half-res glow (prefilter → H blur → V blur) upsampled with ONE bilinear read. The
+    // separable blur stays at HALF resolution: folding it into this full-res pass was ~4x the
+    // per-pixel GPU cost (20 taps over 4x the pixels) and dominated frame time.
+    float3 glow = max(spectra_tex(src, in.uv).rgb, 0.0);
+
+    // Bloom: screen the broadband glow over the image (luminous highlight bloom).
+    float3 bloomGlow = clamp(glow * bloomI, 0.0, 1.0);
+    float3 c = 1.0 - (1.0 - base) * (1.0 - bloomGlow);
+    // Halation: warm-tinted ring added on top (the red/orange highlight bleed).
+    c += glow * float3(1.0, 0.45, 0.22) * halaI;
+
+    // Optional finishing grain, midtone-weighted to match fx_film_grain.
+    if (grainI > 0.0) {
+        float size = max(u.params[4], 0.5);
+        float g = fx_film_grainField(in.uv, u.resolution, size, u.time, u.seed, 24.0);
+        float l = spectra_luma(c);
+        float vis = 1.0 - pow(abs(l - 0.5) * 2.0, 1.5);
+        c += g * grainI * 0.2 * vis;
+    }
+    return spectra_compositeRGBA(base, clamp(c, 0.0, 1.0), u);
 }
 
 // MARK: - Flicker
@@ -547,4 +608,74 @@ fragment float4 fx_film_burn(RasterizerData in [[stage_in]],
     processed = mix(processed, scorch, ring * intensity);          // orange ring
     processed = mix(processed, float3(1.0), core * intensity);     // white core
     return spectra_compositeRGBA(base, clamp(processed, 0.0, 1.0), u);
+}
+
+// Film debris: animated dust specks and squiggly hairs/fibres drifting across the
+// frame on a stuttering projector cadence, like old-film damage footage. Procedural
+// (no asset) and one pass. Crucially CONTRAST-ADAPTIVE: each speck/hair is drawn light
+// over dark areas and dark over light areas, so debris always reads against the desktop
+// behind it. No vertical seams. params[0] = intensity, params[1] = density, params[2] = speed.
+fragment float4 fx_film_debris(RasterizerData in [[stage_in]],
+                               texture2d<float> src [[texture(0)]],
+                               texture2d<float> orig [[texture(1)]],
+                               constant SpectraUniforms &u [[buffer(0)]]) {
+    float3 base = spectra_tex(orig, in.uv).rgb;
+    float3 c = spectra_tex(src, in.uv).rgb;
+
+    float intensity = u.params[0];
+    float density = clamp(u.params[1], 0.0, 1.0);
+    float speed = clamp(u.params[2], 0.0, 1.0);
+    float invert = clamp(u.params[3], 0.0, 1.0);
+
+    float2 uv = in.uv;
+    float aspect = u.resolution.x / max(u.resolution.y, 1.0);
+
+    // Quantize time to a film cadence so debris re-rolls in stutters, not smooth slides.
+    // Dust changes every frame; hairs persist a few frames (slower) and wiggle while present.
+    float fps = mix(8.0, 18.0, speed);
+    float dustSeed = floor(u.time * fps) * 1.3 + u.seed * 53.0;
+    float hairSeed = floor(u.time * fps * 0.35) * 2.1 + u.seed * 91.0;
+
+    float coverage = 0.0;
+
+    // --- Dust specks: one square-cell grid; a sparse subset lights up each frame.
+    float cells = mix(45.0, 85.0, density);
+    float2 cuv = float2(uv.x * cells, uv.y * (cells / aspect));
+    float2 cell = floor(cuv);
+    float2 f = fract(cuv);
+    float present = step(1.0 - mix(0.015, 0.05, density), spectra_hash21(cell + dustSeed));
+    float2 pos = float2(spectra_hash21(cell + dustSeed + 1.7), spectra_hash21(cell + dustSeed + 4.3));
+    float size = mix(0.05, 0.16, spectra_hash21(cell + dustSeed + 9.1));
+    coverage = max(coverage, present * smoothstep(size, 0.0, distance(f, pos)));
+
+    // --- Hairs: a few thin wiggly fibres, repositioned each (slower) film frame and
+    // shimmering while present. Multi-harmonic wiggle reads as an organic squiggle.
+    int hairCount = int(mix(2.0, 6.0, density));
+    for (int i = 0; i < 6; i++) {
+        if (i >= hairCount) { break; }
+        float hid = float(i) * 17.3 + hairSeed;
+        if (spectra_hash11(hid) > 0.55) { continue; }          // blink in/out
+        float2 a = float2(spectra_hash21(float2(hid, 1.0)), spectra_hash21(float2(hid, 2.0)));
+        float ang = spectra_hash21(float2(hid, 3.0)) * 6.2831853;
+        float len = mix(0.05, 0.20, spectra_hash21(float2(hid, 4.0)));
+        float2 dir = float2(cos(ang), sin(ang));
+        float2 nrm = float2(-dir.y, dir.x);
+        float2 d = (uv - a) * float2(aspect, 1.0);             // aspect-correct so it isn't stretched
+        float along = dot(d, dir);
+        if (along < 0.0 || along > len) { continue; }
+        float perp = dot(d, nrm);
+        float w = sin(along * 170.0 + hid + u.time * 7.0) * 0.004
+                + sin(along * 80.0 + hid * 2.0 + u.time * 4.0) * 0.008
+                + sin(along * 34.0 + hid * 3.0) * 0.013;
+        float taper = smoothstep(0.0, 0.03, along) * smoothstep(len, len - 0.03, along);
+        coverage = max(coverage, smoothstep(0.0017, 0.0, abs(perp - w)) * taper);
+    }
+
+    // Contrast-adaptive by default: push debris AWAY from the local background luminance,
+    // so it is light on dark areas and dark on light areas and never disappears. invert=1
+    // forces it to always darken (black specks/hairs) regardless of background.
+    float bg = spectra_luma(c);
+    float dirSign = mix(bg < 0.5 ? 1.0 : -1.0, -1.0, invert);
+    float3 processed = clamp(c + dirSign * coverage * intensity, 0.0, 1.0);
+    return spectra_compositeRGBA(base, processed, u);
 }

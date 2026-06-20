@@ -73,10 +73,11 @@ final class EffectRegistry {
         }
     }
 
-    /// All built-in fragment function names, for pipeline prewarming.
+    /// All built-in fragment function names, for pipeline prewarming. Compute passes are
+    /// excluded (they are not render pipelines and would fail render-pipeline creation).
     func builtInFragmentFunctions() -> [String] {
         descriptors
             .filter { !$0.isCustom }
-            .flatMap { $0.passes.map(\.fragmentFunction) }
+            .flatMap { $0.passes.filter { !$0.isCompute }.map(\.fragmentFunction) }
     }
 }

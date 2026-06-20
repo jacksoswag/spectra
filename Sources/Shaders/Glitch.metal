@@ -357,27 +357,84 @@ fragment float4 fx_glitch_frameSkip(RasterizerData in [[stage_in]],
 
 // MARK: - Digital Rain
 
-// A coarse 4x5 bit pattern selected by a hash, sampled at a local cell
-// coordinate. Patterns are abstract blocky shapes that read as falling glyphs
-// rather than legible characters; quantizing the seed into one of 16 patterns
-// keeps each cell stable until its glyph is re-rolled. `p` is in 0..1 within the
-// cell. Bits are packed MSB-first per row (bit 3 = leftmost of 4 columns).
+// A 5x7 BITMAP FONT of 16 CRYPTOGRAPHIC glyphs — invented cipher/rune symbols, NO standard
+// letters or digits, so the rain reads as alien code. Each glyph is 7 rows; each row is a
+// 5-bit mask with the MSB (bit 4) as the leftmost column. A hashed index picks the glyph; the
+// cell-local coordinate samples it crisply (hard pixels read as authentic terminal type).
+constant uint glitch_glyphFont[112] = {
+     4, 4,21,14,21, 4, 4,   // eye / node
+    17,10, 4,31, 4,10,17,   // barred X
+    28,16,30, 2,15, 1, 3,   // angular rune
+    27,17, 0, 4, 0,17,27,   // bracketed dot
+    16,24,12, 6, 3, 6,12,   // zigzag
+    31, 4, 4,14, 4, 4, 4,   // crowned stem
+    24, 4,30, 4,15, 4, 3,   // asymmetric hooks
+     4,14,31,14, 4,10,17,   // diamond + legs
+    17,31,17,31,17,31,17,   // ladder
+    14,17,22,21,13, 1, 6,   // spiral
+    10, 0,31, 0,10, 0, 4,   // dotted bars
+     4,14,21, 4, 4,21,14,   // twin arrows
+     4, 4, 0, 4, 0, 4, 4,   // dashed axis
+    28,16,16, 0, 1, 1, 7,   // opposed corners
+    10,31,10,31,10, 0, 4,   // grid
+    17,10, 4,10,17, 0,31,   // crosshatch + base
+};
+
+// Sample the bitmap font for the glyph chosen by `seed`. `p` is 0..1 within the cell; a thin
+// gutter keeps adjacent glyphs from merging into a block.
 inline float glitch_glyph(float2 p, float seed) {
-    // 16 hand-picked masks (each 20 bits, one row per 5-bit nibble group). We
-    // derive 20 on/off bits from the seed instead of a literal table so the GPU
-    // stays branch-light: hash the (column,row) pair per glyph cell.
-    int gx = int(clamp(p.x, 0.0, 0.999) * 4.0);   // 0..3 columns
-    int gy = int(clamp(p.y, 0.0, 0.999) * 5.0);   // 0..4 rows
-    // One bit per (gx,gy) drawn from a hash of the glyph seed; ~55% fill reads as
-    // a dense character without looking like solid blocks.
-    float bit = spectra_hash21(float2(float(gx) + 0.5, float(gy) + 0.5) + seed * 37.0);
-    return step(0.45, bit);
+    if (p.x < 0.04 || p.x > 0.96 || p.y < 0.02 || p.y > 0.98) return 0.0;   // inter-glyph gutter
+    int col = int(clamp((p.x - 0.04) / 0.92, 0.0, 0.999) * 5.0);   // 0..4
+    int row = int(clamp((p.y - 0.02) / 0.96, 0.0, 0.999) * 7.0);   // 0..6
+    int glyph = int(spectra_hash11(seed) * 16.0) & 15;             // pick 0..15
+    uint rowBits = glitch_glyphFont[glyph * 7 + row];
+    return (rowBits & (1u << uint(4 - col))) != 0u ? 1.0 : 0.0;    // MSB = leftmost column
 }
 
-// Matrix-style vertical falling glyphs composited OVER the source so the rain
-// glows on dark areas. Purely time-based (no history): each column scrolls a
-// drop downward; the leading "head" cell is bright near-white-green and the
-// trailing cells fade exponentially to dark phosphor green.
+// One depth layer of falling code: a grid of `columns` streams scrolling down, each with a
+// per-column phase, a speed jitter, and an active/empty roll (so it isn't a solid wall). The
+// head cell is bright near-white-green; the trail fades exponentially to dim phosphor green.
+// Returned emissive, pre-scaled by `bright`. All ALU (no texture reads), so layers are cheap.
+inline float3 glitch_rainLayer(float2 uv, float time, float columns, float aspect,
+                               float layerSpeed, float bright, float seed) {
+    float rows = max(columns / aspect, 1.0);       // square cells given the aspect
+    float2 cell = float2(uv.x * columns, uv.y * rows);
+    float colIndex = floor(cell.x);
+    float2 cellLocal = fract(cell);
+
+    // Per-column phase + speed jitter so drops desync; ~80% of columns carry a stream.
+    float colRand   = spectra_hash11(colIndex * 1.731 + 3.17 + seed);
+    float colSpeed  = mix(0.7, 1.3, spectra_hash11(colIndex * 0.913 + 11.1 + seed));
+    float colActive = step(0.2, spectra_hash11(colIndex * 2.7 + 5.0 + seed));
+
+    float headRow = time * layerSpeed * colSpeed + colRand * rows;
+    float cellRow = floor(cell.y);
+
+    // Whole-cell distance this cell trails behind the head, wrapped to the column height.
+    float trail = headRow - cellRow;
+    trail = trail - floor(trail / rows) * rows;
+
+    float head = smoothstep(0.0, 1.0, 1.0 - clamp(trail, 0.0, 1.0));    // 1 at the head
+    // Long trails (~5x the previous): a low fade rate stretches the stream far up the column.
+    float tailFade = mix(0.2, 0.112, clamp(bright, 0.0, 1.0));
+    float tail = exp(-trail * tailFade);
+
+    // Each cell's glyph is FIXED (no time term): characters never flicker in place — the only
+    // new character that appears is the next cell the falling head reveals as it scrolls down.
+    float glyphSeed = spectra_hash21(float2(colIndex, cellRow) + seed);
+    float glyph = glitch_glyph(cellLocal, glyphSeed);
+
+    float3 trailColor = float3(0.1, 0.9, 0.25);
+    float3 headColor  = float3(0.75, 1.0, 0.8);
+    return mix(trailColor, headColor, head) * tail * glyph * colActive * bright;
+}
+
+// Matrix-style vertical falling code, composited OVER the source so it glows on dark areas.
+// THREE depth layers stack to fake depth: a far layer of small, slow, dim glyphs; a mid
+// layer; and a near layer of large, fast, bright glyphs with longer tails — so the rain
+// reads as cryptographic text receding into the screen rather than one flat grid. Purely
+// time-based (no history); all ALU, so the three layers stay cheap. params: 0 intensity,
+// 1 density, 2 speed.
 fragment float4 fx_glitch_digitalRain(RasterizerData in [[stage_in]],
                                       texture2d<float> src [[texture(0)]],
                                       texture2d<float> orig [[texture(1)]],
@@ -386,54 +443,32 @@ fragment float4 fx_glitch_digitalRain(RasterizerData in [[stage_in]],
     float3 c = spectra_tex(src, in.uv).rgb;
 
     float intensity = u.params[0];                 // overall opacity/brightness (0..1)
-    float density = u.params[1];                   // column count / cell fineness (0..1)
+    float density = u.params[1];                   // base stream count / glyph fineness (0..1)
     float speed = u.params[2];                     // scroll speed
 
-    // Aspect-correct so cells are roughly square: scale the vertical axis by the
-    // frame aspect ratio before laying out the grid. Without this, columns/cells
-    // stretch on wide displays and the glyphs smear.
+    // Aspect-correct so cells are roughly square (otherwise glyphs smear on wide displays).
     float aspect = u.resolution.x / max(u.resolution.y, 1.0);
-    // Map density 0..1 onto a sensible column count. ~24 columns at the low end,
-    // ~96 at the high end keeps glyphs legible-as-shapes at any setting.
-    float columns = mix(24.0, 96.0, clamp(density, 0.0, 1.0));
-    float rows = max(columns / aspect, 1.0);       // square cells given the aspect
+    // FEW columns on purpose: ~30 mid-layer streams means each 5x7 glyph is tens of pixels
+    // wide and reads as a real character. (At the old ~100+ columns each glyph was a few
+    // pixels and just looked like blocks.)
+    float baseColumns = mix(20.0, 46.0, clamp(density, 0.0, 1.0));
 
-    float2 cell = float2(in.uv.x * columns, in.uv.y * rows);
-    float colIndex = floor(cell.x);
-    float2 cellLocal = fract(cell);                // 0..1 within the current cell
+    // Far → near. THIS array (× baseColumns) sets glyph SIZE: bigger value = more columns =
+    // SMALLER glyphs. Far still gets the most columns (smallest glyphs) and near the fewest
+    // (biggest), but every layer is scaled up here to shrink the glyphs: far −33%, near −67%.
+    const float colScale[3] = { 3.6, 2.0, 1.8 };    // far→near; bigger = smaller glyphs (far floor -33%)
+    const float speedMul[3] = { 1.1, 3.0, 5.1 };    // far→near fall rate (far floor -33%)
+    const float bright[3]   = { 0.45, 0.7, 1.0 };
+    const float seeds[3]    = { 0.0, 53.1, 121.7 };
 
-    // Per-column pseudo-random phase and a speed multiplier so drops desync.
-    float colRand = spectra_hash11(colIndex * 1.731 + 3.17);
-    float colSpeed = mix(0.5, 1.5, spectra_hash11(colIndex * 0.913 + 11.1));
-    // The drop's head position scrolls downward over time (uv.y grows downward in
-    // this space). Offsetting by the per-column phase staggers the columns.
-    float headRow = u.time * speed * colSpeed + colRand * rows;
-    float cellRow = floor(cell.y);
+    float3 rain = float3(0.0);
+    for (int i = 0; i < 3; i++) {
+        rain += glitch_rainLayer(in.uv, u.time, baseColumns * colScale[i], aspect,
+                                 speed * speedMul[i], bright[i], seeds[i]);
+    }
 
-    // Distance, in whole cells, that this cell trails BEHIND the head. We wrap to
-    // the column height so the drop repeats seamlessly down the screen.
-    float trail = headRow - cellRow;
-    trail = trail - floor(trail / rows) * rows;    // wrap into 0..rows
-
-    // Head is the freshest cell (trail≈0); brightness falls off exponentially
-    // along the trail to a dim phosphor tail.
-    float head = smoothstep(0.0, 1.0, 1.0 - clamp(trail, 0.0, 1.0));   // 1 at head
-    float tail = exp(-trail * 0.35);                                   // exponential fade
-
-    // Glyph for this cell, re-rolled a few times per second so characters flicker
-    // and change. Seed combines the column, the cell row, and a quantized time.
-    float changeRate = 6.0;
-    float glyphSeed = spectra_hash21(float2(colIndex, cellRow + floor(u.time * changeRate) * 0.137));
-    float glyph = glitch_glyph(cellLocal, glyphSeed);
-
-    // Phosphor-green palette: bright near-white-green head, dim green trail.
-    float3 trailColor = float3(0.1, 0.9, 0.25);
-    float3 headColor = float3(0.75, 1.0, 0.8);
-    float3 rain = mix(trailColor, headColor, head) * tail * glyph;
-
-    // Screen the emissive rain onto the source so it glows additively on dark
-    // areas without clipping bright regions to white.
-    float3 emissive = rain * intensity;
+    // Screen the emissive rain onto the source so it glows on dark areas without clipping.
+    float3 emissive = clamp(rain, 0.0, 1.0) * intensity;
     float3 processed = 1.0 - (1.0 - c) * (1.0 - clamp(emissive, 0.0, 1.0));
 
     return spectra_compositeRGBA(base, processed, u);

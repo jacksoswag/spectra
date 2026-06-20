@@ -61,6 +61,10 @@ final class EffectChainRenderer {
     /// simply ignore the binding.
     static let historyTextureIndex = 10
 
+    /// Fragment/compute texture index at which a pass's `tapPass` (an earlier pass's retained
+    /// output) is bound. Chosen above the usual aux range and below history.
+    static let tappedTextureIndex = 9
+
     /// Encode the chain. The caller owns presenting `outputTexture` and must
     /// release `transientTextures` once the command buffer completes. `history`
     /// is the previous frame's processed output (bound at `historyTextureIndex`);
@@ -122,8 +126,78 @@ final class EffectChainRenderer {
             let effectInput = current
             var passSource = current
             var previousTarget: MTLTexture?
+            // Pass outputs that a later pass taps must not be recycled mid-effect; track them
+            // and the index of the output currently held in `previousTarget`.
+            let tappedIndices = Set(effect.descriptor.passes.compactMap { $0.tapPass })
+            var passOutputs: [Int: MTLTexture] = [:]
+            var previousTargetIndex: Int?
 
             for (passIndex, pass) in effect.descriptor.passes.enumerated() {
+                // A pass can drive its target scale from a parameter slot (a runtime
+                // "Render Scale" slider), falling back to the authored `scale` when unset.
+                var passScale = pass.scale
+                if let slot = pass.scaleParam {
+                    var probe = SpectraUniforms()
+                    effect.writeParameters(into: &probe)
+                    let v = probe.param(slot)
+                    if v > 0.01 { passScale = max(0.25, min(1.0, v)) }
+                }
+                let targetWidth = max(1, Int((Float(width) * passScale).rounded()))
+                let targetHeight = max(1, Int((Float(height) * passScale).rounded()))
+
+                // Compute pass: dispatch a kernel that writes the output texture directly.
+                // Bindings mirror the render path (src=0, orig=1, aux=2+, history=10) plus
+                // the writable output at texture(11).
+                if pass.isCompute {
+                    guard let computePipeline = try? shaders.computePipeline(
+                              pass.fragmentFunction, library: effect.customLibrary),
+                          let encoder = commandBuffer.makeComputeCommandEncoder() else { continue }
+                    let target = obtain(targetWidth, targetHeight)
+                    encoder.label = "\(effect.descriptor.id)#\(passIndex) (compute)"
+                    encoder.setComputePipelineState(computePipeline)
+
+                    var uniforms = SpectraUniforms()
+                    uniforms.resolution = SIMD2(Float(targetWidth), Float(targetHeight))
+                    uniforms.time = frame.time
+                    uniforms.frameIndex = frame.frameIndex
+                    uniforms.clockSeconds = frame.clockSeconds
+                    uniforms.passIndex = Float(passIndex)
+                    uniforms.passScale = passScale
+                    uniforms.direction = pass.direction
+                    effect.writeUniversal(into: &uniforms)
+                    uniforms.strength *= frame.intensityScale
+                    effect.writeParameters(into: &uniforms)
+
+                    encoder.setTexture(passSource, index: 0)
+                    encoder.setTexture(effectInput, index: 1)
+                    for (auxIndex, auxTexture) in effect.auxTextures.enumerated() {
+                        encoder.setTexture(auxTexture, index: 2 + auxIndex)
+                    }
+                    encoder.setTexture(history ?? input, index: Self.historyTextureIndex)
+                    if let tap = pass.tapPass, let tapTex = passOutputs[tap] {
+                        encoder.setTexture(tapTex, index: Self.tappedTextureIndex)
+                    }
+                    encoder.setTexture(target, index: 11)
+                    uniforms.withUnsafeBytes { raw in
+                        encoder.setBytes(raw.baseAddress!, length: SpectraUniforms.byteCount, index: 0)
+                    }
+                    let threadgroup = MTLSize(width: 16, height: 16, depth: 1)
+                    let groups = MTLSize(width: (targetWidth + 15) / 16,
+                                         height: (targetHeight + 15) / 16, depth: 1)
+                    encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: threadgroup)
+                    encoder.endEncoding()
+
+                    if let previousTarget, !(previousTargetIndex.map { tappedIndices.contains($0) } ?? false) {
+                        reusable.append(previousTarget)
+                    }
+                    passOutputs[passIndex] = target
+                    previousTarget = target
+                    previousTargetIndex = passIndex
+                    passSource = target
+                    passCount += 1
+                    continue
+                }
+
                 let pipeline: MTLRenderPipelineState
                 do {
                     pipeline = try shaders.pipeline(
@@ -135,8 +209,6 @@ final class EffectChainRenderer {
                     continue
                 }
 
-                let targetWidth = max(1, Int((Float(width) * pass.scale).rounded()))
-                let targetHeight = max(1, Int((Float(height) * pass.scale).rounded()))
                 let target = obtain(targetWidth, targetHeight)
 
                 let descriptor = MTLRenderPassDescriptor()
@@ -190,6 +262,9 @@ final class EffectChainRenderer {
                     encoder.setFragmentTexture(auxTexture, index: 2 + auxIndex)
                 }
                 encoder.setFragmentTexture(history ?? input, index: Self.historyTextureIndex)
+                if let tap = pass.tapPass, let tapTex = passOutputs[tap] {
+                    encoder.setFragmentTexture(tapTex, index: Self.tappedTextureIndex)
+                }
                 uniforms.withUnsafeBytes { raw in
                     encoder.setFragmentBytes(raw.baseAddress!, length: SpectraUniforms.byteCount, index: 0)
                 }
@@ -210,9 +285,14 @@ final class EffectChainRenderer {
                 encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
                 encoder.endEncoding()
 
-                // The just-consumed intermediate target is free to reuse this frame.
-                if let previousTarget { reusable.append(previousTarget) }
+                // The just-consumed intermediate target is free to reuse this frame — unless a
+                // later pass taps it (then keep it alive; it's released at frame end).
+                if let previousTarget, !(previousTargetIndex.map { tappedIndices.contains($0) } ?? false) {
+                    reusable.append(previousTarget)
+                }
+                passOutputs[passIndex] = target
                 previousTarget = target
+                previousTargetIndex = passIndex
                 passSource = target
                 passCount += 1
             }

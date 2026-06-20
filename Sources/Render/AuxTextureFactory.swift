@@ -153,6 +153,8 @@ enum LUTLooks {
     static let names = [
         "Identity", "Teal & Orange", "Bleach Bypass", "Warm Film",
         "Cool Shadows", "Vintage", "Noir B&W", "Vibrant",
+        // World palettes (baked grades for the Artistic presets).
+        "Van Gogh", "Ghibli", "90s Anime", "Comic", "Watercolor", "Graphite",
     ]
 
     static func apply(_ name: String, to c: SIMD3<Double>) -> SIMD3<Double> {
@@ -164,6 +166,12 @@ enum LUTLooks {
         case "Vintage": return vintage(c)
         case "Noir B&W": return noir(c)
         case "Vibrant": return vibrant(c)
+        case "Van Gogh": return vanGogh(c)
+        case "Ghibli": return ghibli(c)
+        case "90s Anime": return anime90s(c)
+        case "Comic": return comic(c)
+        case "Watercolor": return watercolor(c)
+        case "Graphite": return graphite(c)
         default: return clampv(c)
         }
     }
@@ -218,6 +226,68 @@ enum LUTLooks {
         let l = luma(c)
         return clampv(mix(SIMD3(l, l, l), c, 1.5))
     }
+
+    // MARK: - World palettes
+
+    /// Cobalt/ultramarine shadows, chrome-yellow highlights, high chroma.
+    private static func vanGogh(_ c: SIMD3<Double>) -> SIMD3<Double> {
+        let l = luma(c)
+        var v = mix(SIMD3(l, l, l), c, 1.5)
+        let shadow = SIMD3(-0.02, 0.0, 0.10)   // blue into the dark
+        let highlight = SIMD3(0.10, 0.06, -0.10) // yellow into the light
+        v = v + mix(shadow, highlight, smoothstep(0.25, 0.75, l))
+        return clampv(SIMD3(sCurve(v.x, 0.20), sCurve(v.y, 0.20), sCurve(v.z, 0.25)))
+    }
+
+    /// Warm amber shadows, sage mids, sky-blue highlights, gently soft.
+    private static func ghibli(_ c: SIMD3<Double>) -> SIMD3<Double> {
+        let l = luma(c)
+        let shadow = SIMD3(0.06, 0.03, -0.02)
+        let mid = SIMD3(-0.02, 0.04, -0.01)
+        let highlight = SIMD3(-0.02, 0.01, 0.06)
+        let lowMid = mix(shadow, mid, smoothstep(0.0, 0.5, l))
+        let tint = mix(lowMid, highlight, smoothstep(0.5, 1.0, l))
+        let warm = c + tint
+        let soft = mix(warm, SIMD3(luma(warm), luma(warm), luma(warm)), 0.08)
+        return clampv(soft * 0.97 + SIMD3(0.02, 0.02, 0.015))
+    }
+
+    /// 90s-cel mood: desaturated mids, deep teal-blue shadows, warm amber highlights,
+    /// lowered exposure and firm contrast for the gritty OVA look.
+    private static func anime90s(_ c: SIMD3<Double>) -> SIMD3<Double> {
+        let l = luma(c)
+        let midDesat = 0.35 * (1.0 - abs(2.0 * l - 1.0))      // pull chroma out of the mids
+        var v = mix(c, SIMD3(l, l, l), midDesat)
+        let shadow = SIMD3(-0.06, -0.01, 0.10)                // teal-blue shadows
+        let highlight = SIMD3(0.08, 0.03, -0.06)              // amber highlights
+        v = v + mix(shadow, highlight, smoothstep(0.15, 0.85, l))
+        // firmer contrast, then drop exposure a touch for the moody base
+        v = SIMD3(sCurve(v.x, 0.38), sCurve(v.y, 0.38), sCurve(v.z, 0.38))
+        return clampv(v * 0.88 + SIMD3(0.01, 0.012, 0.018))   // cool-lifted near-black
+    }
+
+    /// Bold saturated primaries with punchy contrast.
+    private static func comic(_ c: SIMD3<Double>) -> SIMD3<Double> {
+        let l = luma(c)
+        let v = mix(SIMD3(l, l, l), c, 1.6)
+        return clampv(SIMD3(sCurve(v.x, 0.40), sCurve(v.y, 0.40), sCurve(v.z, 0.40)))
+    }
+
+    /// Pale pastel wash: pulled toward white, slightly desaturated, soft contrast.
+    private static func watercolor(_ c: SIMD3<Double>) -> SIMD3<Double> {
+        let l = luma(c)
+        var v = mix(c, SIMD3(1, 1, 1), 0.25)
+        v = mix(v, SIMD3(l, l, l), 0.15)
+        v = v * 0.95 + SIMD3(0.05, 0.05, 0.045)
+        return clampv(SIMD3(sCurve(v.x, -0.10), sCurve(v.y, -0.10), sCurve(v.z, -0.10)))
+    }
+
+    /// Warm near-monochrome graphite on paper-white.
+    private static func graphite(_ c: SIMD3<Double>) -> SIMD3<Double> {
+        let l = sCurve(luma(c), 0.15)
+        return clampv(SIMD3(l * 1.02 + 0.02, l * 1.0 + 0.015, l * 0.96 + 0.01))
+    }
+
     private static func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
         let t = min(1, max(0, (x - a) / (b - a)))
         return t * t * (3 - 2 * t)

@@ -15,6 +15,7 @@ enum EffectCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
     case pixel = "Pixel"
     case glitch = "Glitch"
     case environment = "Environment"
+    case artistic = "Artistic"
     case accessibility = "Accessibility"
     case custom = "Custom"
 
@@ -37,6 +38,7 @@ enum EffectCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
         case .pixel: "squareshape.split.3x3"
         case .glitch: "bolt.horizontal"
         case .environment: "cloud.rain"
+        case .artistic: "paintbrush.pointed.fill"
         case .accessibility: "accessibility"
         case .custom: "wand.and.stars"
         }
@@ -57,6 +59,7 @@ enum EffectCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
         case .pixel: "Pixelation, dithering, and quantization."
         case .glitch: "Digital corruption and signal failure."
         case .environment: "Atmospheric weather and light."
+        case .artistic: "Painterly, cel, ink, and pixel mediums."
         case .accessibility: "Vision assistance and comfort."
         case .custom: "Your imported and authored effects."
         }

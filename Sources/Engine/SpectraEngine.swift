@@ -47,6 +47,34 @@ final class SpectraEngine {
     @ObservationIgnored private var sessions: [CGDirectDisplayID: CaptureSession] = [:]
     @ObservationIgnored private var appliedScale: [CGDirectDisplayID: Double] = [:]
 
+    // Post-Space-switch capture-stall watchdog. A Space carry can leave the SCStream silently
+    // emitting only non-`.complete` frames (or none) without ever calling `didStopWithError`,
+    // so `handleSessionStopped` never restarts it and the overlay freezes on a stale frame
+    // until the user toggles the effect off/on. Once a Space transition settles the captured
+    // content has definitely changed, so a healthy stream MUST deliver a fresh frame within the
+    // grace period; if a display's frame count hasn't advanced by then, its stream stalled and
+    // is restarted. Scoped to the post-switch window so a genuinely static desktop (which
+    // legitimately delivers no frames) is never restarted. `deadline == 0` means disarmed.
+    @ObservationIgnored private var captureStallBaseline: [CGDirectDisplayID: UInt64] = [:]
+    @ObservationIgnored private var captureStallDeadline: CFTimeInterval = 0
+    private static let captureStallGracePeriod: CFTimeInterval = 1.5
+
+    // Hard-freeze failsafe. The window-tied render clock (CAMetalDisplayLink) can stop delivering
+    // callbacks after a Space carry/elevation; the overlay then freezes on a stale frame while
+    // capture keeps delivering fresh ones. Because the overlay is opaque at shielding level it
+    // covers the ENTIRE screen, so a freeze traps the user behind a dead image with no visible
+    // way out (the owner had to restart the machine). This detects the exact signature — capture
+    // frame count advancing while the present count stays flat — and recreates the overlay (the
+    // same teardown+rebuild that toggling the effect does, which the owner confirmed unfreezes
+    // it), so a freeze self-heals instead of trapping the screen. If it recurs several times in a
+    // short window it disables the overlay outright rather than thrash a recreate loop.
+    @ObservationIgnored private var lastCaptureCount: [CGDirectDisplayID: UInt64] = [:]
+    @ObservationIgnored private var lastPresentCount: [CGDirectDisplayID: UInt64] = [:]
+    @ObservationIgnored private var presentStuckSince: [CGDirectDisplayID: CFTimeInterval] = [:]
+    @ObservationIgnored private var freezeRecoveries: [CGDirectDisplayID: [CFTimeInterval]] = [:]
+    /// Seconds of "capture advancing, nothing presented" before the overlay is judged frozen.
+    private static let hardFreezeSeconds: CFTimeInterval = 2.0
+
     // Adaptive quality governor (the menu-bar "Auto" toggle). When `settings.autoQuality`
     // is on, the engine owns the render scale via `autoScale` instead of the fixed Quality
     // slider. It targets GPU TIME, not fps: render scale only moves GPU cost (it's a
@@ -201,6 +229,7 @@ final class SpectraEngine {
     func bootstrap() async {
         guard !didBootstrap else { return }
         didBootstrap = true
+        Diag.reset()   // TEMPORARY: start each launch with clean diagnostics logs
         // Let the cursor enforcer tell the overlay (rendered cursor) apart from the menu
         // bar / dropdowns above it, so the real cursor shows over the latter only.
         cursorEnforcer.isOverlayWindow = { [weak self] number in
@@ -232,6 +261,7 @@ final class SpectraEngine {
         }
         renderEngine.onActiveSpaceSettled = { [weak self] in
             self?.refreshCaptureExceptions()
+            self?.armCaptureStallWatchdog()   // catch a stream that silently stalled on the carry
         }
         AppPaths.ensureDirectories()
         permissionAuthorized = ScreenRecordingPermission.isAuthorized
@@ -432,9 +462,9 @@ final class SpectraEngine {
     /// (or toggling the setting) routes through here and stays consistent.
     private func applyCursorState() {
         let effective = effectiveCustomCursorActive()
-        for id in renderEngine.activeDisplayIDs {
-            renderEngine.renderer(for: id)?.setCustomCursorEnabled(effective)
-        }
+        // One shared cursor sampler feeds every display's renderer (it reads AppKit on the main
+        // thread and publishes a snapshot the off-main link thread reads), so engage it once.
+        renderEngine.setCustomCursorEnabled(effective)
         // When the live cursor is composited into the frame it must be kept out of the
         // capture, or it is drawn twice; otherwise honour the user's capture setting.
         let effectiveShowsCursor = settings.showCursorInCapture && !effective
@@ -463,19 +493,19 @@ final class SpectraEngine {
     /// isn't born behind the overlay.
     func registerControlWindow(_ window: NSWindow) {
         if !controlWindows.contains(window) { controlWindows.add(window) }
-        // Keep control windows on the user's current Space (and able to float over a
-        // full-screen Space the overlay covers) so they sit on the Space the overlay is
-        // capturing. They are ordinary windows now — left at their normal level, *below*
-        // the overlay, so they're captured and rendered through the effect chain like
-        // anything else rather than raised above it.
-        window.collectionBehavior.insert(.moveToActiveSpace)
         window.collectionBehavior.insert(.fullScreenAuxiliary)
+        // Lift it into the overlay's elevated Space one level ABOVE the overlay, and leave it out
+        // of the capture (controlWindowSCWindows drops it), so it renders directly above the
+        // shaded desktop without the capture round-trip.
+        renderEngine.raiseControlWindowAboveOverlay(window)
         if window.identifier?.rawValue.contains("studio") ?? false { studioWindow = window }
-        refreshCaptureExceptions()   // start rendering this window through the chain
+        refreshCaptureExceptions()   // the control windows are excluded from capture
         guard displays.contains(where: { wantsOverlay($0.id) }) else { return }
-        DispatchQueue.main.async { [weak window] in
+        DispatchQueue.main.async { [weak self, weak window] in
             guard let window, window.isVisible else { return }   // don't resurrect a closing window
             window.makeKeyAndOrderFront(nil)
+            // makeKeyAndOrderFront can reset the level/Space, so re-assert crisp placement.
+            self?.renderEngine.raiseControlWindowAboveOverlay(window)
         }
     }
 
@@ -488,6 +518,8 @@ final class SpectraEngine {
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.studioWindow, window.isVisible else { return }
             window.makeKeyAndOrderFront(nil)
+            // Crisp mode: re-assert the Studio above the overlay (no-op in through-shader).
+            self.renderEngine.raiseControlWindowAboveOverlay(window)
             self.refreshCaptureExceptions()
         }
     }
@@ -757,25 +789,16 @@ final class SpectraEngine {
         return enabled.allSatisfy { Self.globalGradeEffectIDs.contains($0.descriptorID) }
     }
 
-    /// Last grade-diag string written to /tmp, so redundant writes are skipped.
-    @ObservationIgnored private var lastGradeDiag = ""
-
     /// Route per-channel color chains to the global scanout LUT and keep
     /// `gradeDisplays` in sync. Independent of capture permission — a pure colour
     /// grade needs no screen capture. Called at the top of `updatePipelines` and
     /// whenever a chain changes.
     private func reconcileGlobalGrade() {
         var next: Set<CGDirectDisplayID> = []
-        var diag = "reconcileGlobalGrade isEnabled=\(isEnabled) perm=\(permissionAuthorized) selected=\(selectedDisplayID.map(String.init) ?? "nil")\n"
         for display in displays {
             let id = display.id
-            let chain = stack(for: id).chain()
-            let enabledIDs = chain.effects.filter { chain.isEffectivelyEnabled($0) }.map(\.descriptorID)
-            let isGrade = isEnabled && chainIsGlobalGrade(id)
-            diag += "  display=\(id) enabled=\(enabledIDs) isGrade=\(isGrade)"
-            guard isGrade else {
+            guard isEnabled && chainIsGlobalGrade(id) else {
                 displayGrade.clear(for: id)
-                diag += " -> cleared\n"
                 continue
             }
             let resolved = resolvedChains[id] ?? resolver.resolve(stack(for: id).chain())
@@ -784,22 +807,11 @@ final class SpectraEngine {
                 chain: resolved, intensityScale: Self.intensityScale(forSetting: settings.intensity)) {
                 displayGrade.setLUT(lut, for: id)
                 next.insert(id)
-                diag += " -> LUT applied (r[0]=\(lut.red.first ?? -1) r[255]=\(lut.red.last ?? -1))\n"
             } else {
                 displayGrade.clear(for: id)
-                diag += " -> extract FAILED\n"
             }
         }
         gradeDisplays = next
-        diag += "gradeDisplays=\(next) overlayWanted(selected)=\(selectedDisplayID.map { wantsOverlay($0) } ?? false)\n"
-        // Diagnostic probe, OFF by default. The synchronous atomic write (~0.13ms) used
-        // to fire on every chain/slider tick, stalling live grade drags on the main
-        // thread. Gate it behind an env var (re-enable with SPECTRA_GRADE_DIAG=1 — this
-        // SIP-off box has no working os_log) and skip redundant identical writes.
-        if ProcessInfo.processInfo.environment["SPECTRA_GRADE_DIAG"] != nil, diag != lastGradeDiag {
-            lastGradeDiag = diag
-            try? diag.write(toFile: "/tmp/spectra-grade-check.txt", atomically: true, encoding: .utf8)
-        }
     }
 
     private func wantsCapture(_ displayID: CGDirectDisplayID) -> Bool {
@@ -924,10 +936,13 @@ final class SpectraEngine {
     /// belt-and-suspenders guard: the overlay must never be captured, or it feeds back.
     private func controlWindowSCWindows() async -> [SCWindow] {
         let overlayNumbers = renderEngine.overlayWindowNumbers
-        var numbers = Set(controlWindows.allObjects.map { $0.windowNumber })
-        // The menu-bar popover, while open, is excepted too so it renders through the chain
-        // rather than being hidden behind the overlay (its window number changes per open, so
-        // it is tracked live by `MenuPanelCaptureBridge`, not registered like a control window).
+        var numbers = Set<Int>()
+        // The Studio/Settings windows are deliberately NOT excepted: they render crisp directly
+        // above the overlay, so the capture stays on the cheaper path and the controls aren't a
+        // capture round-trip behind.
+        // The menu-bar popover, while open, is always excepted so it renders through the chain
+        // rather than being hidden behind the overlay (its window number changes per open, so it
+        // is tracked live by `MenuPanelCaptureBridge`, not registered like a control window).
         if let menuPanelWindow { numbers.insert(menuPanelWindow.windowNumber) }
         numbers.subtract(overlayNumbers)
         return await displayManager.shareableWindows(matching: numbers)
@@ -951,6 +966,99 @@ final class SpectraEngine {
     private func handleSessionStopped(_ displayID: CGDirectDisplayID, _ error: Error?) {
         sessions[displayID] = nil
         updatePipelines()
+    }
+
+    /// Snapshot each capturing display's frame count and arm the post-Space-switch stall check
+    /// (see `captureStallBaseline`). Called once a Space transition has settled, right after the
+    /// capture filter is re-issued (which itself nudges a healthy stream to emit a fresh frame).
+    private func armCaptureStallWatchdog() {
+        guard !sessions.isEmpty else { return }
+        captureStallBaseline.removeAll(keepingCapacity: true)
+        for id in sessions.keys {
+            captureStallBaseline[id] = renderEngine.renderer(for: id)?.capturedFrameCount ?? 0
+        }
+        captureStallDeadline = CACurrentMediaTime() + Self.captureStallGracePeriod
+        Diag.freeze("EVENT armCaptureStallWatchdog baselines=\(captureStallBaseline)")
+    }
+
+    /// Engine-tick check armed by `armCaptureStallWatchdog`: once the grace period has elapsed,
+    /// restart any display whose capture delivered no new frame since the Space switch — its
+    /// SCStream stalled silently (no `didStopWithError`, so the normal restart never fired).
+    /// Mirrors `handleSessionStopped`'s recovery — drop the dead session, then `updatePipelines`
+    /// starts a fresh one and re-wires frame delivery — which the overlay's still-live renderer
+    /// immediately resumes painting from. One-shot per arm.
+    private func detectStalledCapture() {
+        guard captureStallDeadline > 0, CACurrentMediaTime() > captureStallDeadline else { return }
+        let baselines = captureStallBaseline
+        captureStallDeadline = 0
+        captureStallBaseline.removeAll(keepingCapacity: true)
+        var stalled = false
+        for (id, baseline) in baselines {
+            guard let session = sessions[id], wantsCapture(id) else { continue }
+            let current = renderEngine.renderer(for: id)?.capturedFrameCount ?? baseline
+            guard current == baseline else { continue }   // a fresh frame arrived → stream healthy
+            Log.capture.error("Capture stalled after Space switch on display \(id, privacy: .public); restarting stream")
+            Diag.freeze("EVENT detectStalledCapture-RESTART id=\(id) baseline=\(baseline) current=\(current)")
+            sessions[id] = nil
+            Task { await session.stop() }
+            stalled = true
+        }
+        if stalled { updatePipelines() }   // re-create the dead session(s) and re-wire frame delivery
+    }
+
+    /// Hard-freeze failsafe (see the state declarations above). Per visible display, compare this
+    /// tick's capture and present counters with last tick's: if capture is still advancing but
+    /// nothing was presented for `hardFreezeSeconds`, the render clock has died and the overlay is
+    /// frozen on a stale frame — recover it. A static desktop (no capture frames) never trips this
+    /// because capture isn't advancing either.
+    private func detectAndRecoverHardFreeze() {
+        let now = CACurrentMediaTime()
+        for id in renderEngine.activeDisplayIDs {
+            guard wantsOverlay(id), let renderer = renderEngine.renderer(for: id), renderer.isActive else {
+                presentStuckSince[id] = nil
+                lastCaptureCount[id] = nil
+                lastPresentCount[id] = nil
+                continue
+            }
+            let snap = renderer.diagSnapshot()
+            let prevFrames = lastCaptureCount[id]
+            let prevPres = lastPresentCount[id]
+            lastCaptureCount[id] = snap.frames
+            lastPresentCount[id] = snap.presents
+            guard let prevFrames, let prevPres else { continue }   // need a baseline tick first
+            if snap.frames > prevFrames && snap.presents == prevPres {
+                let since = presentStuckSince[id] ?? now
+                presentStuckSince[id] = since
+                if now - since >= Self.hardFreezeSeconds {
+                    presentStuckSince[id] = nil
+                    recoverFrozenOverlay(id, now: now)
+                }
+            } else {
+                presentStuckSince[id] = nil
+            }
+        }
+    }
+
+    /// Recreate a frozen display's overlay (the toggle-the-effect recovery the owner relies on),
+    /// or disable the overlay if freezes keep recurring so it can't trap the screen behind a
+    /// recreate loop.
+    private func recoverFrozenOverlay(_ id: CGDirectDisplayID, now: CFTimeInterval) {
+        var recent = (freezeRecoveries[id] ?? []).filter { now - $0 < 30 }
+        recent.append(now)
+        freezeRecoveries[id] = recent
+        lastCaptureCount[id] = nil   // recreated overlay re-measures from a clean baseline
+        lastPresentCount[id] = nil
+        if recent.count > 3 {
+            Log.render.error("Overlay on display \(id, privacy: .public) froze repeatedly; disabling so it can't trap the screen.")
+            Diag.freeze("EVENT hardFreeze-DISABLE id=\(id) recoveries=\(recent.count)/30s")
+            lastRecoveryMessage = "Effects turned off automatically after the overlay kept freezing. Re-enable when ready."
+            disable()
+            return
+        }
+        Log.render.error("Hard render freeze on display \(id, privacy: .public); recreating overlay (auto-recover).")
+        Diag.freeze("EVENT hardFreeze-RECOVER id=\(id) attempt=\(recent.count)")
+        renderEngine.deactivate(id)
+        updatePipelines()   // recreates the overlay + renderer + display link and re-wires capture
     }
 
     /// Recover from a GPU fault. Built-in shaders are validated and compiled at
@@ -1001,6 +1109,9 @@ final class SpectraEngine {
         performance.refresh()
         renderEngine.restartStalledDisplayLinks()     // rebuild any clock that died on a carry (fixes the freeze)
         renderEngine.ensureOverlaysOnActiveSpace()   // follow the user across Spaces (focused-display, occlusion-gated)
+        detectStalledCapture()                       // restart a capture stream that silently stalled on a Space switch
+        detectAndRecoverHardFreeze()                 // failsafe: auto-recover a frozen overlay so it can't trap the screen
+        renderEngine.logFreezeDiag()                 // TEMPORARY: per-tick freeze diagnostics
         governAutoQuality()                          // adaptive quality (the "Auto" toggle), no-op unless enabled
         // Render scale is applied on every path that changes it (setRenderScale) or
         // creates a session (startCapture), so no per-tick reconcile is needed.

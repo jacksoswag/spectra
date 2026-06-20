@@ -97,8 +97,9 @@ enum RetroEffects {
             .slider("intensity", "Intensity", 0...1, default: 0.5),
             .slider("persistence", "Persistence", 0...1, default: 0.5),
         ],
-        // Half-res smear pyramid: box downsample → half-res H blur+seed → half-res V
-        // blur → full-res composite/upsample (which also does the history feedback).
+        // Half-res smear pyramid: box downsample → half-res H blur+seed → half-res V blur →
+        // full-res composite/upsample (which also does the history feedback). Keeping the blurs
+        // at half res is cheaper than folding the V blur into the full-res upsample.
         passes: [
             EffectPass("fx_blur_downsample", scale: 0.5),
             EffectPass("fx_crt_phosphor_h", scale: 0.5, direction: SIMD2<Float>(1, 0)),

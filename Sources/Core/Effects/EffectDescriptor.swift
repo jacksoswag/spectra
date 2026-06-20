@@ -9,17 +9,34 @@ import simd
 /// `texture(0)` and the effect's *original* input on `texture(1)` so the final
 /// pass can composite universal parameters against the unmodified image.
 struct EffectPass: Hashable, Sendable {
-    /// Name of the Metal fragment function backing this pass.
+    /// Name of the Metal fragment (or, when `isCompute`, kernel) function backing this pass.
     let fragmentFunction: String
     /// Render-target size relative to the chain resolution (1 = full res).
     var scale: Float
     /// Direction vector supplied to the shader (separable/directional passes).
     var direction: SIMD2<Float>
+    /// When true this pass is a compute kernel: the renderer dispatches it over the
+    /// target with the source bound at texture(0), the effect input at texture(1),
+    /// aux at 2+, history at 10, and the writable output at texture(11).
+    var isCompute: Bool
+    /// When set, the pass's render-target scale is read from this parameter slot
+    /// (clamped to 0.4...1.0) instead of `scale`, so a "Render Scale" slider can trade
+    /// quality for speed at runtime. `scale` is the fallback when the slot reads ~0.
+    var scaleParam: Int?
+    /// When set, the output of the earlier pass at this index is bound at texture(9) for
+    /// this pass (in addition to src/orig). The renderer keeps that earlier output alive
+    /// instead of recycling it. Lets a late pass reuse an intermediate result (e.g. the oil
+    /// combine reusing the smoothed structure tensor) rather than recomputing it.
+    var tapPass: Int?
 
-    init(_ fragmentFunction: String, scale: Float = 1.0, direction: SIMD2<Float> = .zero) {
+    init(_ fragmentFunction: String, scale: Float = 1.0, direction: SIMD2<Float> = .zero,
+         isCompute: Bool = false, scaleParam: Int? = nil, tapPass: Int? = nil) {
         self.fragmentFunction = fragmentFunction
         self.scale = scale
         self.direction = direction
+        self.isCompute = isCompute
+        self.scaleParam = scaleParam
+        self.tapPass = tapPass
     }
 }
 
