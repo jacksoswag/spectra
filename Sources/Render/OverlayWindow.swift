@@ -113,6 +113,12 @@ final class OverlayWindow: NSWindow {
     /// only while the active Space is full-screen; ordinary Spaces keep the lower level.
     static let shieldingLevel = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
 
+    /// Level for Spectra's own control windows (Studio/Settings) when rendered CRISP above the
+    /// overlay (excluded from the shader) rather than through it — one step above the overlay's
+    /// shielding level. They are also added to the overlay's elevated Space (`SpaceManager`) so
+    /// they share its compositing band and sit on top of the shaded desktop.
+    static let controlAboveOverlayLevel = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
+
     let displayID: CGDirectDisplayID
     private let host: MetalLayerHostView
 

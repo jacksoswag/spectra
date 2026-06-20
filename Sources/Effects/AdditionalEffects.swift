@@ -18,6 +18,7 @@ enum AdditionalEffects {
         all += PixelEffects.all
         all += GlitchEffects.all
         all += EnvironmentEffects.all
+        all += StyleEffects.all
         return all
     }
 }

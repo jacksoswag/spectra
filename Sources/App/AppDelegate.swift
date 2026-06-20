@@ -16,6 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var engine: SpectraEngine?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Debug visual harness: if SPECTRA_SHADERTEST is set, render presets over test
+        // images to PNGs and exit before any window/capture starts. No-op otherwise.
+        ShaderTestHarness.runIfRequested()
         NSApp.setActivationPolicy(.regular)
     }
 

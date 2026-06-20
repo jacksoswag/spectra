@@ -70,7 +70,7 @@ struct StudioView: View {
                 libraryPanel
                     .frame(minWidth: 230, idealWidth: 280)
                 rightPanel
-                    .frame(minWidth: 250, idealWidth: 300, maxWidth: 460)
+                    .frame(minWidth: 280, idealWidth: 340, maxWidth: 520)
             }
             .frame(minHeight: 320)
         }
@@ -126,7 +126,15 @@ struct StudioView: View {
     private var rightPanel: some View {
         Group {
             if let stack = engine.activeStack {
-                EffectStackView(engine: engine, stack: stack, onSavePreset: { savingPreset = true })
+                // Stack list on top; the selected effect's parameter sliders below.
+                // The inspector reads `stack.selection`, so selecting an effect in the
+                // list reveals its grouped controls here.
+                VSplitView {
+                    EffectStackView(engine: engine, stack: stack, onSavePreset: { savingPreset = true })
+                        .frame(minHeight: 150, idealHeight: 240)
+                    InspectorView(engine: engine, stack: stack)
+                        .frame(minHeight: 180)
+                }
             } else {
                 ContentUnavailableView(
                     "No Active Chain",

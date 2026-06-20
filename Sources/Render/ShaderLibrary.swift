@@ -8,6 +8,7 @@ final class ShaderLibrary {
     private let context: MetalContext
     private let lock = NSLock()
     private var cache: [Key: MTLRenderPipelineState] = [:]
+    private var computeCache: [FunctionKey: MTLComputePipelineState] = [:]
     private var functionCache: [FunctionKey: MTLFunction] = [:]
 
     private struct Key: Hashable {
@@ -64,6 +65,25 @@ final class ShaderLibrary {
 
         let state = try context.device.makeRenderPipelineState(descriptor: descriptor)
         cache[key] = state
+        return state
+    }
+
+    /// Return (creating if needed) a compute pipeline for a kernel function. Used by
+    /// passes flagged `isCompute` (e.g. the tile-cached painterly).
+    func computePipeline(
+        _ functionName: String,
+        library: MTLLibrary? = nil
+    ) throws -> MTLComputePipelineState {
+        let lib = library ?? context.defaultLibrary
+        let key = FunctionKey(function: functionName, libraryID: library.map(ObjectIdentifier.init))
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let cached = computeCache[key] { return cached }
+        let function = try makeFunction(functionName, in: lib)
+        let state = try context.device.makeComputePipelineState(function: function)
+        computeCache[key] = state
         return state
     }
 

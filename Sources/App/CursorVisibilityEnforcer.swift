@@ -99,12 +99,45 @@ final class CursorVisibilityEnforcer {
         guard !cgHidden else { return }
         CGDisplayHideCursor(CGMainDisplayID())
         cgHidden = true
+        Diag.cursor("APPLY hide  -> cgHidden=1")
     }
 
     private func applyShow() {
         guard cgHidden else { return }
         CGDisplayShowCursor(CGMainDisplayID())
         cgHidden = false
+        Diag.cursor("APPLY show  -> cgHidden=0")
+    }
+
+    // MARK: - TEMPORARY diagnostics (remove with Diag.swift)
+
+    /// The last topmost (owner, number) we logged, so the stack dump records each region change
+    /// once instead of ~60 lines/second of the same stack.
+    private var lastLoggedHit: (owner: String, number: Int)?
+
+    /// Dump the TOP few windows containing the pointer (front-to-back: owner, number, layer,
+    /// overlay?) whenever the topmost changes. The single-topmost log wasn't enough — it showed
+    /// an unexplained "Window Server num=3" winning the hit-test. The full stack reveals exactly
+    /// what sits above the overlay over the Dock and what owner/layer to key the fix on.
+    private func logStack(windows: [[String: Any]], point: CGPoint) {
+        guard Diag.enabled else { return }
+        var containing: [(owner: String, num: Int, layer: Int, overlay: Bool)] = []
+        for window in windows {
+            guard let boundsDict = window[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
+                  rect.contains(point),
+                  let num = window[kCGWindowNumber as String] as? Int else { continue }
+            let owner = (window[kCGWindowOwnerName as String] as? String) ?? "?"
+            let layer = (window[kCGWindowLayer as String] as? Int) ?? -999
+            containing.append((owner, num, layer, isOverlayWindow?(num) ?? false))
+            if containing.count >= 5 { break }
+        }
+        guard let top = containing.first else { return }
+        if let last = lastLoggedHit, last.owner == top.owner, last.number == top.num { return }
+        lastLoggedHit = (top.owner, top.num)
+        let stack = containing.map { "\($0.owner)#\($0.num)@\($0.layer)\($0.overlay ? "*" : "")" }
+            .joined(separator: " > ")
+        Diag.cursor(String(format: "STACK pt=(%.0f,%.0f) %@", point.x, point.y, stack))
     }
 
     /// Re-hide after another app re-showed the cursor on motion over the overlay. The
@@ -127,13 +160,31 @@ final class CursorVisibilityEnforcer {
         guard let point = CGEvent(source: nil)?.location,
               let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
                 as? [[String: Any]] else { return lastPointerOverOverlay }
+        logStack(windows: windows, point: point)
         for window in windows {   // front-to-back: first containing window is topmost
             guard let boundsDict = window[kCGWindowBounds as String] as? NSDictionary,
                   let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
                   rect.contains(point) else { continue }
             guard let number = window[kCGWindowNumber as String] as? Int else { continue }
-            lastPointerOverOverlay = isOverlayWindow(number)
-            return lastPointerOverOverlay
+            if isOverlayWindow(number) {
+                lastPointerOverOverlay = true
+                return true
+            }
+            // The Dock composites in a band `CGWindowList` reports ABOVE the overlay, so it is
+            // the topmost window under the pointer even though the elevated overlay visually
+            // shades it (the Dock is correctly tinted). The cursor the user sees over the Dock
+            // is therefore the rendered one drawn into the overlay, so hide the hardware cursor
+            // as everywhere else the overlay covers — without this both cursors show. The
+            // genuine above-overlay chrome (menu bar, status menus, dropdowns) is owned by other
+            // processes and still shows the real cursor (the rendered one can't reach it). The
+            // Dock-owned desktop wallpaper can't trip this: it sits BELOW the overlay, so the
+            // overlay wins the topmost test above before this branch is reached.
+            if (window[kCGWindowOwnerName as String] as? String) == "Dock" {
+                lastPointerOverOverlay = true
+                return true
+            }
+            lastPointerOverOverlay = false
+            return false
         }
         lastPointerOverOverlay = false   // nothing under the pointer — show the real cursor
         return false

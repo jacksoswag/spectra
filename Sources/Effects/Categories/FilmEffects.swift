@@ -7,8 +7,8 @@ import simd
 enum FilmEffects {
     static let all: [EffectDescriptor] = [
         sixteenMM, thirtyFiveMM, seventyMM, kodak, fuji,
-        grain, dust, scratches, gateWeave, lightLeaks,
-        halation, bloom, flicker, burn,
+        grain, dust, scratches, gateWeave, debris, lightLeaks,
+        halation, bloom, glow, flicker, burn,
     ]
 
     static let sixteenMM = EffectDescriptor(
@@ -71,8 +71,9 @@ enum FilmEffects {
             .slider("intensity", "Intensity", 0...1, default: 0.4),
             .slider("size", "Grain Size", 0.5...6, default: 1.8),
             .slider("speed", "Speed", 0...1, default: 1.0),
+            .slider("color", "Color Grain", 0...1, default: 0),
         ],
-        tags: ["grain", "texture", "noise"],
+        tags: ["grain", "texture", "noise", "color"],
         isAnimated: true)
 
     static let dust = EffectDescriptor(
@@ -106,6 +107,19 @@ enum FilmEffects {
             .slider("speed", "Speed", 0...1, default: 0.5),
         ],
         tags: ["weave", "jitter", "transport"],
+        isAnimated: true)
+
+    static let debris = EffectDescriptor(
+        id: "film.debris", name: "Film Debris", category: .film,
+        subtitle: "Animated dust and hairs that contrast with the background.", icon: "sparkles",
+        function: "fx_film_debris",
+        parameters: [
+            .slider("intensity", "Intensity", 0...1, default: 0.5),
+            .slider("density", "Density", 0...1, default: 0.4),
+            .slider("speed", "Speed", 0...1, default: 0.5),
+            .slider("invert", "Invert (Dark)", 0...1, default: 0),
+        ],
+        tags: ["dust", "hair", "debris", "damage"],
         isAnimated: true)
 
     static let lightLeaks = EffectDescriptor(
@@ -149,6 +163,31 @@ enum FilmEffects {
             EffectPass("fx_film_bloom_combine", scale: 1.0),
         ],
         tags: ["bloom", "glow", "highlights"])
+
+    // Combined bloom + halation from ONE shared blur pyramid (the prefilter and separable blur
+    // are identical to Bloom/Halation; only the combine differs). Running ONE pyramid instead of
+    // two halves the glow cost — 8 passes → 4 — while the blur stays at HALF resolution so GPU
+    // time drops too. `bloom`/`halation` dial each contribution independently; the optional
+    // `grain` folds a trailing film grain into the (cheap, single-read) combine for free. Not
+    // animated: grain resamples on every delivered frame and is imperceptibly static on a frozen
+    // screen, so it adds no idle-repaint cost. See `fx_film_glow_combine` in Film.metal.
+    static let glow = EffectDescriptor(
+        id: "film.glow", name: "Glow", category: .film,
+        subtitle: "Bloom and halation from one shared pyramid.", icon: "rays",
+        parameters: [
+            .slider("threshold", "Threshold", 0...1, default: 0.6),
+            .slider("bloom", "Bloom", 0...2, default: 0.6),
+            .slider("halation", "Halation", 0...2, default: 0.4),
+            .slider("grain", "Grain", 0...1, default: 0.0),
+            .slider("grainSize", "Grain Size", 0.5...6, default: 1.4),
+        ],
+        passes: [
+            EffectPass("fx_film_glow_prefilter", scale: 0.5),
+            EffectPass("fx_film_glow_blur", scale: 0.5, direction: SIMD2<Float>(1, 0)),
+            EffectPass("fx_film_glow_blur", scale: 0.5, direction: SIMD2<Float>(0, 1)),
+            EffectPass("fx_film_glow_combine", scale: 1.0),
+        ],
+        tags: ["bloom", "halation", "glow", "highlights"])
 
     static let flicker = EffectDescriptor(
         id: "film.flicker", name: "Flicker", category: .film,

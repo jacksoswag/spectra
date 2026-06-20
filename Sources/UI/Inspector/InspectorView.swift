@@ -16,8 +16,8 @@ struct InspectorView: View {
             if let instance = selection, let descriptor {
                 VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                     header(instance: instance, descriptor: descriptor)
-                    universalSection(instance: instance)
                     parameterSections(instance: instance, descriptor: descriptor)
+                    universalSection(instance: instance)
                 }
                 .padding(Theme.Spacing.lg)
             } else {
@@ -84,8 +84,10 @@ struct InspectorView: View {
     }
 
     private func parameterSections(instance: EffectInstance, descriptor: EffectDescriptor) -> some View {
-        let groups = Dictionary(grouping: descriptor.parameters) { $0.group ?? "Parameters" }
-        let order = orderedGroupNames(descriptor.parameters)
+        // Parameters in the "Hidden" group are baked-in (tuned, not user-facing) and never shown.
+        let visible = descriptor.parameters.filter { $0.group != Self.hiddenGroup }
+        let groups = Dictionary(grouping: visible) { $0.group ?? "Parameters" }
+        let order = orderedGroupNames(visible)
         return ForEach(order, id: \.self) { name in
             InspectorSection(title: name) {
                 ForEach(groups[name] ?? []) { parameter in
@@ -94,6 +96,10 @@ struct InspectorView: View {
             }
         }
     }
+
+    /// Sentinel group name for parameters that exist on the GPU (and keep their default/preset
+    /// value) but are intentionally not exposed in the inspector.
+    static let hiddenGroup = "Hidden"
 
     private func orderedGroupNames(_ parameters: [EffectParameter]) -> [String] {
         var seen: [String] = []

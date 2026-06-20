@@ -5,14 +5,15 @@ import Foundation
 enum PresetCategory: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
     case cinematic = "Cinematic"
     case retro = "Retro"
+    case artistic = "Artistic"
     case film = "Film"
-    case photography = "Photography"
     case gaming = "Gaming"
     case sciFi = "Sci-Fi"
     case accessibility = "Accessibility"
     case analog = "Analog"
     case experimental = "Experimental"
     case horror = "Horror"
+    case utility = "Utility"
     case user = "My Presets"
 
     var id: String { rawValue }
@@ -22,8 +23,9 @@ enum PresetCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
         switch self {
         case .cinematic: "film.stack"
         case .retro: "tv.fill"
+        case .artistic: "paintbrush.pointed.fill"
         case .film: "film.fill"
-        case .photography: "camera.fill"
+        case .utility: "eye"
         case .gaming: "gamecontroller.fill"
         case .sciFi: "sparkles.tv.fill"
         case .accessibility: "accessibility.fill"

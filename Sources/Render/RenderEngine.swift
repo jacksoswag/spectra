@@ -10,6 +10,9 @@ import Metal
 final class RenderEngine {
     let context: MetalContext
     let shaders: ShaderLibrary
+    /// Shared across every display: reads the live cursor on the main thread and publishes an
+    /// immutable snapshot the off-main render (link) thread consumes.
+    let cursorSampler: CursorSampler
 
     private var renderers: [CGDirectDisplayID: DisplayRenderer] = [:]
     private var overlays: [CGDirectDisplayID: OverlayWindow] = [:]
@@ -71,6 +74,7 @@ final class RenderEngine {
     init(context: MetalContext) {
         self.context = context
         self.shaders = ShaderLibrary(context: context)
+        self.cursorSampler = CursorSampler(device: context.device)
         // Follow the user across Spaces. When the active Space changes, pull the
         // visible overlays onto it (each is a single-Space window, so ordering it
         // front moves it to the now-active Space) — this gives "shader on every
@@ -104,6 +108,7 @@ final class RenderEngine {
         spaceSettleDeadline = CACurrentMediaTime() + 0.3
         spaceCarryGeneration += 1
         let generation = spaceCarryGeneration
+        Diag.freeze("EVENT activeSpaceDidChange gen=\(generation) visible=\(visibleDisplayIDs.count)")
         // Make the overlay TRANSPARENT (not hidden) for the duration of the swipe, and
         // reveal it again once the swipe settles (`ensureOverlaysOnActiveSpace`). During a
         // swipe the opaque overlay slides out with the outgoing Space while it keeps
@@ -145,13 +150,11 @@ final class RenderEngine {
     /// Only called once a Space transition has settled (see `activeSpaceDidChange`).
     private func followActiveSpace() {
         for id in visibleDisplayIDs { carryAndRebuild(id) }
-        // The swipe has settled: let the control windows follow to the now-active Space
-        // again (migrating now can't reverse a completed gesture), and wake capture so a
-        // fresh frame lands on the new Space — re-showing the overlay re-dirties it, but
-        // re-issuing the content filter guarantees ScreenCaptureKit emits one.
-        for window in controlWindowsProvider() {
-            window.collectionBehavior.insert(.moveToActiveSpace)
-        }
+        // The swipe has settled. The controls live in the overlay's elevated Space, so re-assert
+        // them above the overlay there rather than migrating onto the user's now-active Space.
+        raiseControlWindowsAboveOverlay()
+        // Wake capture so a fresh frame lands on the new Space — re-showing the overlay
+        // re-dirties it, but re-issuing the content filter guarantees ScreenCaptureKit emits one.
         onActiveSpaceSettled()
         // Reveal each overlay the instant a FRESH frame for the now-active Space has been
         // presented (armed after the carry + capture re-issue above), instead of revealing a
@@ -232,8 +235,26 @@ final class RenderEngine {
         for renderer in renderers.values { renderer.restartDisplayLinkIfStalled() }
     }
 
+    /// TEMPORARY per-tick freeze diagnostics (remove with Diag.swift). For each visible overlay,
+    /// log capture/present counters, link health, occlusion, and alpha — so a captured freeze
+    /// shows its exact signature (capture stalled vs link dead vs presenting-but-invisible).
+    func logFreezeDiag() {
+        guard Diag.enabled else { return }
+        for id in visibleDisplayIDs {
+            guard let overlay = overlays[id], let renderer = renderers[id] else { continue }
+            let s = renderer.diagSnapshot()
+            Diag.freeze(String(format:
+                "TICK id=%u frames=%llu pres=%llu cbAgeMs=%d paused=%d active=%d occlVis=%d alpha=%.2f elevated=%d",
+                id, s.frames, s.presents, s.callbackAge < 0 ? -1 : Int(s.callbackAge * 1000),
+                s.paused ? 1 : 0, s.active ? 1 : 0,
+                overlay.occlusionState.contains(.visible) ? 1 : 0,
+                overlay.alphaValue, elevatedDisplays.contains(id) ? 1 : 0))
+        }
+    }
+
     private func carryAndRebuild(_ id: CGDirectDisplayID) {
         guard let overlay = overlays[id] else { return }
+        Diag.freeze("EVENT carryAndRebuild id=\(id) wasElevated=\(elevatedDisplays.contains(id) ? 1 : 0)")
         if Self.alwaysElevateOverlay || spaceManager.activeSpaceNeedsExplicitPlacement(displayID: id) {
             // Lift the overlay into our OWN elevated Space (SpaceManager): macOS allows adding the
             // window to a Space we created and raised above the Space carousel / fullscreen
@@ -288,7 +309,9 @@ final class RenderEngine {
         overlay.setEDR(enabled: display.supportsEDR)
         overlay.setCoversMenuBarAndDock(coversMenuBarAndDock)
         let renderer = DisplayRenderer(
-            displayID: display.id, overlay: overlay, context: context, shaders: shaders)
+            displayID: display.id, overlay: overlay, context: context, shaders: shaders,
+            cursorSampler: cursorSampler)
+        renderer.setOverlayFramePoints(display.frame)
         overlays[display.id] = overlay
         renderers[display.id] = renderer
         // First time a display goes live: warm the pipelines every overlay uses
@@ -338,15 +361,72 @@ final class RenderEngine {
             // not only after the first Space change carries it. (`show()` gives it a real window
             // number, which the elevation SPI needs.)
             if Self.alwaysElevateOverlay && freshShow { carryAndRebuild(displayID) }
+            // Keep Spectra's own controls crisp on top of the shaded desktop (excluded from the
+            // shader), one level above the overlay in its elevated Space.
+            raiseControlWindowsAboveOverlay()
         } else {
             visibleDisplayIDs.remove(displayID)
             overlay.hide()
+            if visibleDisplayIDs.isEmpty { restoreControlWindowsToNormal() }
         }
     }
 
     func updateGeometry(_ display: DisplayInfo) {
         overlays[display.id]?.update(frame: display.frame, scale: display.scale)
         overlays[display.id]?.setEDR(enabled: display.supportsEDR)
+        renderers[display.id]?.setOverlayFramePoints(display.frame)
+    }
+
+    /// Engage/disengage the stylized cursor for every display at once. One shared
+    /// `CursorSampler` reads the AppKit cursor on the main thread; the renderers' compositors
+    /// draw its published snapshot, so the cursor read never touches the off-main link thread.
+    func setCustomCursorEnabled(_ on: Bool) {
+        cursorSampler.setEnabled(on)
+        for renderer in renderers.values { renderer.setCustomCursorEnabled(on) }
+    }
+
+    // MARK: - Crisp control windows (Studio/Settings above the overlay)
+
+    /// Lift one control window into the overlay's elevated Space at a level just above the
+    /// overlay, so it renders crisp on top of the shaded desktop instead of through the shader.
+    /// No-op when no overlay is visible (the controls then keep their normal level). The
+    /// overlay's own placement is untouched.
+    func raiseControlWindowAboveOverlay(_ window: NSWindow) {
+        guard !visibleDisplayIDs.isEmpty else { return }
+        window.level = OverlayWindow.controlAboveOverlayLevel
+        // Only re-front a control window that is ALREADY on screen. This runs on every Space
+        // switch (via `followActiveSpace` → `raiseControlWindowsAboveOverlay`); without the
+        // guard a closed/hidden Studio or Settings window gets `orderFrontRegardless`'d back
+        // into view on every swipe — the "Studio reappears on Space switch" bug. The level
+        // (and the elevated-Space placement below) are still applied unconditionally so the
+        // window lands correctly the moment it IS intentionally opened (`frontStudioWindow` /
+        // `registerControlWindow` make it key/visible first, then re-assert here).
+        if window.isVisible {
+            window.orderFrontRegardless()
+        }
+        // Add it to the same elevated Space the overlay lives in, so it shares the compositing
+        // band that sits above the Space carousel (otherwise the elevated overlay covers it).
+        if Self.alwaysElevateOverlay {
+            spaceManager.placeWindowAboveFullscreen(window.windowNumber)
+        }
+    }
+
+    /// Re-assert every tracked control window above the overlay (after a show or a Space carry).
+    func raiseControlWindowsAboveOverlay() {
+        for window in controlWindowsProvider() { raiseControlWindowAboveOverlay(window) }
+    }
+
+    /// Drop control windows back to a normal level/Space when the overlay goes away, so they
+    /// behave like ordinary windows again.
+    func restoreControlWindowsToNormal() {
+        for window in controlWindowsProvider() {
+            window.level = .normal
+            if Self.alwaysElevateOverlay,
+               let screen = window.screen ?? NSScreen.main,
+               let num = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value {
+                spaceManager.restoreWindowToActiveSpace(window.windowNumber, displayID: num)
+            }
+        }
     }
 
     func updateChain(_ resolved: [ResolvedEffect], displayID: CGDirectDisplayID) {

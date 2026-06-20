@@ -37,6 +37,7 @@ enum Theme {
         case .pixel: .cyan
         case .glitch: .red
         case .environment: .blue
+        case .artistic: .brown
         case .accessibility: .yellow
         case .custom: accent
         }

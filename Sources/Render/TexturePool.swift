@@ -51,7 +51,7 @@ final class TexturePool: @unchecked Sendable {
         width: Int,
         height: Int,
         pixelFormat: MTLPixelFormat = MetalContext.workingPixelFormat,
-        usage: MTLTextureUsage = [.shaderRead, .renderTarget]
+        usage: MTLTextureUsage = [.shaderRead, .renderTarget, .shaderWrite]
     ) -> MTLTexture {
         let safeWidth = max(1, width)
         let safeHeight = max(1, height)

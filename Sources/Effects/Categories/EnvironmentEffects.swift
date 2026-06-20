@@ -7,7 +7,7 @@ import simd
 /// scalars/angles occupy one.
 enum EnvironmentEffects {
     static let all: [EffectDescriptor] = [
-        rain, fog, snow, dust, underwater,
+        rain, fog, snow, dust, bubbles, underwater,
         heatHaze, godRays, sunGlare, lensFlare, clouds,
     ]
 
@@ -56,6 +56,19 @@ enum EnvironmentEffects {
             .slider("speed", "Speed", 0...1, default: 0.4),
         ],
         tags: ["motes", "particles", "air"],
+        isAnimated: true)
+
+    static let bubbles = EffectDescriptor(
+        id: "environment.bubbles", name: "Bubbles", category: .environment,
+        subtitle: "Rising glossy water-bubble bokeh.", icon: "bubbles.and.sparkles",
+        function: "fx_env_bubbles",
+        parameters: [
+            .slider("density", "Density", 0...1, default: 0.5),
+            .slider("size", "Size", 0...1, default: 0.5),
+            .slider("speed", "Speed", 0...1, default: 0.4),
+            .slider("opacity", "Opacity", 0...1, default: 0.7),
+        ],
+        tags: ["bubbles", "bokeh", "frutiger aero", "glossy", "water"],
         isAnimated: true)
 
     static let underwater = EffectDescriptor(

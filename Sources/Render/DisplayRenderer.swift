@@ -39,9 +39,18 @@ final class DisplayRenderer: NSObject {
     private let pool: TexturePool
     private let chainRenderer: EffectChainRenderer
     private let overlay: OverlayWindow
-    /// Composites the live cursor into the frame (before the chain) when the custom
-    /// cursor is enabled. Used only on the main thread (the render callback).
+    /// Composites the live cursor into the frame (before the chain) when the custom cursor is
+    /// enabled. Stateless; reads an immutable snapshot the shared main-actor `cursorSampler`
+    /// publishes, so it runs on the off-main link thread.
     private let cursorCompositor: CursorCompositor
+    /// Shared main-actor sampler that reads the live cursor (NSEvent/NSCursor) on the main
+    /// thread and publishes a thread-safe snapshot the link-thread callback consumes.
+    private let cursorSampler: CursorSampler
+    /// Hosts the `CAMetalDisplayLink` callback OFF the main run loop, so SwiftUI (the Studio
+    /// window) laying out can't delay a tick and add ~one frame of latency. The link object's
+    /// lifecycle (create/pause/rebuild/invalidate) still runs on the main thread; only the
+    /// per-frame callback executes on this thread.
+    private let linkThread = RenderLinkThread()
 
     /// Render-pipeline depth. Kept in lock-step with the overlay layer's
     /// `maximumDrawableCount` (OverlayWindow): 2 = double-buffered, which trims ~one
@@ -50,6 +59,16 @@ final class DisplayRenderer: NSObject {
     private let maxInFlight = 2
     private let inFlight: DispatchSemaphore
     private let startTime = CACurrentMediaTime()
+
+    /// Guards the handful of scalars the main thread writes and the link-thread callback
+    /// reads: `_active`, `intensityScale`, `preferredFrameRate`, `cachedFramePoints`,
+    /// `lastCallbackTime`. Everything else is either `frameLock`-guarded (the mailbox) or
+    /// confined to one thread (`frameCounter`/`historyTexture`/`lastRenderHostTime` are
+    /// link-thread only; the reveal state is main only).
+    private let stateLock = NSLock()
+    /// The overlay's frame in AppKit global points, cached on the main thread (the link thread
+    /// must not read `NSWindow.frame`); the cursor composite places against it.
+    private var cachedFramePoints: CGRect = .zero
 
     /// Hard ceiling on the render/present rate. Capture and the display link are both
     /// held at or below this; the user's Frame Rate setting can only lower it.
@@ -120,10 +139,12 @@ final class DisplayRenderer: NSObject {
     /// link is paused and no frames are presented (e.g. the display is hidden).
     private var _active = false
     var isActive: Bool {
-        get { _active }
+        get { stateLock.lock(); defer { stateLock.unlock() }; return _active }
         set {
-            guard _active != newValue else { return }
+            stateLock.lock()
+            guard _active != newValue else { stateLock.unlock(); return }
             _active = newValue
+            stateLock.unlock()
             if newValue {
                 ensureDisplayLink()
                 displayLink?.isPaused = false
@@ -141,22 +162,32 @@ final class DisplayRenderer: NSObject {
     /// recover rather than letting the fault repeat every frame.
     var faultHandler: ((Error?) -> Void)?
 
-    init(displayID: CGDirectDisplayID, overlay: OverlayWindow, context: MetalContext, shaders: ShaderLibrary) {
+    init(displayID: CGDirectDisplayID, overlay: OverlayWindow, context: MetalContext,
+         shaders: ShaderLibrary, cursorSampler: CursorSampler) {
         self.displayID = displayID
         self.overlay = overlay
         self.context = context
         self.shaders = shaders
+        self.cursorSampler = cursorSampler
         self.pool = TexturePool(device: context.device)
         self.chainRenderer = EffectChainRenderer(context: context, shaders: shaders, pool: pool)
-        self.cursorCompositor = CursorCompositor(device: context.device, shaders: shaders)
+        self.cursorCompositor = CursorCompositor(shaders: shaders)
         self.inFlight = DispatchSemaphore(value: maxInFlight)
+        self.cachedFramePoints = overlay.frame
         super.init()
     }
 
-    /// Enable/disable drawing the live cursor into the frame (so it runs through
-    /// the chain). Called from the main actor.
+    /// Enable/disable drawing the live cursor into the frame (so it runs through the chain).
+    /// Called from the main actor. The shared `cursorSampler` is engaged separately by the
+    /// engine; this only flips whether the composite pass runs.
     func setCustomCursorEnabled(_ on: Bool) {
         cursorCompositor.enabled = on
+    }
+
+    /// Cache the overlay's current frame (AppKit global points) for the cursor composite. Main
+    /// thread.
+    func setOverlayFramePoints(_ frame: CGRect) {
+        stateLock.lock(); cachedFramePoints = frame; stateLock.unlock()
     }
 
     /// Replace the chain rendered onto this display. Thread-safe.
@@ -187,6 +218,30 @@ final class DisplayRenderer: NSObject {
         pendingSeq = submitSeq
         frameLock.unlock()
     }
+
+    /// Monotonic count of frames received from the capture queue (bumped in `submit`). The
+    /// engine's post-Space-switch capture watchdog reads this to detect a stream that silently
+    /// stopped delivering frames after a carry: ScreenCaptureKit can sit emitting only
+    /// non-`.complete` frames (or none) without ever calling `didStopWithError`, so the normal
+    /// restart path never runs and the overlay freezes on the last frame. Thread-safe.
+    var capturedFrameCount: UInt64 {
+        frameLock.lock(); defer { frameLock.unlock() }; return submitSeq
+    }
+
+    /// TEMPORARY diagnostics snapshot (remove with Diag.swift). `frames` = total captured,
+    /// `presents` = total presented to the drawable, `callbackAge` = seconds since the last
+    /// display-link callback (-1 if none yet), `paused` = link paused state, `active` = `_active`.
+    /// Together these say whether the freeze is: capture stalled (frames flat), link dead
+    /// (callbackAge climbing), or presenting fine but invisible (presents climbing, alpha 0).
+    func diagSnapshot() -> (frames: UInt64, presents: UInt64, callbackAge: Double, paused: Bool, active: Bool) {
+        stateLock.lock(); let cb = lastCallbackTime; let active = _active; stateLock.unlock()
+        frameLock.lock(); let f = submitSeq; frameLock.unlock()
+        let age = cb > 0 ? CACurrentMediaTime() - cb : -1
+        return (f, presentCount, age, displayLink?.isPaused ?? true, active)
+    }
+    /// Total frames presented to a drawable (bumped on the link thread in the callback). Read
+    /// for diagnostics only; a plain counter, races are harmless for logging.
+    private var presentCount: UInt64 = 0
 
     // MARK: - Frame-gated reveal (main thread)
 
@@ -220,20 +275,25 @@ final class DisplayRenderer: NSObject {
 
     // MARK: - Display-link lifecycle (main thread)
 
-    /// Create the render clock (once) and attach it to the main run loop in the common
-    /// modes, so it keeps firing while the user interacts with menus etc. The clock is a
+    /// Create the render clock (once) and attach it to the dedicated `linkThread`'s run loop
+    /// (NOT the main run loop), so SwiftUI layout on main can't delay a tick. The clock is a
     /// `CAMetalDisplayLink` bound to the overlay layer: it actively drives the layer at the
     /// full display refresh (60), which a screen-tied `NSScreen.displayLink` does NOT — that
     /// follows the display's adaptive rate, which macOS throttles to ~30 for the opaque,
     /// low-motion overlay. The tradeoff is that this link stops when the overlay window is
     /// hidden/re-ordered (a Space carry), so `rebuildDisplayLink` re-creates it after a carry.
+    /// The link OBJECT is created/paused/invalidated here on the main thread (thread-safe and
+    /// keeps the proven Space lifecycle unchanged); only its callback runs on `linkThread`.
     private func ensureDisplayLink() {
         guard displayLink == nil else { return }
+        linkThread.start(name: "com.spectra.renderlink.\(displayID)")
+        guard let runLoop = linkThread.runLoop else { return }
         let link = CAMetalDisplayLink(metalLayer: overlay.metalLayer)
         link.delegate = self
         link.isPaused = true
         applyPreferredFrameRate(to: link)
-        link.add(to: .main, forMode: .common)
+        link.add(to: runLoop, forMode: .common)   // off-main — see RenderLinkThread
+        linkThread.wake()                          // service the freshly-added link this cycle, not after the bounded wait
         displayLink = link
     }
 
@@ -241,12 +301,15 @@ final class DisplayRenderer: NSObject {
     /// window, which stops a `CAMetalDisplayLink` permanently; the engine calls this right
     /// after a carry so the overlay resumes painting on the new Space instead of freezing.
     func rebuildDisplayLink() {
-        guard isActive else { return }
+        guard isActive else { Diag.freeze("EVENT rebuildLink id=\(displayID) SKIPPED(inactive)"); return }
+        Diag.freeze("EVENT rebuildLink id=\(displayID)")
         displayLink?.invalidate()
         displayLink = nil
         ensureDisplayLink()
         displayLink?.isPaused = false
-        lastCallbackTime = CACurrentMediaTime()   // give the fresh link time before the watchdog re-checks
+        // Give the fresh link time before the watchdog re-checks (written on main, read by the
+        // watchdog on main and by the callback on the link thread).
+        stateLock.lock(); lastCallbackTime = CACurrentMediaTime(); stateLock.unlock()
         requestRedraw()
     }
 
@@ -257,32 +320,37 @@ final class DisplayRenderer: NSObject {
     /// Gated on the overlay actually being visible so a legitimately-dormant link (overlay on
     /// a Space that isn't currently displayed) isn't churned, plus a cooldown.
     func restartDisplayLinkIfStalled() {
-        guard isActive, lastCallbackTime > 0,
-              overlay.occlusionState.contains(.visible) else { return }
+        stateLock.lock(); let active = _active; let lastCB = lastCallbackTime; stateLock.unlock()
+        guard active, lastCB > 0, overlay.occlusionState.contains(.visible) else { return }
         let now = CACurrentMediaTime()
-        guard now - lastCallbackTime > 0.75 else { return }     // stalled: no callback for >0.75s
-        guard now - lastWatchdogRebuild > 3.0 else { return }   // cooldown
+        guard now - lastCB > 0.75 else { return }               // stalled: no callback for >0.75s
+        guard now - lastWatchdogRebuild > 1.0 else { return }   // cooldown (main-only); short so a re-death recovers fast now that rebuilds actually take effect
         lastWatchdogRebuild = now
+        Diag.freeze("EVENT linkWatchdog-restart id=\(displayID) cbAgeMs=\(Int((now - lastCB) * 1000))")
         rebuildDisplayLink()
     }
 
     /// Lower the render/present rate to the user's Frame Rate setting. Never raises
     /// it above `maxRenderFPS`.
     func setPreferredFrameRate(_ fps: Int) {
-        guard fps != preferredFrameRate else { return }
+        stateLock.lock()
+        guard fps != preferredFrameRate else { stateLock.unlock(); return }
         preferredFrameRate = fps
+        stateLock.unlock()
         if let displayLink { applyPreferredFrameRate(to: displayLink) }
     }
 
     /// Set the global intensity multiplier (main actor). Cheap; takes effect on the
     /// next rendered frame.
     func setIntensityScale(_ scale: Float) {
-        intensityScale = scale
+        stateLock.lock(); intensityScale = scale; stateLock.unlock()
     }
 
-    /// The single effective render cap: `maxRenderFPS`, lowered by the user setting.
+    /// The single effective render cap: `maxRenderFPS`, lowered by the user setting. Read on
+    /// the link thread (rate cap) and the main thread, so it locks.
     private var renderFPSCap: Double {
-        preferredFrameRate > 0 ? min(Double(preferredFrameRate), maxRenderFPS) : maxRenderFPS
+        stateLock.lock(); defer { stateLock.unlock() }
+        return preferredFrameRate > 0 ? min(Double(preferredFrameRate), maxRenderFPS) : maxRenderFPS
     }
 
     private func applyPreferredFrameRate(to link: CAMetalDisplayLink) {
@@ -304,26 +372,27 @@ final class DisplayRenderer: NSObject {
         displayLink?.invalidate()  // detaches from the run loop; no more callbacks
         displayLink = nil
         clearMailbox()
-        pool.purge()
+        // Free pooled textures + history ON the link thread, after any in-flight callback, so a
+        // purge can't race a frame still encoding there; then stop the thread.
+        linkThread.performSync { [weak self] in
+            self?.historyTexture = nil
+            self?.pool.purge()
+        }
+        linkThread.stop()
     }
 
-    // MARK: - Frame rendering (main thread, via the display-link callback)
+    // MARK: - Frame rendering (link thread, via the display-link callback)
 
-    /// Render and present a captured frame onto `drawable` (supplied by the display-link
-    /// callback). Drops the frame (reporting it) if no in-flight slot is available.
-    /// Returns whether the drawable was actually presented (used to gate the reveal).
+    /// Encode and present a captured frame onto `drawable` (supplied by the display-link
+    /// callback). Runs on the link thread; the caller has already acquired the in-flight slot.
+    /// Reads the main-published inputs (cursor snapshot, frame points, intensity) here. Returns
+    /// whether the drawable was actually presented (used to gate the reveal).
     @discardableResult
     private func renderFrame(_ frame: CapturedFrame, drawable: CAMetalDrawable) -> Bool {
         let encodeStart = CACurrentMediaTime()
 
-        guard inFlight.wait(timeout: .now()) == .success else {
-            requestRedraw()   // no GPU slot this tick; retry on the next one
-            report(dropped: true, cpu: 0, gpu: 0, latency: 0, passes: 0)
-            return false
-        }
-
         guard let commandBuffer = context.commandQueue.makeCommandBuffer() else {
-            inFlight.signal()
+            inFlight.signal()   // release the slot the caller acquired
             requestRedraw()
             report(dropped: true, cpu: 0, gpu: 0, latency: 0, passes: 0)
             return false
@@ -334,6 +403,8 @@ final class DisplayRenderer: NSObject {
         let snapshot = chain
         chainLock.unlock()
 
+        stateLock.lock(); let intensity = intensityScale; let framePoints = cachedFramePoints; stateLock.unlock()
+
         let time = Float(CACurrentMediaTime() - startTime)
         frameCounter += 1
         let clock = FrameContext.liveClock()
@@ -342,12 +413,13 @@ final class DisplayRenderer: NSObject {
             clockSeconds: clock.clockSeconds,
             year: clock.year, month: clock.month, day: clock.day,
             batteryLevel: BatteryProvider.level(),
-            intensityScale: intensityScale)
+            intensityScale: intensity)
 
-        // Optionally draw the live cursor into the frame so it goes through the
-        // chain. The composited texture (if any) is released on GPU completion.
+        // Optionally draw the live cursor into the frame so it goes through the chain, using
+        // the snapshot the main-actor sampler published. The composited texture (if any) is
+        // released on GPU completion.
         let cursorComposite = cursorCompositor.composite(
-            input: frame.texture, displayFramePoints: overlay.frame,
+            input: frame.texture, snapshot: cursorSampler.current(), displayFramePoints: framePoints,
             into: commandBuffer, pool: pool)
         let chainInput = cursorComposite ?? frame.texture
 
@@ -456,7 +528,7 @@ final class DisplayRenderer: NSObject {
     }
 
     func purge() {
-        pool.purge()
+        linkThread.perform { [weak self] in self?.pool.purge() }
     }
 }
 
@@ -465,7 +537,9 @@ final class DisplayRenderer: NSObject {
 extension DisplayRenderer: CAMetalDisplayLinkDelegate {
     func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
         guard isActive else { return }
-        lastCallbackTime = CACurrentMediaTime()   // watchdog heartbeat (keyed on delivery, not renders)
+        // Watchdog heartbeat (keyed on callback delivery). Written here on the link thread,
+        // read by the watchdog on main — guarded.
+        stateLock.lock(); lastCallbackTime = CACurrentMediaTime(); stateLock.unlock()
 
         frameLock.lock()
         let hasNew = pendingFrame != nil
@@ -499,11 +573,23 @@ extension DisplayRenderer: CAMetalDisplayLinkDelegate {
             if hasNew || redraw { requestRedraw() }
             return
         }
+        // Gate on a free in-flight slot before taking the link's drawable, so we never hold more
+        // than `maxInFlight` drawables; the encode signals the slot back on GPU completion.
+        guard inFlight.wait(timeout: .now()) == .success else {
+            if hasNew || redraw { requestRedraw() }
+            return
+        }
         lastRenderHostTime = now
 
+        // This callback already runs on the link thread (off the main run loop), so encode +
+        // present directly here. `renderFrame` reads the main-published inputs (cursor snapshot,
+        // cached frame points, intensity, battery) itself. The drawable comes from the link.
         let presented = renderFrame(frame, drawable: update.drawable)
-        // Reveal the overlay only on a genuinely-new captured frame that actually went to
-        // the drawable, so a frame-gated reveal never un-hides on a stale redraw.
-        if presented, hasNew { fireRevealIfReady(presentedSeq: frameSeq) }
+        if presented { presentCount &+= 1 }   // TEMPORARY diagnostics counter
+        // Fire the reveal only on a genuinely-new captured frame that actually reached the
+        // drawable (never on a stale redraw). It touches NSWindow, so hop to the main thread.
+        if presented, hasNew {
+            DispatchQueue.main.async { [weak self] in self?.fireRevealIfReady(presentedSeq: frameSeq) }
+        }
     }
 }

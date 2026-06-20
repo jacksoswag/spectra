@@ -38,7 +38,7 @@ struct SpectraApp: App {
             // refresh re-renders that one row, never the whole panel — leaving the
             // Quality slider and an open Presets submenu undisturbed.
             if let engine {
-                MenuBarLabel(engine: engine)
+                MenuBarStatusLabel(engine: engine)
             } else {
                 Image(systemName: "sparkles")
             }
@@ -62,6 +62,27 @@ struct SpectraApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+    }
+}
+
+/// The always-present status-item label, plus the Dock-reopen bridge. A Dock-icon click
+/// posts `.spectraReopen`; SwiftUI's `openWindow` recreates the closed Studio `Window`
+/// scene — which AppKit's own reopen does NOT do for a SwiftUI singleton window — so the
+/// Dock icon reopens the Studio exactly like the menu item. This must live on the menu-bar
+/// label because that view is always alive: the Studio's own content can't reopen itself
+/// once it has been closed. (The engine's `.spectraReopen` observer still raises an
+/// already-open-but-buried Studio; this adds the create-when-closed case it can't handle.)
+private struct MenuBarStatusLabel: View {
+    let engine: SpectraEngine
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        MenuBarLabel(engine: engine)
+            .onReceive(NotificationCenter.default.publisher(for: .spectraReopen)) { _ in
+                openWindow(id: "studio")
+                NSApp.activate(ignoringOtherApps: true)
+                engine.frontStudioWindow()
+            }
     }
 }
 

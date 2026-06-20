@@ -51,14 +51,25 @@ inline float spectra_sharpen_lumaBlur(texture2d<float> t, float2 uv,
     float sum = 0.0;
     float weight = 0.0;
     float step = max(radius, 1.0) / float(taps);
+    // A fixed grid of widely-spaced taps (~radius/taps texels apart) aliases into a
+    // quilted/grid pattern at large radius. Rotate the lattice by a per-pixel angle so
+    // that structure becomes fine sub-visible noise instead, and weight the taps with a
+    // Gaussian for a smooth, circular footprint rather than a hard box.
+    float ang = spectra_hash21(floor(uv / max(texel, float2(1.0e-6)))) * 6.2831853;
+    float ca = cos(ang);
+    float sa = sin(ang);
+    float sigma = max(float(taps) * 0.6, 1.0);
+    float inv2s2 = 1.0 / (2.0 * sigma * sigma);
     for (int y = -taps; y <= taps; y++) {
         for (int x = -taps; x <= taps; x++) {
-            float2 o = float2(float(x), float(y)) * step * texel;
-            sum += spectra_luma(spectra_tex(t, uv + o).rgb);
-            weight += 1.0;
+            float2 g = float2(float(x), float(y));
+            float w = exp(-dot(g, g) * inv2s2);
+            float2 r = float2(g.x * ca - g.y * sa, g.x * sa + g.y * ca);
+            sum += spectra_luma(spectra_tex(t, uv + r * step * texel).rgb) * w;
+            weight += w;
         }
     }
-    return sum / max(weight, 1.0);
+    return sum / max(weight, 1.0e-4);
 }
 
 // MARK: - Sharpen
@@ -141,7 +152,7 @@ fragment float4 fx_sharpen_localContrast(RasterizerData in [[stage_in]],
     float radius = u.params[1];
 
     float l = spectra_luma(c);
-    float blurredL = spectra_sharpen_lumaBlur(src, in.uv, u.texelSize, radius, 3);
+    float blurredL = spectra_sharpen_lumaBlur(src, in.uv, u.texelSize, radius, 5);
     float boostedL = l + (l - blurredL) * amount;
 
     // Scale chroma around the new luma so colours track the contrast change.

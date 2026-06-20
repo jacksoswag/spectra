@@ -7,18 +7,20 @@ import QuartzCore
 /// the real level instead of a fake animated drain.
 ///
 /// Why a throttled static cache: `level()` is called once per *rendered* frame
-/// (up to 60Hz) from the main thread, but the battery fraction changes on the
-/// order of minutes — sampling IOKit power sources that often is pure waste and
-/// touches a CF allocation each time. We therefore re-read IOKit at most once
-/// every `sampleInterval` seconds and serve the cached value in between. The call
-/// site is main-thread-only, so a plain non-atomic static cache is correct; it is
-/// still written before being read (seeded on the first call) to stay robust.
+/// (up to 60Hz), but the battery fraction changes on the order of minutes —
+/// sampling IOKit power sources that often is pure waste and touches a CF
+/// allocation each time. We therefore re-read IOKit at most once every
+/// `sampleInterval` seconds and serve the cached value in between. The render
+/// callback now runs off the main thread (the link thread) while the Auto governor
+/// reads on main, so the cache is guarded by a lock (the throttle gate is a
+/// read-modify-write of the two cache fields as a pair).
 enum BatteryProvider {
     /// Minimum wall-clock gap between IOKit re-reads. Battery percent moves slowly,
     /// so ~5s is far finer than any visible change while keeping the per-frame cost
     /// at essentially zero.
     private static let sampleInterval: CFTimeInterval = 5.0
 
+    private static let lock = NSLock()
     /// Last value handed out (0...1). Seeded to full so the very first frame — and
     /// every desktop Mac with no battery — reads a full bar.
     private static var cachedLevel: Float = 1.0
@@ -30,12 +32,16 @@ enum BatteryProvider {
     /// battery (desktop Macs) so the OSD bar reads full rather than empty.
     static func level() -> Float {
         let now = CACurrentMediaTime()
+        lock.lock()
         if now - lastSample < sampleInterval {
+            defer { lock.unlock() }
             return cachedLevel
         }
         lastSample = now
-        cachedLevel = readBatteryFraction()
-        return cachedLevel
+        lock.unlock()
+        let level = readBatteryFraction()
+        lock.lock(); cachedLevel = level; lock.unlock()
+        return level
     }
 
     /// Query IOKit power sources directly. Walks every reported source and uses the

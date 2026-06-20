@@ -178,6 +178,91 @@ fragment float4 fx_env_dust(RasterizerData in [[stage_in]],
     return spectra_compositeRGBA(base, processed, u);
 }
 
+// MARK: - Bubbles (density, size, speed, opacity): rising glass-bubble bokeh
+
+// The Frutiger Aero signature, rebuilt as real glass spheres. Each rises with a
+// gentle sway and carries: a faint refraction lens that bends the desktop behind
+// it, a bright Fresnel rim, thin-film (soap) iridescence cycling around the rim,
+// and a primary + secondary specular glint. Every layer samples its FULL 3x3 cell
+// neighbourhood, so a bubble straddling a cell border is drawn whole instead of
+// being clipped at the seam (the "badly cropped" artifact of the old version).
+fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
+                               texture2d<float> src [[texture(0)]],
+                               texture2d<float> orig [[texture(1)]],
+                               constant SpectraUniforms &u [[buffer(0)]]) {
+    float3 base = spectra_tex(orig, in.uv).rgb;
+    float density = clamp(u.params[0], 0.0, 1.0);
+    float size = clamp(u.params[1], 0.0, 1.0);
+    float speed = clamp(u.params[2], 0.0, 1.0);
+    float opacity = clamp(u.params[3], 0.0, 1.0);
+    float aspect = fx_env_aspect(u);
+
+    float3 glow = float3(0.0);
+    float2 refr = float2(0.0);   // accumulated refraction offset, in UV space
+    const float kTwoPi = 6.28318530718;
+
+    // Three depth layers: near bubbles are larger, faster, brighter.
+    for (int layer = 0; layer < 3; layer++) {
+        float fl = float(layer);
+        float scale = mix(5.0, 11.0, fl / 2.0);
+        float depth = 1.0 - fl / 3.0;            // 1 near .. ~0.33 far
+        float radius = mix(0.18, 0.42, size) * depth;   // < 1 cell, so 3x3 covers it whole
+
+        // Gentle horizontal sway; bubbles rise (uv.y points down, so add time to drift up).
+        float sway = sin(u.time * (0.25 + fl * 0.12) + fl * 2.3) * 0.10;
+        float2 p = float2(in.uv.x * aspect + sway, in.uv.y) * scale;
+        p.y += u.time * speed * (0.18 + depth * 0.32) + fl * 17.0 + u.seed * 11.0;
+
+        float2 baseCell = floor(p);
+        float2 f = fract(p);
+
+        // Visit this cell and its 8 neighbours so border-straddling bubbles draw whole.
+        for (int oy = -1; oy <= 1; oy++) {
+            for (int ox = -1; ox <= 1; ox++) {
+                float2 cellOff = float2(float(ox), float(oy));
+                float2 cellID = baseCell + cellOff;
+                // Sparse spawn: only a subset of cells carry a bubble.
+                if (spectra_hash21(cellID + fl * 13.0) < 0.80 - density * 0.55) { continue; }
+
+                float2 jitter = spectra_hash22(cellID + fl * 6.0);
+                float2 q = (f - cellOff) - jitter;       // vector from bubble centre, cell units
+                float d = length(q);
+                float nd = d / max(radius, 1.0e-4);      // 0 centre .. 1 rim
+                if (nd > 1.05) { continue; }             // outside this bubble's footprint
+
+                float disc = 1.0 - smoothstep(0.92, 1.04, nd);   // soft anti-aliased edge
+                float rim = smoothstep(0.55, 0.97, nd) * disc;   // bright Fresnel rim
+                float body = disc * 0.09;                        // faint glass interior
+
+                // Two speculars: a hot upper-left glint and a dim lower-right reflection.
+                float spec1 = smoothstep(radius * 0.30, 0.0, length(q + float2(0.30, 0.30) * radius));
+                float spec2 = smoothstep(radius * 0.16, 0.0, length(q - float2(0.34, 0.28) * radius));
+
+                // Thin-film iridescence: hue cycles with radius and a per-bubble phase.
+                float phase = spectra_hash21(cellID + fl * 23.0);
+                float3 irid = 0.5 + 0.5 * cos(kTwoPi * (nd * 1.5 + phase) + float3(0.0, 2.094, 4.188));
+                float3 rimCol = mix(float3(0.80, 0.95, 1.00), irid, 0.5);
+
+                glow += depth * (body * float3(0.45, 0.85, 0.95)
+                                 + rim * 0.55 * rimCol
+                                 + spec1 * 0.95 * float3(1.0)
+                                 + spec2 * 0.45 * float3(0.90, 0.97, 1.0));
+
+                // Refraction: a convex lens pulls the background toward the bubble centre,
+                // strongest near the rim. Convert q from cell units back to UV.
+                float refrAmt = smoothstep(0.20, 1.0, nd) * disc * depth;
+                float2 qUV = float2(q.x / (aspect * scale), q.y / scale);
+                refr -= qUV * refrAmt * 0.18;
+            }
+        }
+    }
+
+    float3 c = spectra_tex(src, in.uv + refr).rgb;       // desktop, refracted through the glass
+    glow = clamp(glow, 0.0, 1.5) * opacity;
+    float3 processed = 1.0 - (1.0 - c) * (1.0 - clamp(glow, 0.0, 1.0));   // screen the glossy light
+    return spectra_compositeRGBA(base, processed, u);
+}
+
 // MARK: - Underwater (intensity, speed): caustic warble + blue tint
 
 fragment float4 fx_env_underwater(RasterizerData in [[stage_in]],
