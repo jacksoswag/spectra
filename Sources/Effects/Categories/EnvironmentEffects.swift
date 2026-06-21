@@ -7,7 +7,7 @@ import simd
 /// scalars/angles occupy one.
 enum EnvironmentEffects {
     static let all: [EffectDescriptor] = [
-        rain, fog, snow, dust, bubbles, underwater,
+        rain, fog, snow, dust, bubbles, splash, underwater,
         heatHaze, godRays, sunGlare, lensFlare, clouds,
     ]
 
@@ -71,6 +71,20 @@ enum EnvironmentEffects {
             .toggle("foam", "Foam", default: true, help: "A fine layer of tiny white floaters."),
         ],
         tags: ["bubbles", "bokeh", "frutiger aero", "glossy", "water"],
+        isAnimated: true)
+
+    static let splash = EffectDescriptor(
+        id: "environment.splash", name: "Splash", category: .environment,
+        subtitle: "Glossy water that splashes on click and drags with the cursor.", icon: "hand.tap",
+        function: "fx_env_splash",
+        parameters: [
+            .slider("size", "Size", 0...1, default: 0.55),
+            .slider("trail", "Trail", 0...1, default: 0.6, help: "How much water the cursor drags behind it."),
+            .slider("droplets", "Droplets", 0...1, default: 0.6),
+            .slider("gloss", "Gloss", 0...1, default: 0.75),
+            .slider("opacity", "Opacity", 0...1, default: 0.9),
+        ],
+        tags: ["splash", "water", "frutiger aero", "interactive", "pointer", "glossy", "ripple"],
         isAnimated: true)
 
     static let underwater = EffectDescriptor(

@@ -46,6 +46,10 @@ final class DisplayRenderer: NSObject {
     /// Shared main-actor sampler that reads the live cursor (NSEvent/NSCursor) on the main
     /// thread and publishes a thread-safe snapshot the link-thread callback consumes.
     private let cursorSampler: CursorSampler
+    /// Shared main-actor sampler that reads the live pointer (position, button, clicks) for the
+    /// interactive effects, published as a thread-safe snapshot this link-thread callback folds
+    /// into each frame's `FrameContext`.
+    private let pointerSampler: PointerInputSampler
     /// Hosts the `CAMetalDisplayLink` callback OFF the main run loop, so SwiftUI (the Studio
     /// window) laying out can't delay a tick and add ~one frame of latency. The link object's
     /// lifecycle (create/pause/rebuild/invalidate) still runs on the main thread; only the
@@ -163,18 +167,46 @@ final class DisplayRenderer: NSObject {
     var faultHandler: ((Error?) -> Void)?
 
     init(displayID: CGDirectDisplayID, overlay: OverlayWindow, context: MetalContext,
-         shaders: ShaderLibrary, cursorSampler: CursorSampler) {
+         shaders: ShaderLibrary, cursorSampler: CursorSampler, pointerSampler: PointerInputSampler) {
         self.displayID = displayID
         self.overlay = overlay
         self.context = context
         self.shaders = shaders
         self.cursorSampler = cursorSampler
+        self.pointerSampler = pointerSampler
         self.pool = TexturePool(device: context.device)
         self.chainRenderer = EffectChainRenderer(context: context, shaders: shaders, pool: pool)
         self.cursorCompositor = CursorCompositor(shaders: shaders)
         self.inFlight = DispatchSemaphore(value: maxInFlight)
         self.cachedFramePoints = overlay.frame
         super.init()
+    }
+
+    /// Fold the live pointer snapshot into this frame's context, converted to THIS display's UV
+    /// (top-left origin, matching `in.uv`). Uses the same global-point → UV mapping as the cursor
+    /// compositor, so the splash lands exactly under the real pointer. Cheap; runs on the link
+    /// thread (the sampler's `current()` is lock-free). Inert when the sampler is disengaged.
+    private func applyPointer(to ctx: inout FrameContext, framePoints frame: CGRect) {
+        guard frame.width > 0, frame.height > 0 else { return }
+        let snapshot = pointerSampler.current()
+        let now = CACurrentMediaTime()
+        func toUV(_ p: CGPoint) -> SIMD2<Float> {
+            SIMD2(Float((p.x - frame.minX) / frame.width),
+                  Float((frame.height - (p.y - frame.minY)) / frame.height))   // flip to top-left
+        }
+        ctx.pressActive = snapshot.pressed ? 1 : 0
+        ctx.releaseAge = snapshot.lastUpTime >= 0 ? Float(now - snapshot.lastUpTime) : 999
+        if snapshot.lastDownTime >= 0 {
+            ctx.clickPoint = toUV(snapshot.lastDownPos)
+            ctx.clickAge = Float(now - snapshot.lastDownTime)
+        }
+        if snapshot.trailLength > 0 {
+            var trail: [SIMD2<Float>] = []
+            trail.reserveCapacity(snapshot.trailLength)
+            for i in 0..<snapshot.trailLength { trail.append(toUV(snapshot.trail[i])) }
+            ctx.pointerTrail = trail
+            ctx.pointerTrailCount = Float(snapshot.trailLength)
+        }
     }
 
     /// Enable/disable drawing the live cursor into the frame (so it runs through the chain).
@@ -405,12 +437,13 @@ final class DisplayRenderer: NSObject {
         let time = Float(CACurrentMediaTime() - startTime)
         frameCounter += 1
         let clock = FrameContext.liveClock()
-        let frameContext = FrameContext(
+        var frameContext = FrameContext(
             time: time, frameIndex: frameCounter,
             clockSeconds: clock.clockSeconds,
             year: clock.year, month: clock.month, day: clock.day,
             batteryLevel: BatteryProvider.level(),
             intensityScale: intensity)
+        applyPointer(to: &frameContext, framePoints: framePoints)
 
         // Optionally draw the live cursor into the frame so it goes through the chain, using
         // the snapshot the main-actor sampler published. The composited texture (if any) is

@@ -13,6 +13,12 @@ final class RenderEngine {
     /// Shared across every display: reads the live cursor on the main thread and publishes an
     /// immutable snapshot the off-main render (link) thread consumes.
     let cursorSampler: CursorSampler
+    /// Shared across every display: reads the live pointer (position, button, clicks) for the
+    /// interactive effects. Engaged only while a pointer effect is in the chain (see
+    /// `updateChain`), so it costs nothing for ordinary presets.
+    let pointerSampler: PointerInputSampler
+    /// Displays whose current chain contains a pointer effect; the sampler runs iff non-empty.
+    private var pointerDisplayIDs: Set<CGDirectDisplayID> = []
 
     private var renderers: [CGDirectDisplayID: DisplayRenderer] = [:]
     private var overlays: [CGDirectDisplayID: OverlayWindow] = [:]
@@ -76,6 +82,7 @@ final class RenderEngine {
         self.context = context
         self.shaders = ShaderLibrary(context: context)
         self.cursorSampler = CursorSampler(device: context.device)
+        self.pointerSampler = PointerInputSampler()
         // Follow the user across Spaces. When the active Space changes, pull the
         // visible overlays onto it (each is a single-Space window, so ordering it
         // front moves it to the now-active Space) — this gives "shader on every
@@ -302,7 +309,7 @@ final class RenderEngine {
         overlay.setVisibleToScreenshots(overlaysVisibleToScreenshots)
         let renderer = DisplayRenderer(
             displayID: display.id, overlay: overlay, context: context, shaders: shaders,
-            cursorSampler: cursorSampler)
+            cursorSampler: cursorSampler, pointerSampler: pointerSampler)
         renderer.setOverlayFramePoints(display.frame)
         overlays[display.id] = overlay
         renderers[display.id] = renderer
@@ -320,6 +327,8 @@ final class RenderEngine {
         overlays[displayID]?.hide()
         overlays[displayID] = nil
         visibleDisplayIDs.remove(displayID)
+        pointerDisplayIDs.remove(displayID)
+        pointerSampler.setEnabled(!pointerDisplayIDs.isEmpty)
     }
 
     /// Raise/lower every overlay relative to the menu bar and Dock. Stored so a
@@ -431,6 +440,14 @@ final class RenderEngine {
     func updateChain(_ resolved: [ResolvedEffect], displayID: CGDirectDisplayID) {
         prewarmChain(resolved)
         renderers[displayID]?.updateChain(resolved)
+        // Engage the pointer sampler only while an interactive effect (water splash, bubble pop)
+        // is somewhere in a live chain. Tracked per display so one display's plain preset can't
+        // disengage it while another still needs it.
+        let needsPointer = resolved.contains { effect in
+            effect.descriptor.passes.contains { EffectChainRenderer.pointerEffectFunctions.contains($0.fragmentFunction) }
+        }
+        if needsPointer { pointerDisplayIDs.insert(displayID) } else { pointerDisplayIDs.remove(displayID) }
+        pointerSampler.setEnabled(!pointerDisplayIDs.isEmpty)
     }
 
     /// Warm exactly the effect pipelines a resolved chain will render: each built-in

@@ -194,6 +194,10 @@ enum BuiltInPresets {
             // The signature: rising glass bubbles with refraction, a Fresnel rim, thin-film
             // iridescence, and dual speculars (full neighbourhood sampling, so they never clip).
             fx("environment.bubbles", ["density": s(0.2), "size": s(0.0), "speed": s(0.1), "opacity": s(0.5)]),
+            // Interactive water: a glossy crown + droplets where you click, water that drags from
+            // the cursor as you move, and a ripple + scatter on release. Drawn last so it reads on
+            // top of the bubbles. Inert until the pointer engages, so a still desktop is unchanged.
+            fx("environment.splash", ["size": s(0.55), "trail": s(0.6), "droplets": s(0.6), "gloss": s(0.75), "opacity": s(0.9)]),
         ]),
 
         // MARK: Artistic

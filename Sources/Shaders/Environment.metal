@@ -27,6 +27,13 @@ inline float fx_env_fbm(float2 p, int octaves) {
     return value / max(total, 1.0e-4);
 }
 
+// Smooth-union of two distances (polynomial smin), so merged blobs read as one liquid body
+// instead of overlapping circles. Used to fuse the dragged-water rope's capsules.
+inline float fx_env_smin(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (b - a) / max(k, 1.0e-6), 0.0, 1.0);
+    return mix(b, a, h) - k * h * (1.0 - h);
+}
+
 // MARK: - Rain (intensity, speed, angle): streaks + subtle refraction
 
 fragment float4 fx_env_rain(RasterizerData in [[stage_in]],
@@ -199,6 +206,14 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
     bool foamOn = u.params[5] > 0.5;
     float aspect = fx_env_aspect(u);
 
+    // System-injected pointer block (see EffectChainRenderer.injectPointer): a fresh click
+    // bursts whatever bubble sits under it, regardless of the ambient Pop toggle. clickAge is
+    // large (no real click) when idle, so the slots default to "no pop".
+    float2 clickUV = float2(u.params[16], u.params[17]);
+    float clickAge = u.params[18];
+    const float kClickPop = 0.24;                          // burst window after a click
+    bool clickFresh = clickAge >= 0.0 && clickAge < kClickPop;
+
     float3 glow = float3(0.0);
     float2 refr = float2(0.0);   // accumulated refraction offset, in UV space
     const float kTwoPi = 6.28318530718;
@@ -217,11 +232,18 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
 
         // The stream rises as a whole (uv.y points down, so add time to drift up); each
         // bubble adds its own weave/bob below.
+        float riseRate = speed * (0.18 + depth * 0.32);
+        float scroll = u.time * riseRate + fl * 17.0 + u.seed * 11.0;
         float2 p = uvA * scale;
-        p.y += u.time * speed * (0.18 + depth * 0.32) + fl * 17.0 + u.seed * 11.0;
+        p.y += scroll;
 
         float2 baseCell = floor(p);
         float2 f = fract(p);
+
+        // The click point in THIS layer's cell space, rewound by the rise since the click so the
+        // pop stays locked to the bubble that was actually under the cursor as it keeps drifting up.
+        float2 clickP = float2(clickUV.x * aspect, clickUV.y) * scale;
+        clickP.y += scroll - clickAge * riseRate;
 
         // Visit this cell and its 8 neighbours so border-straddling bubbles draw whole.
         for (int oy = -1; oy <= 1; oy++) {
@@ -258,8 +280,23 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
                           * (1.0 - smoothstep(0.0, 0.30, pp));         // body torn away ~27ms into the burst
                 }
 
-                // Per-bubble size: ~0.6x .. 1.35x the layer radius, with a quick pre-rupture swell.
-                float radius = baseRadius * mix(0.60, 1.35, hSize) * (1.0 + smoothstep(0.0, 0.25, pp) * 0.15);
+                // Per-bubble size: ~0.6x .. 1.35x the layer radius.
+                float radius0 = baseRadius * mix(0.60, 1.35, hSize);
+
+                // Click to pop: if a fresh click lands inside this bubble, force the rupture now,
+                // overriding the ambient clock so any bubble pops on demand. A generous radius
+                // tolerates the per-bubble weave the click point isn't compensated for.
+                if (clickFresh) {
+                    float2 qc = clickP - (cellID + jitter);
+                    if (dot(qc, qc) < (radius0 * 1.4) * (radius0 * 1.4)) {
+                        float cpp = clamp(clickAge / kClickPop, 0.0, 1.0);
+                        pp = max(pp, cpp);
+                        alpha = min(alpha, 1.0 - smoothstep(0.0, 0.30, cpp));
+                    }
+                }
+
+                // Quick pre-rupture swell rides on whichever pop (clock or click) is active.
+                float radius = radius0 * (1.0 + smoothstep(0.0, 0.25, pp) * 0.15);
 
                 float2 q = (f - cellOff) - jitter;       // vector from bubble centre, cell units
                 float d2 = dot(q, q);                     // squared distance: cheaper cull, no sqrt yet
@@ -336,6 +373,165 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
     float3 c = spectra_tex(src, in.uv + refr).rgb;       // desktop, refracted through the glass
     glow = clamp(glow, 0.0, 1.5) * opacity;
     float3 processed = 1.0 - (1.0 - c) * (1.0 - clamp(glow, 0.0, 1.0));   // screen the glossy light
+    return spectra_compositeRGBA(base, processed, u);
+}
+
+// MARK: - Splash (size, trail, droplets, gloss, opacity): interactive Frutiger-Aero water
+
+// A spray of glassy droplets flung from `center`, arcing under gravity and fading over its
+// life. Shared by the press crown and the release scatter so both read as the same water.
+// Positions in aspect-square UV; ages in seconds; +y is down.
+inline float3 fx_env_splashDroplets(float2 P, float2 center, float age, float life,
+                                    float amount, float gloss, float3 glass, float seedBase) {
+    if (age < 0.0 || age >= life || amount <= 0.001) { return float3(0.0); }
+    float3 g = float3(0.0);
+    float t = age / life;                              // 0..1 normalized life
+    int n = int(5.0 + amount * 10.0);                  // up to ~15 droplets
+    const float grav = 0.9;                            // UV/s^2
+    for (int i = 0; i < n; i++) {
+        float2 h = spectra_hash22(float2(float(i) * 1.7 + 0.3, seedBase));
+        float ang = -1.5708 + (h.x - 0.5) * 2.6;       // fan upward (±~74°)
+        float spd = mix(0.12, 0.42, h.y);              // UV/s
+        float2 pos = center + float2(cos(ang), sin(ang)) * spd * age
+                            + float2(0.0, 0.5 * grav * age * age);
+        float dr = mix(0.018, 0.006, t) * mix(0.7, 1.3, h.x);   // shrink as it flies
+        float d = length(P - pos);
+        if (d > dr * 1.6) { continue; }
+        float nd = d / max(dr, 1.0e-4);
+        float disc = 1.0 - smoothstep(0.7, 1.05, nd);
+        float rim  = smoothstep(0.45, 1.0, nd) * disc;
+        float spec = 1.0 - smoothstep(0.0, 0.5, length((P - pos) + float2(-0.35, -0.35) * dr) / max(dr, 1.0e-4));
+        float fade = (1.0 - t) * (1.0 - t);
+        g += fade * (disc * 0.10 * glass
+                   + rim  * 0.55 * float3(0.85, 0.97, 1.0)
+                   + spec * (0.5 + 0.5 * gloss) * float3(1.0));
+    }
+    return g;
+}
+
+// Reacts to the live pointer (injected into the high param slots by EffectChainRenderer): a
+// glassy crown + droplet burst on press, a metaball "water rope" that lags the cursor along its
+// recent path so a drag looks like dragging water, and a collapse + ripple + scatter on release.
+// Shares the bubbles' palette (aqua-green glass, white Fresnel rim, specular sparkle, refraction
+// lens, screen-blend) so all of the Frutiger Aero water reads as one material.
+fragment float4 fx_env_splash(RasterizerData in [[stage_in]],
+                              texture2d<float> src [[texture(0)]],
+                              texture2d<float> orig [[texture(1)]],
+                              constant SpectraUniforms &u [[buffer(0)]]) {
+    float3 base = spectra_tex(orig, in.uv).rgb;
+    float size     = clamp(u.params[0], 0.0, 1.0);
+    float trailAmt = clamp(u.params[1], 0.0, 1.0);
+    float dropAmt  = clamp(u.params[2], 0.0, 1.0);
+    float gloss    = clamp(u.params[3], 0.0, 1.0);
+    float opacity  = clamp(u.params[4], 0.0, 1.0);
+
+    // System-injected pointer block (see EffectChainRenderer.injectPointer).
+    float2 click      = float2(u.params[16], u.params[17]);
+    float  clickAge   = u.params[18];
+    float  pressActive= u.params[19];
+    float  releaseAge = u.params[20];
+    int    trailN     = int(u.params[21] + 0.5);
+
+    const float kCrown   = 0.45;        // press crown + droplet life (s)
+    const float kRelease = 0.75;        // release collapse + ripple life (s)
+    bool pressed    = pressActive > 0.5;
+    bool collapsing = !pressed && releaseAge < kRelease;
+    bool crowning   = clickAge >= 0.0 && clickAge < kCrown;
+
+    // Idle most of the time: return the input untouched (cheap path, no per-pixel water math).
+    if (!pressed && !collapsing && !crowning) {
+        return spectra_compositeRGBA(base, base, u);
+    }
+
+    float aspect  = fx_env_aspect(u);
+    float2 P      = float2(in.uv.x * aspect, in.uv.y);          // aspect-square pixel position
+    float3 glass  = mix(float3(0.45, 0.85, 0.95), float3(0.52, 0.95, 0.78), 0.4);
+    float3 rimCol = float3(0.85, 0.96, 1.0);
+    float3 glow   = float3(0.0);
+    float2 refr   = float2(0.0);
+    float  headR  = mix(0.05, 0.12, size);                      // head blob radius (aspect-UV)
+
+    // ---- Dragged-water rope: smooth-union of capsules over the recent path (newest first) ----
+    if ((pressed || collapsing) && trailN >= 1) {
+        float retract = collapsing ? clamp(releaseAge / kRelease, 0.0, 1.0) : 0.0;  // tail drops first
+        float2 head = float2(u.params[22] * aspect, u.params[23]);
+
+        // Trail bounding box (cheap, no sqrt) for an early-out on the far majority of pixels.
+        float2 lo = head, hi = head;
+        for (int i = 0; i < trailN; i++) {
+            float2 t = float2(u.params[22 + 2 * i] * aspect, u.params[23 + 2 * i]);
+            lo = min(lo, t); hi = max(hi, t);
+        }
+        float pad = headR + 0.05;
+        if (P.x >= lo.x - pad && P.x <= hi.x + pad && P.y >= lo.y - pad && P.y <= hi.y + pad) {
+            // Head blob so a tap (or slow drag) still shows a round body.
+            float nearD = length(P - head);
+            float2 nearPt = head;
+            float field = nearD - headR * (1.0 - 0.4 * retract);
+            for (int i = 0; i < trailN - 1; i++) {
+                float fa = float(i) / float(max(trailN - 1, 1));   // 0 head .. 1 tail
+                if (fa < retract) { continue; }                    // retracted tail removed
+                float2 a = float2(u.params[22 + 2 * i] * aspect,       u.params[23 + 2 * i]);
+                float2 b = float2(u.params[22 + 2 * (i + 1)] * aspect, u.params[23 + 2 * (i + 1)]);
+                float2 pa = P - a, ba = b - a;
+                float hh = clamp(dot(pa, ba) / max(dot(ba, ba), 1.0e-6), 0.0, 1.0);
+                float2 cp = a + ba * hh;
+                float dseg = length(P - cp);
+                float rad = headR * mix(1.0, mix(0.12, 0.6, trailAmt), fa);   // taper head→tail
+                field = fx_env_smin(field, dseg - rad, headR * 0.7);
+                if (dseg < nearD) { nearD = dseg; nearPt = cp; }
+            }
+
+            // Shade the merged surface. Normal direction comes from the nearest skeleton point
+            // (analytic — no screen derivatives, which would be undefined in this branch).
+            float aa = 2.0 * u.texelSize.y;
+            float bodyFill = smoothstep(aa, -aa, field);                       // 1 inside
+            float fr = field / (headR * 0.5);
+            float rim = exp(-fr * fr) * bodyFill;                              // glow hugging the rim
+            float2 d = P - nearPt;
+            float2 ndir = length(d) > 1.0e-5 ? normalize(d) : float2(0.0, -1.0);
+            float spec = pow(clamp(dot(ndir, normalize(float2(-0.6, -0.8))), 0.0, 1.0), 3.0) * bodyFill;
+            float sparkle = pow(spec, 8.0);
+            float bodyA = pressed ? 1.0 : (1.0 - retract);                     // whole body fades on release
+            glow += bodyA * (bodyFill * 0.10 * glass
+                           + rim     * 0.55 * rimCol
+                           + spec    * (0.4 + 0.6 * gloss) * float3(1.0)
+                           + sparkle * 0.80 * float3(1.0));
+            // Convex lens: bend the desktop toward the surface, strongest at the rim. Back to UV.
+            float lens = rim * (0.4 + 0.6 * gloss) * bodyA;
+            refr -= float2(ndir.x / aspect, ndir.y) * lens * 0.05;
+        }
+    }
+
+    // ---- Press crown: an expanding ring + a quick central swell at the click point ----
+    if (crowning) {
+        float t = clickAge / kCrown;
+        float2 C = float2(click.x * aspect, click.y);
+        float r = mix(0.0, mix(0.10, 0.20, size), 1.0 - (1.0 - t) * (1.0 - t));   // ease-out expand
+        float ringW = mix(0.006, 0.022, t);
+        float re = (length(P - C) - r) / ringW;
+        float ring = exp(-re * re) * (1.0 - t);
+        glow += ring * 0.9 * rimCol;
+        float blob = (1.0 - smoothstep(0.0, headR * (0.7 + t), length(P - C))) * (1.0 - smoothstep(0.0, 0.4, t));
+        glow += blob * 0.30 * glass;
+        glow += fx_env_splashDroplets(P, C, clickAge, kCrown, dropAmt, gloss, glass, 3.1);
+    }
+
+    // ---- Release: a final outward ripple + a downward scatter from where the head was ----
+    if (collapsing) {
+        float t = releaseAge / kRelease;
+        float2 C = trailN >= 1 ? float2(u.params[22] * aspect, u.params[23]) : float2(click.x * aspect, click.y);
+        float r = mix(0.0, mix(0.12, 0.24, size), 1.0 - (1.0 - t) * (1.0 - t));
+        float ringW = mix(0.005, 0.02, t);
+        float re = (length(P - C) - r) / ringW;
+        float ring = exp(-re * re) * (1.0 - t);
+        glow += ring * 0.7 * rimCol;
+        glow += fx_env_splashDroplets(P, C, releaseAge, kRelease, dropAmt, gloss, glass, 7.7);
+    }
+
+    float3 c = spectra_tex(src, in.uv + refr).rgb;
+    glow = clamp(glow, 0.0, 1.6) * opacity;
+    float3 processed = 1.0 - (1.0 - c) * (1.0 - clamp(glow, 0.0, 1.0));
     return spectra_compositeRGBA(base, processed, u);
 }
 

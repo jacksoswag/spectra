@@ -22,6 +22,26 @@ struct FrameContext {
     /// strength; the engine derives this linearly from the user's setting (100% → 1.0×).
     var intensityScale: Float = 1.0
 
+    // MARK: Interactive pointer state
+    //
+    // Live mouse state for the interactive effects (water splash, bubble pop), already
+    // converted to THIS display's UV (top-left origin, matching `in.uv`) by the renderer.
+    // Populated only while a pointer effect is in the chain; otherwise inert — `pressActive`
+    // 0 and the ages large — so the effects render their ambient behaviour and nothing more.
+
+    /// Left button currently held (1) or not (0).
+    var pressActive: Float = 0
+    /// Seconds since the last release; large when none recent (drives the release collapse).
+    var releaseAge: Float = 999
+    /// UV of the last mouse-down (the crown origin and the click-to-pop hit point). Off-canvas
+    /// default so a chain with no real click never bursts a bubble at the origin.
+    var clickPoint: SIMD2<Float> = SIMD2(-1, -1)
+    /// Seconds since the last mouse-down; large when none yet.
+    var clickAge: Float = 999
+    /// Recent pointer path in UV, newest first (the dragged-water rope); ≤ trailCount entries.
+    var pointerTrail: [SIMD2<Float>] = []
+    var pointerTrailCount: Float = 0
+
     /// Sample the system wall clock for the live REC OSD: seconds since local
     /// midnight plus today's year/month/day. Cheap (microseconds); called once per
     /// rendered frame, not per pass.
@@ -54,6 +74,34 @@ final class EffectChainRenderer {
         self.context = context
         self.shaders = shaders
         self.pool = pool
+    }
+
+    /// Fragment functions that consume the system-injected interactive pointer block. Shared
+    /// with `RenderEngine`, which engages `PointerInputSampler` only while one is in the chain.
+    static let pointerEffectFunctions: Set<String> = ["fx_env_splash", "fx_env_bubbles"]
+
+    /// Base parameter slot of the injected pointer block. Sits above any pointer effect's own
+    /// params (bubbles 0…5, splash 0…4), so the block never clobbers them: 16 clickX, 17 clickY,
+    /// 18 clickAge, 19 pressActive, 20 releaseAge, 21 trailCount, then 22… trail UV pairs.
+    private static let pointerSlotBase = 16
+
+    /// Inject the live pointer state into a pointer effect's reserved high slots, after
+    /// `writeParameters` (which clears all 64 slots). A no-op for every other effect.
+    private func injectPointer(into uniforms: inout SpectraUniforms, function: String, frame: FrameContext) {
+        guard Self.pointerEffectFunctions.contains(function) else { return }
+        let base = Self.pointerSlotBase
+        uniforms.setParam(base + 0, frame.clickPoint.x)
+        uniforms.setParam(base + 1, frame.clickPoint.y)
+        uniforms.setParam(base + 2, frame.clickAge)
+        uniforms.setParam(base + 3, frame.pressActive)
+        uniforms.setParam(base + 4, frame.releaseAge)
+        uniforms.setParam(base + 5, frame.pointerTrailCount)
+        var slot = base + 6
+        for point in frame.pointerTrail.prefix(PointerInputSampler.trailCount) {
+            uniforms.setParam(slot, point.x)
+            uniforms.setParam(slot + 1, point.y)
+            slot += 2
+        }
     }
 
     /// Fragment texture index at which the previous frame's output is bound for
@@ -167,6 +215,7 @@ final class EffectChainRenderer {
                     effect.writeUniversal(into: &uniforms)
                     uniforms.strength *= frame.intensityScale
                     effect.writeParameters(into: &uniforms)
+                    injectPointer(into: &uniforms, function: pass.fragmentFunction, frame: frame)
 
                     encoder.setTexture(passSource, index: 0)
                     encoder.setTexture(effectInput, index: 1)
@@ -239,6 +288,7 @@ final class EffectChainRenderer {
                 // strength directly, it scales the displacement.
                 uniforms.strength *= frame.intensityScale
                 effect.writeParameters(into: &uniforms)
+                injectPointer(into: &uniforms, function: pass.fragmentFunction, frame: frame)
                 // REC OSD system-injected values. Runs for every recOSD pass.
                 if pass.fragmentFunction == "fx_cam_recOSD" {
                     // recOSD declares params 0..10, leaving slot 11 free for a
