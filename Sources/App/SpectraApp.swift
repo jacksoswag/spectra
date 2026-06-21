@@ -114,6 +114,14 @@ private struct MenuBarStatusLabel: View {
                 openWindow(id: "sip-guide")
                 NSApp.activate(ignoringOtherApps: true)
             }
+            // A gated action from the menu bar (e.g. Glass) requests the paywall, which
+            // lives as a Studio sheet — surface the Studio so it can show even when closed.
+            .onChange(of: engine.license.gatePrompted) { _, prompted in
+                guard prompted else { return }
+                openWindow(id: "studio")
+                NSApp.activate(ignoringOtherApps: true)
+                engine.frontStudioWindow()
+            }
     }
 }
 

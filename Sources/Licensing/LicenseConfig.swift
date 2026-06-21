@@ -5,12 +5,9 @@ import Foundation
 /// any call site. Nothing in this file commits to a backend; `LicenseManager` selects
 /// one via `LicenseBackendKind`.
 enum LicenseConfig {
-    /// Length of the no-account, full-feature trial.
-    static let trialDays = 14
-
     /// How long a previously-validated license keeps working while the validation
-    /// server is unreachable, so a transient outage never bricks a paid copy. Past
-    /// this window the app keeps working but flags that it couldn't re-verify.
+    /// server is unreachable, so a transient outage never drops a paid copy back to
+    /// the free tier. Past this window it keeps working but flags it couldn't re-verify.
     static let offlineGraceDays = 7
 
     /// Decided price. Shown in the trial/purchase UI.

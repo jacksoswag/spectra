@@ -177,6 +177,7 @@ struct EffectStackView: View {
         }
         .buttonStyle(.borderless)
         .padding(Theme.Spacing.sm)
+        .disabled(!engine.canEdit)   // free tier: editing is a licensed feature
         .confirmationDialog("Clear all effects?", isPresented: $showingClearConfirm, titleVisibility: .visible) {
             Button("Clear All", role: .destructive) { stack.clear() }
             Button("Cancel", role: .cancel) {}

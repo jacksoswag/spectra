@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// License + trial surfaces. All read `engine.license` (the self-contained
+/// License + free-tier surfaces. All read `engine.license` (the self-contained
 /// `LicenseManager`); the Phase 2 backend swap doesn't touch any of this.
 
-/// A Form section for SettingsView: current status, key entry, buy, and remove.
+/// A Form section for SettingsView: current tier, key entry, buy, and remove.
 struct LicenseSettingsSection: View {
     @Bindable var engine: SpectraEngine
     @State private var keyField = ""
@@ -13,7 +13,9 @@ struct LicenseSettingsSection: View {
     var body: some View {
         Section("License") {
             LabeledContent("Status") { statusLabel(engine.license.status) }
-            if engine.license.status.wantsPurchasePrompt {
+            if engine.license.status.wantsUpgradePrompt {
+                Text("Free tier: apply the cinematic presets with the intensity and quality controls. A license unlocks the full \(engine.registry.descriptors.count)-effect library, editing, the composer, all presets, and Glass.")
+                    .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     TextField("SPECTRA-XXXX-XXXX-XXXX", text: $keyField)
                         .textFieldStyle(.roundedBorder)
@@ -46,52 +48,42 @@ struct LicenseSettingsSection: View {
     @ViewBuilder
     private func statusLabel(_ status: LicenseStatus) -> some View {
         switch status {
-        case .trial(let days):
-            Label("Trial — \(days) day\(days == 1 ? "" : "s") left", systemImage: "clock")
-                .foregroundStyle(.secondary)
-        case .trialExpired:
-            Label("Trial ended", systemImage: "clock.badge.exclamationmark").foregroundStyle(.orange)
+        case .free:
+            Label("Free tier", systemImage: "lock").foregroundStyle(.secondary)
         case .licensed:
             Label("Licensed", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
         case .licensedUnverified:
             Label("Licensed (couldn't re-verify)", systemImage: "checkmark.seal").foregroundStyle(.secondary)
-        case .unlicensed:
-            Label("Not licensed", systemImage: "xmark.seal").foregroundStyle(.red)
         }
     }
 }
 
-/// A slim Studio banner during the trial (or after it lapses), with a buy CTA.
-struct TrialBanner: View {
+/// A slim Studio banner shown in the free tier with an unlock CTA.
+struct UpgradeBanner: View {
     @Bindable var engine: SpectraEngine
 
     var body: some View {
-        if case let .trial(days) = engine.license.status {
-            banner(icon: "clock", tint: Theme.accent,
-                   text: "\(days) day\(days == 1 ? "" : "s") left in your free trial.")
-        } else if engine.license.status == .trialExpired || engine.license.status == .unlicensed {
-            banner(icon: "clock.badge.exclamationmark", tint: .orange,
-                   text: "Your trial has ended. Buy Spectra to keep using effects.")
+        if engine.license.status.wantsUpgradePrompt {
+            HStack(spacing: Theme.Spacing.md) {
+                Image(systemName: "lock.fill").foregroundStyle(Theme.accent)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Free tier — the cinematic presets only.").font(.callout.weight(.medium))
+                    Text("Unlock the full library, editing, the composer, and Glass.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Unlock") { engine.license.promptGate() }
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, Theme.Spacing.lg)
+            .padding(.vertical, Theme.Spacing.sm)
+            .background(Theme.accent.opacity(0.10))
+            .overlay(alignment: .bottom) { Divider() }
         }
-    }
-
-    @ViewBuilder
-    private func banner(icon: String, tint: Color, text: String) -> some View {
-        HStack(spacing: Theme.Spacing.md) {
-            Image(systemName: icon).foregroundStyle(tint)
-            Text(text).font(.callout.weight(.medium))
-            Spacer()
-            Link("Buy (\(LicenseConfig.price))", destination: LicenseConfig.purchaseURL)
-                .buttonStyle(.borderedProminent)
-        }
-        .padding(.horizontal, Theme.Spacing.lg)
-        .padding(.vertical, Theme.Spacing.sm)
-        .background(tint.opacity(0.10))
-        .overlay(alignment: .bottom) { Divider() }
     }
 }
 
-/// The gate presented when a lapsed trial blocks turning effects on.
+/// The paywall sheet, presented when a gated (paid) action is attempted in the free tier.
 struct LicenseGateView: View {
     @Bindable var engine: SpectraEngine
     let onDismiss: () -> Void
@@ -103,12 +95,21 @@ struct LicenseGateView: View {
         VStack(spacing: Theme.Spacing.lg) {
             Image(systemName: "sparkles")
                 .font(.system(size: 44)).foregroundStyle(Theme.accent)
-            Text("Your free trial has ended")
+            Text("Unlock the full Spectra")
                 .font(.title2.bold())
-            Text("Buy Spectra for a one-time \(LicenseConfig.price) to keep using effects across your desktop, or enter a license key you already have.")
+            Text("The free tier applies the cinematic presets with the intensity and quality controls. Unlock everything else for a one-time \(LicenseConfig.price):")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                row("square.stack.3d.up", "All \(engine.registry.descriptors.count) effects and every preset")
+                row("slider.horizontal.3", "Build and edit your own stacks and tune every parameter")
+                row("wand.and.stars", "The visual composer and custom shader import")
+                row("macwindow", "Glass: live window transparency and the desktop tint")
+            }
+            .padding(Theme.Spacing.md)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.md).fill(.quaternary.opacity(0.4)))
 
             HStack {
                 TextField("SPECTRA-XXXX-XXXX-XXXX", text: $keyField)
@@ -125,11 +126,19 @@ struct LicenseGateView: View {
             HStack {
                 Link("Buy Spectra (\(LicenseConfig.price))", destination: LicenseConfig.purchaseURL)
                     .buttonStyle(.borderedProminent)
-                Button("Not Now") { onDismiss() }
+                Button("Keep Free Tier") { onDismiss() }
             }
         }
         .padding(Theme.Spacing.xl)
-        .frame(width: 460)
+        .frame(width: 470)
+    }
+
+    private func row(_ icon: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: Theme.Spacing.sm) {
+            Image(systemName: icon).foregroundStyle(Theme.accent).frame(width: 22)
+            Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
     }
 
     private func activate() {

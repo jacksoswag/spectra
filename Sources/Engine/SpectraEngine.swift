@@ -324,8 +324,8 @@ final class SpectraEngine {
 
         // Restore the last master on/off state (quit-with-effects-on returns enabled),
         // or honour the always-start-enabled preference. Either way only auto-starts
-        // when Screen Recording is granted and the trial/license still entitles use.
-        if (settings.startEnabledOnLaunch || wasEnabled) && permissionAuthorized && license.isEntitled {
+        // when Screen Recording is granted.
+        if (settings.startEnabledOnLaunch || wasEnabled) && permissionAuthorized {
             isEnabled = true
         }
         Task { await license.refresh() }   // re-verify a stored key online (offline-grace tolerant)
@@ -412,9 +412,8 @@ final class SpectraEngine {
     // MARK: - Master controls
 
     func enable() {
-        // Entitlement gate: a lapsed trial with no valid license can't turn effects on.
-        // The trial and a valid (or offline-grace) license all pass.
-        guard license.isEntitled else { license.promptGate(); return }
+        // No gate here: the free tier must be able to run the cinematic presets. The
+        // paywall gates editing and non-cinematic content, not the on/off switch.
         if !permissionAuthorized {
             Task {
                 await requestPermission()
@@ -637,8 +636,21 @@ final class SpectraEngine {
         if let existing = stacks[displayID] { return existing }
         let stack = EffectStack()
         stack.onChange = { [weak self] chain in self?.pushChain(chain, to: displayID) }
+        // Free tier: editing is gated. Applying a preset (stack.load) bypasses this.
+        stack.editGate = { [weak self] in self?.license.isLicensed ?? true }
+        stack.onEditBlocked = { [weak self] in self?.license.promptGate() }
         stacks[displayID] = stack
         return stack
+    }
+
+    /// Whether the user may edit the effect stack and reach the full library/composer
+    /// (a licensed feature). The free tier applies cinematic presets read-only.
+    var canEdit: Bool { license.isLicensed }
+
+    /// Whether `preset` may be applied in the current tier: any preset when licensed,
+    /// only the cinematic presets in the free tier.
+    func canApply(_ preset: Preset) -> Bool {
+        license.isLicensed || preset.category == .cinematic
     }
 
     var activeStack: EffectStack? {
@@ -823,6 +835,8 @@ final class SpectraEngine {
     @ObservationIgnored private var lastAppliedPresetID: [CGDirectDisplayID: UUID] = [:]
 
     func apply(_ preset: Preset, to displayID: CGDirectDisplayID? = nil) {
+        // Free tier can only apply the cinematic presets; anything else hits the paywall.
+        guard canApply(preset) else { license.promptGate(); return }
         let target = displayID ?? selectedDisplayID
         guard let target else { return }
         isApplyingPreset = true
@@ -847,6 +861,7 @@ final class SpectraEngine {
     /// as the active preset.
     @discardableResult
     func updatePreset(_ preset: Preset) -> Bool {
+        guard license.isLicensed else { license.promptGate(); return false }
         guard !preset.isBuiltIn, let stack = activeStack else { return false }
         var updated = preset
         updated.chain = stack.chain()
@@ -861,6 +876,7 @@ final class SpectraEngine {
     @discardableResult
     func saveCurrentAsPreset(name: String, category: PresetCategory = .user,
                              summary: String = "", icon: String? = nil, tags: [String] = []) -> Preset? {
+        guard license.isLicensed else { license.promptGate(); return nil }
         guard let stack = activeStack else { return nil }
         let preset = presets.save(name: name, chain: stack.chain(), category: category,
                                   summary: summary, icon: icon, tags: tags)
@@ -999,6 +1015,8 @@ final class SpectraEngine {
     /// The menu-bar Glass toggle: window transparency + the adaptive tint, applied directly
     /// (no preset, and no need to Start the main effects pipeline).
     func setGlassEnabled(_ on: Bool) {
+        // Glass (window transparency + desktop tint) is a paid feature.
+        if on && !license.isLicensed { license.promptGate(); return }
         settings.glassEnabled = on
         // Arm the SIP check on enable; disarm (and dismiss any open guide) on disable.
         pendingGlassSIPCheck = on

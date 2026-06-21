@@ -77,7 +77,7 @@ struct StudioView: View {
             if let message = engine.statusMessage {
                 StatusBanner(message: message) { engine.dismissStatusMessage() }
             }
-            TrialBanner(engine: engine)
+            UpgradeBanner(engine: engine)
             HSplitView {
                 PerformanceView(engine: engine)
                     .frame(minWidth: 240, idealWidth: 300, maxWidth: 420)
@@ -98,20 +98,22 @@ struct StudioView: View {
             effectActions: libraryActions,
             onAddEffect: { engine.addToActiveStack($0) },
             onMultiAddEffects: { descriptors in descriptors.forEach { engine.addToActiveStack($0) } },
-            onNewEffect: { editorTarget = .new },
+            onNewEffect: { engine.canEdit ? (editorTarget = .new) : engine.license.promptGate() },
             onImport: { showingImporter = true },
-            onSavePreset: { savingPreset = true },
+            onSavePreset: { engine.canEdit ? (savingPreset = true) : engine.license.promptGate() },
             onExportPreset: { exportingPreset = $0 })
     }
 
     private var libraryActions: EffectLibraryActions {
         EffectLibraryActions(
             edit: { descriptor in
+                guard engine.canEdit else { engine.license.promptGate(); return }
                 if let composite = engine.composedEffects.effect(for: descriptor.id) {
                     editorTarget = .edit(composite)
                 }
             },
             duplicate: { descriptor in
+                guard engine.canEdit else { engine.license.promptGate(); return }
                 if let composite = engine.composedEffects.effect(for: descriptor.id) {
                     editorTarget = .duplicate(composite)
                 }
