@@ -15,11 +15,6 @@ inline float glitch_stepTime(float t, float rate) {
     return floor(t * r) / r;
 }
 
-// A per-time-step random seed, stable within a step and changing between steps.
-inline float glitch_blockSeed(float t, float rate, float seed) {
-    return spectra_hash11(glitch_stepTime(t, rate) * 13.71 + seed * 71.3);
-}
-
 // MARK: - Datamosh
 
 // True P-frame datamosh: macroblocks carry forward the PREVIOUS frame's pixels

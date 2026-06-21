@@ -86,7 +86,7 @@ enum NoiseEffects {
         tags: ["worley", "voronoi", "cells"], isAnimated: true)
 
     static let filmGrain = EffectDescriptor(
-        id: "noise.filmGrain", name: "Film Grain", category: .noise,
+        id: "noise.filmGrain", name: "Sensor Grain", category: .noise,
         subtitle: "Luma-weighted animated photographic grain.", icon: "film",
         function: "fx_noise_filmGrain",
         parameters: params(intensity: 0.5, scale: 40, speed: 1),

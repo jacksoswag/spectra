@@ -9,7 +9,7 @@ Spectra is organized into focused modules under `Sources/`. Each module owns one
 | Core | `Sources/Core` | The data model: parameters, effect descriptors, effect instances, the effect stack, blend modes, logging. No Metal, no UI. |
 | Capture | `Sources/Capture` | Display enumeration, screen-recording permission, and per-display ScreenCaptureKit streaming to zero-copy Metal textures. |
 | Render | `Sources/Render` | The Metal pipeline: GPU context, pipeline cache, texture pool, the chain renderer, per-display renderers, and the click-through overlay windows. |
-| Effects | `Sources/Effects` | The effect registry and the descriptors for all 160 built-in effects, organized by category. |
+| Effects | `Sources/Effects` | The effect registry and the descriptors for all 168 built-in effects, organized by category. |
 | Shaders | `Sources/Shaders` | The Metal source: a shared header plus one file per category. |
 | Presets | `Sources/Presets` | The preset model, the user/built-in libraries, recents, and persistence. |
 | Storage | `Sources/Storage` | Paths, JSON persistence, settings, the versioned `.spectra` document format, and the file importer. |

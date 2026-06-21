@@ -68,7 +68,6 @@
 		79E611B024C0C37480CCF329 /* EffectLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32DEE3FDAA4ACDF2244A0F70 /* EffectLibraryView.swift */; };
 		7ABD5AC69DFCD5AA0F2EE6BB /* EffectCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F030FFDEF28370B2431C58C2 /* EffectCategory.swift */; };
 		7AC16050078D5CD55E5E10C2 /* MenuPanelCaptureBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030AE55C885DC1656AC655B0 /* MenuPanelCaptureBridge.swift */; };
-		7C1B0E6186322750DF888F06 /* MetalPerformanceShaders.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AAD1CA376B4D3DFC6AFE3A98 /* MetalPerformanceShaders.framework */; };
 		7C610116A8F4474D6565C59D /* VHSEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADBE1AD82E0A544E2650447 /* VHSEffects.swift */; };
 		7D26A4DC1BA226566D4D1536 /* AppPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C8905E9E7E264AC0801F926 /* AppPaths.swift */; };
 		7E631BFDF0BAC7F4A72FCD09 /* EffectChainRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96A444C4BCF7E82C5391CD1 /* EffectChainRenderer.swift */; };
@@ -79,7 +78,6 @@
 		86011F3E4C0939FEAC6A553B /* Environment.metal in Sources */ = {isa = PBXBuildFile; fileRef = 6A76D684F5A019009ABBF45E /* Environment.metal */; };
 		89BCC7BA3E61618D6201F981 /* EffectDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92C725B9EA33AC2898E0DF0 /* EffectDescriptor.swift */; };
 		8BBCAB5FACEA8F94D9104758 /* SystemEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3FEC41EB2EFFF1C2F10C1A0 /* SystemEffects.swift */; };
-		8DE4B3B0A696C9F1B1A93CDD /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3CEF259EE4840FA7B66B9A2C /* AVFoundation.framework */; };
 		8E8E2D9D24A619E533A792D0 /* CustomShaderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91224D0EBFD5DA9725CF8FD4 /* CustomShaderStore.swift */; };
 		8FB41D7124FBE07E66B4189F /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1599C28A4CB638A35DFD0234 /* CoreVideo.framework */; };
 		92AB9CAB11FA4A2E4DD4D3D5 /* SharpenEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F4ED85737153F6615CA3B3F /* SharpenEffects.swift */; };
@@ -103,7 +101,6 @@
 		B5EA7DB3D78E49FAE99AB262 /* UniversalParameters.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60B56C75653A5F227B2653E /* UniversalParameters.swift */; };
 		B5FE37F614FBDDE59B2D2EF2 /* FilmEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B599C505A4A41CD5468AFF6 /* FilmEffects.swift */; };
 		B9452F96CD232E1C21D86315 /* AuxTextureFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE41201305BD9FF34AAB979 /* AuxTextureFactory.swift */; };
-		B9686E3C9922AB83E48DC776 /* MetalFX.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9E8FB78460290A039FE5FB6A /* MetalFX.framework */; };
 		B9B9F3547FBBDA00CA4DF1AB /* Glitch.metal in Sources */ = {isa = PBXBuildFile; fileRef = 260ADF9E343571AA30D01B6B /* Glitch.metal */; };
 		BCD2EA552E60A611AE88C181 /* Preset.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAAD16948BD7D1B1BD529852 /* Preset.swift */; };
 		BCE0CE53FEFB8017D356A15E /* ComposedEffectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E52F51B2413D4C8609A6B0 /* ComposedEffectStore.swift */; };
@@ -111,7 +108,6 @@
 		C1CCE83E95CEE8D1A167A08B /* Color.metal in Sources */ = {isa = PBXBuildFile; fileRef = 46D34C8BB77E4DEE4C9BF55E /* Color.metal */; };
 		C2F6CD02DBC7132E5104A332 /* BlendMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 979FD8BFDA7C07A176C39D7D /* BlendMode.swift */; };
 		C380F876074B2C0989BA3F48 /* ScreenCaptureKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F996F9E36913F16D70E2AC47 /* ScreenCaptureKit.framework */; };
-		C4E758A07F2439C61564BE99 /* AdditionalEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACB1BDD001B4B6942EBD6DE5 /* AdditionalEffects.swift */; };
 		CD25EE57D7456813C07212CC /* ThumbnailRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5C95868CF85D90BD003E4C /* ThumbnailRenderer.swift */; };
 		CF8583F23FA2DEC4ACAFA07B /* Blur.metal in Sources */ = {isa = PBXBuildFile; fileRef = BF49DA9EE9C0422C435C14EA /* Blur.metal */; };
 		D091DC66C2FFFED2D1F4E6CA /* DisplayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4292DB343E7D8D7AC275487D /* DisplayManager.swift */; };
@@ -163,7 +159,6 @@
 		32DEE3FDAA4ACDF2244A0F70 /* EffectLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectLibraryView.swift; sourceTree = "<group>"; };
 		3622E53C987C63193C6A282A /* Distortion.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = Distortion.metal; sourceTree = "<group>"; };
 		3ABF8ACAF5084DA0F08AABC0 /* IOSurface.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOSurface.framework; path = System/Library/Frameworks/IOSurface.framework; sourceTree = SDKROOT; };
-		3CEF259EE4840FA7B66B9A2C /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		3D8CEA01AE88C9707BC79C59 /* EffectStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectStackView.swift; sourceTree = "<group>"; };
 		3EE4739A60C8C74EDE08569D /* PermissionBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionBanner.swift; sourceTree = "<group>"; };
 		3F26A269F14E2D91EA3AA9B3 /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
@@ -207,10 +202,7 @@
 		973FFCD8DE30DB32ACC851F6 /* EffectParameter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectParameter.swift; sourceTree = "<group>"; };
 		979FD8BFDA7C07A176C39D7D /* BlendMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlendMode.swift; sourceTree = "<group>"; };
 		9B599C505A4A41CD5468AFF6 /* FilmEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEffects.swift; sourceTree = "<group>"; };
-		9E8FB78460290A039FE5FB6A /* MetalFX.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalFX.framework; path = System/Library/Frameworks/MetalFX.framework; sourceTree = SDKROOT; };
 		A52B3A43931C0B046486423C /* BuiltInPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInPresets.swift; sourceTree = "<group>"; };
-		AAD1CA376B4D3DFC6AFE3A98 /* MetalPerformanceShaders.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalPerformanceShaders.framework; path = System/Library/Frameworks/MetalPerformanceShaders.framework; sourceTree = SDKROOT; };
-		ACB1BDD001B4B6942EBD6DE5 /* AdditionalEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdditionalEffects.swift; sourceTree = "<group>"; };
 		B0C658D820143DA1065FEF55 /* JSONStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONStore.swift; sourceTree = "<group>"; };
 		B2E52F51B2413D4C8609A6B0 /* ComposedEffectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposedEffectStore.swift; sourceTree = "<group>"; };
 		B5E953304864E355F7B1B95E /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
@@ -270,14 +262,11 @@
 				C380F876074B2C0989BA3F48 /* ScreenCaptureKit.framework in Frameworks */,
 				63C384407FC43CDA7A0F4931 /* Metal.framework in Frameworks */,
 				685449413BB5D7868F960CFC /* MetalKit.framework in Frameworks */,
-				B9686E3C9922AB83E48DC776 /* MetalFX.framework in Frameworks */,
-				7C1B0E6186322750DF888F06 /* MetalPerformanceShaders.framework in Frameworks */,
 				97ECD73CE12EF1D0798C1BBC /* CoreImage.framework in Frameworks */,
 				8FB41D7124FBE07E66B4189F /* CoreVideo.framework in Frameworks */,
 				034810A0E0F752121DE8002D /* IOSurface.framework in Frameworks */,
 				B29E1083EE5BE6ADF6F9E908 /* IOKit.framework in Frameworks */,
 				6984BDE8DCBA1FDFAB333C84 /* UniformTypeIdentifiers.framework in Frameworks */,
-				8DE4B3B0A696C9F1B1A93CDD /* AVFoundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -380,15 +369,12 @@
 		34540AA1EE1D599640C6B405 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				3CEF259EE4840FA7B66B9A2C /* AVFoundation.framework */,
 				EBFBD1C781EC838FB0D5985E /* CoreImage.framework */,
 				1599C28A4CB638A35DFD0234 /* CoreVideo.framework */,
 				B5E953304864E355F7B1B95E /* IOKit.framework */,
 				3ABF8ACAF5084DA0F08AABC0 /* IOSurface.framework */,
 				FEC559724B156142FF06F5BD /* Metal.framework */,
-				9E8FB78460290A039FE5FB6A /* MetalFX.framework */,
 				FE9180E529D5E076DC070F3B /* MetalKit.framework */,
-				AAD1CA376B4D3DFC6AFE3A98 /* MetalPerformanceShaders.framework */,
 				F996F9E36913F16D70E2AC47 /* ScreenCaptureKit.framework */,
 				BA97C755B881F1C1865FFA3B /* UniformTypeIdentifiers.framework */,
 			);
@@ -428,7 +414,6 @@
 			isa = PBXGroup;
 			children = (
 				292E58C47641A3453EF82335 /* Categories */,
-				ACB1BDD001B4B6942EBD6DE5 /* AdditionalEffects.swift */,
 				DCEC28EC8D442B7FDDCB655E /* BuiltInEffects.swift */,
 				7EF4D9369958C37AC21AA0CB /* EffectRegistry.swift */,
 			);
@@ -777,7 +762,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				9CEB5167FDB6F6388A58D77B /* AdaptiveTintOverlay.swift in Sources */,
-				C4E758A07F2439C61564BE99 /* AdditionalEffects.swift in Sources */,
 				AA8D122BEFB8BD1AFC2C09BA /* AppDelegate.swift in Sources */,
 				7F5C1EC2A91649CF909C2E5F /* AppInfo.swift in Sources */,
 				7D26A4DC1BA226566D4D1536 /* AppPaths.swift in Sources */,
