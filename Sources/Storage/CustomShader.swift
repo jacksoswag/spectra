@@ -76,7 +76,7 @@ struct SpectraDocument: Codable, Sendable {
         if let composed { dependencies = Array(Set(composed.stages.map(\.descriptorID))).sorted() }
         return SpectraDocument(
             version: currentVersion, kind: kind, preset: preset, shader: shader, composed: composed,
-            app: "Spectra", appVersion: "1.0", platform: "macOS",
+            app: "Spectra", appVersion: AppInfo.version, platform: "macOS",
             dependencies: dependencies, exportedAt: Date())
     }
 

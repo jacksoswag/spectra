@@ -79,3 +79,6 @@ research/experimental/findings/imgstat
 
 # Personal Claude permission overrides for this repo
 .claude/settings.local.json
+
+# Effect-descriptor codegen tool (local tooling, not part of the shipped app)
+Scripts/effects_workflow.js

@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 @preconcurrency import Metal
 
@@ -302,3 +303,4 @@ enum ShaderTestHarness {
         return ctx.makeImage()!
     }
 }
+#endif

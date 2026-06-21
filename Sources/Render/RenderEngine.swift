@@ -108,7 +108,7 @@ final class RenderEngine {
         spaceSettleDeadline = CACurrentMediaTime() + 0.3
         spaceCarryGeneration += 1
         let generation = spaceCarryGeneration
-        Diag.freeze("EVENT activeSpaceDidChange gen=\(generation) visible=\(visibleDisplayIDs.count)")
+        Log.render.debug("activeSpaceDidChange gen=\(generation, privacy: .public) visible=\(self.visibleDisplayIDs.count, privacy: .public)")
         // Make the overlay TRANSPARENT (not hidden) for the duration of the swipe, and
         // reveal it again once the swipe settles (`ensureOverlaysOnActiveSpace`). During a
         // swipe the opaque overlay slides out with the outgoing Space while it keeps
@@ -235,26 +235,9 @@ final class RenderEngine {
         for renderer in renderers.values { renderer.restartDisplayLinkIfStalled() }
     }
 
-    /// TEMPORARY per-tick freeze diagnostics (remove with Diag.swift). For each visible overlay,
-    /// log capture/present counters, link health, occlusion, and alpha — so a captured freeze
-    /// shows its exact signature (capture stalled vs link dead vs presenting-but-invisible).
-    func logFreezeDiag() {
-        guard Diag.enabled else { return }
-        for id in visibleDisplayIDs {
-            guard let overlay = overlays[id], let renderer = renderers[id] else { continue }
-            let s = renderer.diagSnapshot()
-            Diag.freeze(String(format:
-                "TICK id=%u frames=%llu pres=%llu cbAgeMs=%d paused=%d active=%d occlVis=%d alpha=%.2f elevated=%d",
-                id, s.frames, s.presents, s.callbackAge < 0 ? -1 : Int(s.callbackAge * 1000),
-                s.paused ? 1 : 0, s.active ? 1 : 0,
-                overlay.occlusionState.contains(.visible) ? 1 : 0,
-                overlay.alphaValue, elevatedDisplays.contains(id) ? 1 : 0))
-        }
-    }
-
     private func carryAndRebuild(_ id: CGDirectDisplayID) {
         guard let overlay = overlays[id] else { return }
-        Diag.freeze("EVENT carryAndRebuild id=\(id) wasElevated=\(elevatedDisplays.contains(id) ? 1 : 0)")
+        Log.render.debug("carryAndRebuild id=\(id, privacy: .public) wasElevated=\(self.elevatedDisplays.contains(id) ? 1 : 0, privacy: .public)")
         if Self.alwaysElevateOverlay || spaceManager.activeSpaceNeedsExplicitPlacement(displayID: id) {
             // Lift the overlay into our OWN elevated Space (SpaceManager): macOS allows adding the
             // window to a Space we created and raised above the Space carousel / fullscreen

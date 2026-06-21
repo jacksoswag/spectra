@@ -146,7 +146,7 @@ private struct SettingsForm: View {
             }
 
             Section("About") {
-                LabeledContent("Spectra", value: "Version 1.0")
+                LabeledContent("Spectra", value: "Version \(AppInfo.versionWithBuild)")
                 LabeledContent("Effects", value: "\(engine.registry.descriptors.count) available")
                 LabeledContent("Custom Shaders", value: "\(engine.customShaders.shaders.count)")
                 Text("A desktop-wide GPU visual effects engine for macOS.")

@@ -237,7 +237,6 @@ final class SpectraEngine {
     func bootstrap() async {
         guard !didBootstrap else { return }
         didBootstrap = true
-        Diag.reset()   // TEMPORARY: start each launch with clean diagnostics logs
         // Let the cursor enforcer tell the overlay (rendered cursor) apart from the menu
         // bar / dropdowns above it, so the real cursor shows over the latter only.
         cursorEnforcer.isOverlayWindow = { [weak self] number in
@@ -1104,7 +1103,7 @@ final class SpectraEngine {
             captureStallBaseline[id] = renderEngine.renderer(for: id)?.capturedFrameCount ?? 0
         }
         captureStallDeadline = CACurrentMediaTime() + Self.captureStallGracePeriod
-        Diag.freeze("EVENT armCaptureStallWatchdog baselines=\(captureStallBaseline)")
+        Log.capture.debug("Armed capture-stall watchdog for \(self.captureStallBaseline.count, privacy: .public) display(s)")
     }
 
     /// Engine-tick check armed by `armCaptureStallWatchdog`: once the grace period has elapsed,
@@ -1124,7 +1123,6 @@ final class SpectraEngine {
             let current = renderEngine.renderer(for: id)?.capturedFrameCount ?? baseline
             guard current == baseline else { continue }   // a fresh frame arrived → stream healthy
             Log.capture.error("Capture stalled after Space switch on display \(id, privacy: .public); restarting stream")
-            Diag.freeze("EVENT detectStalledCapture-RESTART id=\(id) baseline=\(baseline) current=\(current)")
             sessions[id] = nil
             Task { await session.stop() }
             stalled = true
@@ -1146,7 +1144,7 @@ final class SpectraEngine {
                 lastPresentCount[id] = nil
                 continue
             }
-            let snap = renderer.diagSnapshot()
+            let snap = renderer.renderHealthSnapshot()
             let prevFrames = lastCaptureCount[id]
             let prevPres = lastPresentCount[id]
             lastCaptureCount[id] = snap.frames
@@ -1176,13 +1174,11 @@ final class SpectraEngine {
         lastPresentCount[id] = nil
         if recent.count > 3 {
             Log.render.error("Overlay on display \(id, privacy: .public) froze repeatedly; disabling so it can't trap the screen.")
-            Diag.freeze("EVENT hardFreeze-DISABLE id=\(id) recoveries=\(recent.count)/30s")
             lastRecoveryMessage = "Effects turned off automatically after the overlay kept freezing. Re-enable when ready."
             disable()
             return
         }
         Log.render.error("Hard render freeze on display \(id, privacy: .public); recreating overlay (auto-recover).")
-        Diag.freeze("EVENT hardFreeze-RECOVER id=\(id) attempt=\(recent.count)")
         renderEngine.deactivate(id)
         updatePipelines()   // recreates the overlay + renderer + display link and re-wires capture
     }
@@ -1238,7 +1234,6 @@ final class SpectraEngine {
         renderEngine.ensureOverlaysOnActiveSpace()   // follow the user across Spaces (focused-display, occlusion-gated)
         detectStalledCapture()                       // restart a capture stream that silently stalled on a Space switch
         detectAndRecoverHardFreeze()                 // failsafe: auto-recover a frozen overlay so it can't trap the screen
-        renderEngine.logFreezeDiag()                 // TEMPORARY: per-tick freeze diagnostics
         governAutoQuality()                          // adaptive quality (the "Auto" toggle), no-op unless enabled
         // Render scale is applied on every path that changes it (setRenderScale) or
         // creates a session (startCapture), so no per-tick reconcile is needed.

@@ -228,19 +228,16 @@ final class DisplayRenderer: NSObject {
         frameLock.lock(); defer { frameLock.unlock() }; return submitSeq
     }
 
-    /// TEMPORARY diagnostics snapshot (remove with Diag.swift). `frames` = total captured,
-    /// `presents` = total presented to the drawable, `callbackAge` = seconds since the last
-    /// display-link callback (-1 if none yet), `paused` = link paused state, `active` = `_active`.
-    /// Together these say whether the freeze is: capture stalled (frames flat), link dead
-    /// (callbackAge climbing), or presenting fine but invisible (presents climbing, alpha 0).
-    func diagSnapshot() -> (frames: UInt64, presents: UInt64, callbackAge: Double, paused: Bool, active: Bool) {
-        stateLock.lock(); let cb = lastCallbackTime; let active = _active; stateLock.unlock()
+    /// Frame/present counters for the engine's hard-freeze failsafe: `frames` = total
+    /// captured frames submitted, `presents` = total presented to a drawable. When capture
+    /// keeps advancing but presents stall, the render clock has died and the overlay is
+    /// recreated (see `SpectraEngine.detectAndRecoverHardFreeze`). Thread-safe for `frames`;
+    /// `presents` is a plain counter whose races are harmless for the coarse heuristic.
+    func renderHealthSnapshot() -> (frames: UInt64, presents: UInt64) {
         frameLock.lock(); let f = submitSeq; frameLock.unlock()
-        let age = cb > 0 ? CACurrentMediaTime() - cb : -1
-        return (f, presentCount, age, displayLink?.isPaused ?? true, active)
+        return (f, presentCount)
     }
-    /// Total frames presented to a drawable (bumped on the link thread in the callback). Read
-    /// for diagnostics only; a plain counter, races are harmless for logging.
+    /// Total frames presented to a drawable (bumped on the link thread in the callback).
     private var presentCount: UInt64 = 0
 
     // MARK: - Frame-gated reveal (main thread)
@@ -301,8 +298,8 @@ final class DisplayRenderer: NSObject {
     /// window, which stops a `CAMetalDisplayLink` permanently; the engine calls this right
     /// after a carry so the overlay resumes painting on the new Space instead of freezing.
     func rebuildDisplayLink() {
-        guard isActive else { Diag.freeze("EVENT rebuildLink id=\(displayID) SKIPPED(inactive)"); return }
-        Diag.freeze("EVENT rebuildLink id=\(displayID)")
+        guard isActive else { Log.render.debug("rebuildLink id=\(self.displayID, privacy: .public) skipped (inactive)"); return }
+        Log.render.debug("rebuildLink id=\(self.displayID, privacy: .public)")
         displayLink?.invalidate()
         displayLink = nil
         ensureDisplayLink()
@@ -326,7 +323,7 @@ final class DisplayRenderer: NSObject {
         guard now - lastCB > 0.75 else { return }               // stalled: no callback for >0.75s
         guard now - lastWatchdogRebuild > 1.0 else { return }   // cooldown (main-only); short so a re-death recovers fast now that rebuilds actually take effect
         lastWatchdogRebuild = now
-        Diag.freeze("EVENT linkWatchdog-restart id=\(displayID) cbAgeMs=\(Int((now - lastCB) * 1000))")
+        Log.render.notice("Display-link watchdog restart id=\(self.displayID, privacy: .public) cbAgeMs=\(Int((now - lastCB) * 1000), privacy: .public)")
         rebuildDisplayLink()
     }
 
@@ -585,7 +582,7 @@ extension DisplayRenderer: CAMetalDisplayLinkDelegate {
         // present directly here. `renderFrame` reads the main-published inputs (cursor snapshot,
         // cached frame points, intensity, battery) itself. The drawable comes from the link.
         let presented = renderFrame(frame, drawable: update.drawable)
-        if presented { presentCount &+= 1 }   // TEMPORARY diagnostics counter
+        if presented { presentCount &+= 1 }
         // Fire the reveal only on a genuinely-new captured frame that actually reached the
         // drawable (never on a stale redraw). It touches NSWindow, so hop to the main thread.
         if presented, hasNew {
