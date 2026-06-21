@@ -62,6 +62,31 @@ struct SpectraApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+
+        // The contextual SIP-education window, opened only when the user enables
+        // Glass while SIP is on (see SpectraEngine.sipGuideRequested). Dismissing it
+        // clears the engine flag.
+        Window("Window Transparency & SIP", id: "sip-guide") {
+            if let engine {
+                SIPGuideWindowContent(engine: engine)
+            }
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+    }
+}
+
+/// Hosts the SIP guide so it can clear the engine flag and close its own window
+/// (the `dismissWindow` environment value is only available inside a View).
+private struct SIPGuideWindowContent: View {
+    let engine: SpectraEngine
+    @Environment(\.dismissWindow) private var dismissWindow
+
+    var body: some View {
+        SIPRequiredView {
+            engine.dismissSIPGuide()
+            dismissWindow(id: "sip-guide")
+        }
     }
 }
 
@@ -82,6 +107,12 @@ private struct MenuBarStatusLabel: View {
                 openWindow(id: "studio")
                 NSApp.activate(ignoringOtherApps: true)
                 engine.frontStudioWindow()
+            }
+            // Present the SIP-education window when enabling Glass hits a SIP block.
+            .onChange(of: engine.sipGuideRequested) { _, requested in
+                guard requested else { return }
+                openWindow(id: "sip-guide")
+                NSApp.activate(ignoringOtherApps: true)
             }
     }
 }
