@@ -244,22 +244,26 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
                 float bob = cos(u.time * (0.4 + hTex  * 0.8) * tempo + hTex  * kTwoPi);
                 jitter += float2(wob * 0.22, bob * 0.10);
 
-                // Pop lifecycle: ~40% of bubbles balloon and burst on a slow personal clock; the
-                // rest just rise. A birth fade-in keeps a re-spawn from blinking.
-                float alpha = 1.0, popBall = 0.0, popFlash = 0.0;
+                // Pop: ~40% of bubbles rupture on a slow personal clock. The clock only sets WHEN;
+                // the burst itself runs in real seconds so it always lasts < 100ms, whatever the
+                // clock rate. The rest just rise. A birth fade-in keeps a re-spawn from blinking.
+                float alpha = 1.0;       // body visibility
+                float pp = 0.0;          // 0..1 progress through the ~90ms burst
                 if (popOn && hPop > 0.60) {
-                    float life = fract(u.time * (0.05 + hTex * 0.04) + hPop * 9.0);
-                    popBall  = smoothstep(0.90, 1.0, life);                        // swell over final 10%
-                    popFlash = popBall * (1.0 - smoothstep(0.985, 1.0, life));     // bright burst, then gone
-                    alpha = smoothstep(0.0, 0.06, life) * (1.0 - smoothstep(0.97, 1.0, life));
+                    float lifeRate = 0.05 + hTex * 0.04;
+                    float life = fract(u.time * lifeRate + hPop * 9.0);
+                    float popWin = lifeRate * 0.09;                     // 0.09s slice of the cycle => < 100ms
+                    pp = clamp((life - (1.0 - popWin)) / popWin, 0.0, 1.0);
+                    alpha = smoothstep(0.0, 0.05, life)                 // gentle ~1s birth fade-in
+                          * (1.0 - smoothstep(0.0, 0.30, pp));         // body torn away ~27ms into the burst
                 }
 
-                // Per-bubble size: ~0.6x .. 1.35x the layer radius, plus the pop swell.
-                float radius = baseRadius * mix(0.60, 1.35, hSize) * (1.0 + popBall * 0.7);
+                // Per-bubble size: ~0.6x .. 1.35x the layer radius, with a quick pre-rupture swell.
+                float radius = baseRadius * mix(0.60, 1.35, hSize) * (1.0 + smoothstep(0.0, 0.25, pp) * 0.15);
 
                 float2 q = (f - cellOff) - jitter;       // vector from bubble centre, cell units
                 float d2 = dot(q, q);                     // squared distance: cheaper cull, no sqrt yet
-                float rMax = radius * (1.10 + dof * 0.12);
+                float rMax = radius * (1.10 + dof * 0.12 + pp);   // extra room for the expanding rupture ring
                 if (d2 > rMax * rMax) { continue; }       // skip the sqrt + shading for the far majority
                 float nd = sqrt(d2) / max(radius, 1.0e-4);   // 0 centre .. 1 rim
 
@@ -293,9 +297,18 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
                                + rim * mix(0.40, 0.72, hPath) * rimCol
                                + spec1 * 0.95 * float3(1.0)
                                + spec2 * 0.45 * float3(0.90, 0.97, 1.0)
-                               + star * 0.60 * float3(1.0)
-                               + popFlash * 1.20 * disc * float3(0.95, 1.0, 1.0);  // burst flash
+                               + star * 0.60 * float3(1.0);
                 glow += depth * alpha * contrib;
+
+                // Rupture ring: a thin aqua/iridescent shell that races outward past the rim and
+                // fades within the burst. Tinted (not white) and additive, so it outlives the body.
+                if (pp > 0.0) {
+                    float ringR = 1.0 + pp * 0.7;                  // travels from rim outward
+                    float e = (nd - ringR) * 10.0;
+                    float ring = exp(-e * e) * sin(pp * 3.14159);  // thin shell, brightens then fades
+                    float3 ringCol = mix(glass, rimCol, 0.5);      // aqua-green, lightly iridescent
+                    glow += depth * ring * 0.55 * ringCol;
+                }
 
                 // Refraction: a convex lens pulls the background toward the bubble centre,
                 // strongest near the rim. Convert q from cell units back to UV.
