@@ -4,10 +4,10 @@ import Observation
 /// On-disk license record. Plain JSON (no HWID, no obfuscation) — at this price,
 /// plain license keys are the right tradeoff (see the ship plan's piracy note).
 struct LicenseRecord: Codable, Equatable, Sendable {
-    var trialStart: Date?
-    var licenseKey: String?
+    var trialStart: Date? = nil
+    var licenseKey: String? = nil
     /// Last SUCCESSFUL online validation, for the offline-grace window.
-    var lastValidated: Date?
+    var lastValidated: Date? = nil
     /// Whether the stored key validated as genuine on its last check.
     var lastValidationOK: Bool = false
 }
@@ -50,9 +50,9 @@ final class LicenseManager {
         return 0
     }
 
-    /// Pure status derivation from a record + a clock. Kept static and side-effect
-    /// free so it is trivially unit-testable (trial countdown, expiry, grace).
-    static func derive(record: LicenseRecord, now: Date) -> LicenseStatus {
+    /// Pure status derivation from a record + a clock. Kept static, nonisolated, and
+    /// side-effect free so it is trivially unit-testable (trial countdown, expiry, grace).
+    nonisolated static func derive(record: LicenseRecord, now: Date) -> LicenseStatus {
         if let key = record.licenseKey, !key.isEmpty {
             guard record.lastValidationOK else { return .unlicensed }
             if let last = record.lastValidated {
