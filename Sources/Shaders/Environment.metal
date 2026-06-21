@@ -200,17 +200,18 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
     float3 glow = float3(0.0);
     float2 refr = float2(0.0);   // accumulated refraction offset, in UV space
     const float kTwoPi = 6.28318530718;
+    float tempo = 0.6 + speed;   // per-bubble weave/bob tempo scales with the speed knob
 
     // Three depth layers: near bubbles are larger, faster, brighter.
     for (int layer = 0; layer < 3; layer++) {
         float fl = float(layer);
         float scale = mix(5.0, 11.0, fl / 2.0);
         float depth = 1.0 - fl / 3.0;            // 1 near .. ~0.33 far
-        float radius = mix(0.18, 0.42, size) * depth;   // < 1 cell, so 3x3 covers it whole
+        float baseRadius = mix(0.18, 0.42, size) * depth;  // per-bubble size scales off this
 
-        // Gentle horizontal sway; bubbles rise (uv.y points down, so add time to drift up).
-        float sway = sin(u.time * (0.25 + fl * 0.12) + fl * 2.3) * 0.10;
-        float2 p = float2(in.uv.x * aspect + sway, in.uv.y) * scale;
+        // The stream rises as a whole (uv.y points down, so add time to drift up); each
+        // bubble adds its own weave/bob below. No shared per-layer sway anymore.
+        float2 p = float2(in.uv.x * aspect, in.uv.y) * scale;
         p.y += u.time * speed * (0.18 + depth * 0.32) + fl * 17.0 + u.seed * 11.0;
 
         float2 baseCell = floor(p);
@@ -224,7 +225,22 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
                 // Sparse spawn: only a subset of cells carry a bubble.
                 if (spectra_hash21(cellID + fl * 13.0) < 0.80 - density * 0.55) { continue; }
 
+                // Per-bubble random traits: size, path phase, surface character.
                 float2 jitter = spectra_hash22(cellID + fl * 6.0);
+                float hSize = spectra_hash21(cellID + fl * 31.0);
+                float hPath = spectra_hash21(cellID + fl * 47.0);
+                float hTex  = spectra_hash21(cellID + fl * 59.0);
+
+                // Per-bubble path: a wide horizontal weave plus a slower vertical bob, each
+                // at its own rate/phase. Bounded so the bubble never leaves its 3x3 footprint,
+                // and the bob momentarily speeds up / slows the rise so no two move alike.
+                float wob = sin(u.time * (0.5 + hPath * 1.3) * tempo + hPath * kTwoPi);
+                float bob = cos(u.time * (0.4 + hTex * 0.8) * tempo + hTex * kTwoPi);
+                jitter += float2(wob * 0.22, bob * 0.10);
+
+                // Per-bubble size: ~0.6x .. 1.35x the layer radius (still < 1 cell).
+                float radius = baseRadius * mix(0.60, 1.35, hSize);
+
                 float2 q = (f - cellOff) - jitter;       // vector from bubble centre, cell units
                 float d = length(q);
                 float nd = d / max(radius, 1.0e-4);      // 0 centre .. 1 rim
@@ -234,19 +250,30 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
                 float rim = smoothstep(0.55, 0.97, nd) * disc;   // bright Fresnel rim
                 float body = disc * 0.09;                        // faint glass interior
 
-                // Two speculars: a hot upper-left glint and a dim lower-right reflection.
-                float spec1 = smoothstep(radius * 0.30, 0.0, length(q + float2(0.30, 0.30) * radius));
+                // Primary glint wanders off the upper-left default per bubble; dim secondary stays put.
+                float2 gdir = float2(0.30, 0.30) + (float2(hPath, hTex) - 0.5) * 0.34;
+                float spec1 = smoothstep(radius * 0.30, 0.0, length(q + gdir * radius));
                 float spec2 = smoothstep(radius * 0.16, 0.0, length(q - float2(0.34, 0.28) * radius));
 
-                // Thin-film iridescence: hue cycles with radius and a per-bubble phase.
-                float phase = spectra_hash21(cellID + fl * 23.0);
-                float3 irid = 0.5 + 0.5 * cos(kTwoPi * (nd * 1.5 + phase) + float3(0.0, 2.094, 4.188));
-                float3 rimCol = mix(float3(0.80, 0.95, 1.00), irid, 0.5);
+                // Aero sparkle: a thin 4-point star riding the main glint, brightest on near bubbles.
+                float2 g = (q + gdir * radius) / max(radius, 1.0e-4);
+                float starH = smoothstep(0.55, 0.0, abs(g.y)) * smoothstep(0.95, 0.0, abs(g.x));
+                float starV = smoothstep(0.55, 0.0, abs(g.x)) * smoothstep(0.95, 0.0, abs(g.y));
+                float star = (starH + starV) * spec1 * depth;
 
-                glow += depth * (body * float3(0.45, 0.85, 0.95)
-                                 + rim * 0.55 * rimCol
+                // Thin-film iridescence: ring frequency, phase and strength all vary per bubble,
+                // so some read as clear glass and others as oily soap film.
+                float iridAmt = mix(0.15, 0.85, hTex);
+                float3 irid = 0.5 + 0.5 * cos(kTwoPi * (nd * mix(1.0, 2.6, hPath) + hTex)
+                                              + float3(0.0, 2.094, 4.188));
+                float3 glass  = mix(float3(0.45, 0.85, 0.95), float3(0.52, 0.95, 0.78), hSize); // aqua..green
+                float3 rimCol = mix(float3(0.80, 0.95, 1.00), irid, iridAmt);
+
+                glow += depth * (body * glass
+                                 + rim * mix(0.40, 0.72, hPath) * rimCol
                                  + spec1 * 0.95 * float3(1.0)
-                                 + spec2 * 0.45 * float3(0.90, 0.97, 1.0));
+                                 + spec2 * 0.45 * float3(0.90, 0.97, 1.0)
+                                 + star * 0.60 * float3(1.0));
 
                 // Refraction: a convex lens pulls the background toward the bubble centre,
                 // strongest near the rim. Convert q from cell units back to UV.
