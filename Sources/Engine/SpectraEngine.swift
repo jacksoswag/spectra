@@ -28,6 +28,10 @@ final class SpectraEngine {
     let chainProfiler: ChainProfiler
     let wallpaper: WallpaperProvider
 
+    /// The self-contained licensing layer (14-day trial, offline grace). The engine
+    /// gates `enable()` on its entitlement; the UI reads its status.
+    let license = LicenseManager()
+
     // Observable state. A single `isEnabled` flag is the one source of truth for
     // "are effects running" — there is no separate pause or per-display gate. The
     // green/red transport button, the menu-bar item, and the ⌘⇧E command all toggle
@@ -317,10 +321,11 @@ final class SpectraEngine {
 
         // Restore the last master on/off state (quit-with-effects-on returns enabled),
         // or honour the always-start-enabled preference. Either way only auto-starts
-        // when Screen Recording is already granted.
-        if (settings.startEnabledOnLaunch || wasEnabled) && permissionAuthorized {
+        // when Screen Recording is granted and the trial/license still entitles use.
+        if (settings.startEnabledOnLaunch || wasEnabled) && permissionAuthorized && license.isEntitled {
             isEnabled = true
         }
+        Task { await license.refresh() }   // re-verify a stored key online (offline-grace tolerant)
         autoScale = settings.renderScale   // governor starts from the saved quality if Auto is on
         // System effects: forward the adaptive-tint windows into the capture-exception
         // path and surface yabai availability to the inspector. `updatePipelines` below
@@ -404,6 +409,9 @@ final class SpectraEngine {
     // MARK: - Master controls
 
     func enable() {
+        // Entitlement gate: a lapsed trial with no valid license can't turn effects on.
+        // The trial and a valid (or offline-grace) license all pass.
+        guard license.isEntitled else { license.promptGate(); return }
         if !permissionAuthorized {
             Task {
                 await requestPermission()

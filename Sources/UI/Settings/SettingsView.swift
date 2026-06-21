@@ -149,6 +149,8 @@ private struct SettingsForm: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            LicenseSettingsSection(engine: engine)
+
             Section("About") {
                 LabeledContent("Spectra", value: "Version \(AppInfo.versionWithBuild)")
                 LabeledContent("Effects", value: "\(engine.registry.descriptors.count) available")

@@ -16,6 +16,7 @@ enum AppPaths {
     static var composedDirectory: URL { supportDirectory.appendingPathComponent("Effects", isDirectory: true) }
     static var settingsFile: URL { supportDirectory.appendingPathComponent("settings.json") }
     static var stateFile: URL { supportDirectory.appendingPathComponent("state.json") }
+    static var licenseFile: URL { supportDirectory.appendingPathComponent("license.json") }
 
     /// Create the directory tree if needed. Safe to call repeatedly.
     static func ensureDirectories() {
