@@ -78,7 +78,7 @@ enum EnvironmentEffects {
         subtitle: "Glossy water that splashes on click and drags with the cursor.", icon: "hand.tap",
         function: "fx_env_splash",
         parameters: [
-            .slider("size", "Size", 0...1, default: 0.55),
+            .slider("size", "Size", -0.75...1, default: -0.2, help: "Below 0 shrinks the splash past its normal minimum (-0.33 ≈ 33% smaller, -0.75 ≈ 75% smaller)."),
             .slider("trail", "Trail", 0...1, default: 0.6, help: "How much water the cursor drags behind it."),
             .slider("droplets", "Droplets", 0...1, default: 0.6),
             .slider("gloss", "Gloss", 0...1, default: 0.75),
