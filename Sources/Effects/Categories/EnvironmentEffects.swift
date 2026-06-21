@@ -63,10 +63,10 @@ enum EnvironmentEffects {
         subtitle: "Rising glossy water-bubble bokeh.", icon: "bubbles.and.sparkles",
         function: "fx_env_bubbles",
         parameters: [
-            .slider("density", "Density", 0...1, default: 0.5),
-            .slider("size", "Size", 0...1, default: 0.5),
-            .slider("speed", "Speed", 0...1, default: 0.4),
-            .slider("opacity", "Opacity", 0...1, default: 0.7),
+            .slider("density", "Density", 0...1, default: 0.2),
+            .slider("size", "Size", 0...1, default: 0.0),
+            .slider("speed", "Speed", 0...1, default: 0.1),
+            .slider("opacity", "Opacity", 0...1, default: 0.5),
         ],
         tags: ["bubbles", "bokeh", "frutiger aero", "glossy", "water"],
         isAnimated: true)

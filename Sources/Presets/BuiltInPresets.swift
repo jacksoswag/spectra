@@ -172,7 +172,7 @@ enum BuiltInPresets {
             // glossy white gel highlights. Greener and fresher than Y2K/Aqua; warm-white
             // (never magenta) highlights keep it clear of Cyberpunk.
             fx("color.saturation", ["amount": s(0.24)]),              // global candy chroma lift
-            fx("color.vibrance", ["amount": s(0.62)]),                // protect-skin richness on top of saturation
+            fx("color.vibrance", ["amount": s(1.0)]),                 // protect-skin richness on top of saturation
             fx("color.temperature", ["amount": s(-0.15)]),            // cool, fresh cast
             fx("color.colorBalance", [
                 "magentaGreen": s(0.10),                              // push green into the world
@@ -193,7 +193,7 @@ enum BuiltInPresets {
             fx("sharpen.clarity", ["amount": s(0.35)]),               // edge recovery for text under bloom
             // The signature: rising glass bubbles with refraction, a Fresnel rim, thin-film
             // iridescence, and dual speculars (full neighbourhood sampling, so they never clip).
-            fx("environment.bubbles", ["density": s(0.42), "size": s(0.55), "speed": s(0.4), "opacity": s(0.5)]),
+            fx("environment.bubbles", ["density": s(0.2), "size": s(0.0), "speed": s(0.1), "opacity": s(0.5)]),
         ]),
 
         // MARK: Artistic
