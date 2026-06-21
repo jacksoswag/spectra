@@ -14,6 +14,7 @@ final class YabaiProvisioner: @unchecked Sendable {
     enum Status: Equatable, Sendable {
         case unknown
         case notInstalled        // yabai absent (will auto-install on enable)
+        case notRunning          // installed but the service socket isn't answering (will start on enable)
         case installing          // Homebrew install in progress
         case starting            // bringing the service up
         case authorizing         // waiting on the admin prompt for the scripting addition
@@ -48,7 +49,7 @@ final class YabaiProvisioner: @unchecked Sendable {
 
     private func probeNow(needsOpacity: Bool) -> Status {
         guard let yabai = yabaiPath() else { return .notInstalled }
-        guard serviceRunning(yabai) else { return .ready }   // installed; service will start on enable
+        guard serviceRunning(yabai) else { return .notRunning }   // installed but socket not answering
         guard needsOpacity else { return .ready }
         if !sipDisabled() { return .sipRequired }
         // The pinned sudoers entry is a read-only proxy for "opacity already set up".

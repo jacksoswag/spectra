@@ -316,7 +316,7 @@ fragment float4 fx_glitch_frameRepeat(RasterizerData in [[stage_in]],
     // Within each interval, hold last frame; only refresh on the boundary frame.
     float interval = max(rate, 0.0001);
     float phase = fract(u.time * interval);
-    float boundary = step(phase, interval * 2.0);   // ~1 only just after a boundary
+    float boundary = step(phase, 1.0 / 60.0);   // ~1 only in the first frame of each interval
     float3 current = spectra_tex(src, in.uv).rgb;
     float3 held = spectra_tex(history, in.uv).rgb;
     float3 processed = mix(held, current, boundary);

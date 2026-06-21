@@ -81,6 +81,9 @@ struct InspectorView: View {
         case .notInstalled:
             noteBanner("info.circle", .secondary,
                        "yabai isn't installed. Spectra installs it via Homebrew automatically when you enable this row.")
+        case .notRunning:
+            noteBanner("info.circle", .secondary,
+                       "yabai is installed but not running. Spectra starts it when you enable this row.")
         case .installing:
             noteBanner("arrow.down.circle", .secondary, "Installing yabai via Homebrew…")
         case .starting:

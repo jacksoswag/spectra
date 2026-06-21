@@ -39,6 +39,8 @@ final class YabaiBridge: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.spectra.yabai")
     private let binaryPath: String?
     private var snapshot: Snapshot?
+    /// Tracks which subsystems applied changes that need restoring; cleared when all have been restored.
+    private var pendingRestores: Set<String> = []
     private static let snapshotFile = AppPaths.supportDirectory.appendingPathComponent("yabai-snapshot.json")
 
     init() {
@@ -67,6 +69,7 @@ final class YabaiBridge: @unchecked Sendable {
         queue.async {
             guard self.availabilityNow().isReady else { return }
             self.captureSnapshotIfNeeded()
+            self.pendingRestores.insert("transparency")
             self.setConfig("window_opacity", "on")
             self.setConfig("active_window_opacity", String(format: "%.3f", active))
             self.setConfig("normal_window_opacity", String(format: "%.3f", normal))
@@ -84,6 +87,7 @@ final class YabaiBridge: @unchecked Sendable {
         queue.async {
             guard self.binaryPath != nil else { return }
             self.restoreOpaque()
+            self.pendingRestores.remove("transparency")
             self.clearSnapshotIfFullyRestored()
         }
     }
@@ -105,6 +109,7 @@ final class YabaiBridge: @unchecked Sendable {
         queue.async {
             guard self.availabilityNow().isReady else { return }
             self.captureSnapshotIfNeeded()
+            self.pendingRestores.insert("layout")
             let name = ["bsp", "stack", "float"][max(0, min(2, layout))]
             self.run(["-m", "space", "--layout", name])
             self.setConfig("window_gap", String(Int(gap.rounded())))
@@ -127,6 +132,7 @@ final class YabaiBridge: @unchecked Sendable {
                 self.setConfig("left_padding", String(snap.leftPadding))
                 self.setConfig("right_padding", String(snap.rightPadding))
             }
+            self.pendingRestores.remove("layout")
             self.clearSnapshotIfFullyRestored()
         }
     }
@@ -145,6 +151,7 @@ final class YabaiBridge: @unchecked Sendable {
             setConfig("left_padding", String(snap.leftPadding))
             setConfig("right_padding", String(snap.rightPadding))
             snapshot = nil
+            pendingRestores = []
             try? FileManager.default.removeItem(at: Self.snapshotFile)
         }
     }
@@ -187,10 +194,11 @@ final class YabaiBridge: @unchecked Sendable {
         try? JSONStore.save(snap, to: Self.snapshotFile)
     }
 
-    /// Once both transparency and layout have been restored the on-disk snapshot is
-    /// stale; drop it so a clean run doesn't restore on next launch. Kept simple: the
-    /// controller calls both restores together on deactivate, so clearing here is safe.
+    /// Drop the snapshot only when every subsystem that applied changes has been restored.
+    /// A partial restore (e.g. only transparency) leaves the snapshot intact so the
+    /// remaining subsystem (layout) can still read it and clear it on its own restore.
     private func clearSnapshotIfFullyRestored() {
+        guard pendingRestores.isEmpty else { return }
         snapshot = nil
         try? FileManager.default.removeItem(at: Self.snapshotFile)
     }

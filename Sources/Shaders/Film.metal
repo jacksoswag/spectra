@@ -34,21 +34,28 @@ inline float fx_film_highlightMask(float3 c, float threshold) {
 
 // Radial blur of the highlight mask, weighting bright neighbours. Used to spread
 // a glow around blown-out regions. `radiusUV` is the spread radius in UV space.
+// Uses a multi-ring layout (inner + mid + outer) so the sample footprint covers
+// the disc area more evenly than a simple sqrt-r spiral, giving a fuller glow spread.
 inline float3 fx_film_glowGather(texture2d<float> src, float2 uv,
                                  float2 radiusUV, float threshold) {
-    const float golden = 2.39996322972865332;
-    const int taps = 24;
     float3 sum = float3(0.0);
     float total = 0.0;
-    for (int i = 0; i < taps; i++) {
-        float fi = float(i) + 0.5;
-        float r = sqrt(fi / float(taps));
-        float a = fi * golden;
-        float2 o = float2(cos(a), sin(a)) * r * radiusUV;
-        float3 s = spectra_tex(src, uv + o).rgb;
-        float w = fx_film_highlightMask(s, threshold) * (1.0 - r * 0.5);
-        sum += s * w;
-        total += w;
+    // Three concentric rings: 8 inner (r=0.33), 8 mid (r=0.66), 8 outer (r=1.0),
+    // each ring rotated by half a step vs the previous for denser angular coverage.
+    const float radii[3] = { 0.33, 0.66, 1.0 };
+    const float ringOffset[3] = { 0.0, 0.5, 0.25 };
+    for (int ring = 0; ring < 3; ring++) {
+        float r = radii[ring];
+        float angStep = 6.28318530718 / 8.0;
+        for (int k = 0; k < 8; k++) {
+            float a = (float(k) + ringOffset[ring]) * angStep;
+            float2 o = float2(cos(a), sin(a)) * r * radiusUV;
+            float3 s = spectra_tex(src, uv + o).rgb;
+            // Weight falls with radius so the glow core is brighter than the edge halo.
+            float w = fx_film_highlightMask(s, threshold) * (1.0 - r * 0.4);
+            sum += s * w;
+            total += w;
+        }
     }
     return total > 1.0e-4 ? sum / total : float3(0.0);
 }
