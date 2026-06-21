@@ -87,4 +87,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the module breakdown, the effect cont
 
 ## License
 
-Provided as-is for evaluation.
+Spectra is commercial software. Use is governed by the [End User License Agreement](docs/EULA.md);
+data handling is described in the [Privacy Policy](docs/PRIVACY.md). A one-time
+purchase unlocks the full app; a free tier (the cinematic presets) is available
+without a license.

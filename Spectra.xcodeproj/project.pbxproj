@@ -74,6 +74,7 @@
 		6EFA6E9A10B3EF9A03930027 /* Camcorder.metal in Sources */ = {isa = PBXBuildFile; fileRef = 49BAFA1C58ECBD01633AD2BC /* Camcorder.metal */; };
 		6F63996ECF2650B75C77738D /* StatusBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C69F43F148411D4310B1480 /* StatusBanner.swift */; };
 		71B36276574FB2022B4968B2 /* ParameterCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD698F17C4D69CAC3524134 /* ParameterCodecTests.swift */; };
+		79B6813EAA2536798339A5AE /* LemonSqueezyBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57554B8683468E3F01E2BA5B /* LemonSqueezyBackend.swift */; };
 		79E611B024C0C37480CCF329 /* EffectLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32DEE3FDAA4ACDF2244A0F70 /* EffectLibraryView.swift */; };
 		7ABD5AC69DFCD5AA0F2EE6BB /* EffectCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F030FFDEF28370B2431C58C2 /* EffectCategory.swift */; };
 		7AC16050078D5CD55E5E10C2 /* MenuPanelCaptureBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030AE55C885DC1656AC655B0 /* MenuPanelCaptureBridge.swift */; };
@@ -200,6 +201,7 @@
 		4ADBE1AD82E0A544E2650447 /* VHSEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VHSEffects.swift; sourceTree = "<group>"; };
 		4BDC9CD95E551DDB421FCECF /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		4E2E1BDABEE28FCF43F449AD /* LicenseBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseBackend.swift; sourceTree = "<group>"; };
+		57554B8683468E3F01E2BA5B /* LemonSqueezyBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LemonSqueezyBackend.swift; sourceTree = "<group>"; };
 		58C186A1CC3D84789E8F833A /* FolderWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderWatcher.swift; sourceTree = "<group>"; };
 		591FED7CF5298568EAB87DDE /* YabaiBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YabaiBridge.swift; sourceTree = "<group>"; };
 		5988E367893DA575D7AE7C64 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManager.swift; sourceTree = "<group>"; };
@@ -672,6 +674,7 @@
 		A2CFB0C84ABFEFC2E0E206C1 /* Licensing */ = {
 			isa = PBXGroup;
 			children = (
+				57554B8683468E3F01E2BA5B /* LemonSqueezyBackend.swift */,
 				4E2E1BDABEE28FCF43F449AD /* LicenseBackend.swift */,
 				9975114FA127C3E33F4812E5 /* LicenseConfig.swift */,
 				5988E367893DA575D7AE7C64 /* LicenseManager.swift */,
@@ -915,6 +918,7 @@
 				17BA3BD6ABFCE49DC582DFA8 /* GradeLUTExtractor.swift in Sources */,
 				0677F8617A390140DDE4C3C6 /* InspectorView.swift in Sources */,
 				20012AFD8F4CAE5A45E4B527 /* JSONStore.swift in Sources */,
+				79B6813EAA2536798339A5AE /* LemonSqueezyBackend.swift in Sources */,
 				112DC93AB3159843D19315C0 /* LibraryView.swift in Sources */,
 				FD3A6F42689235C1F3329BD7 /* LicenseBackend.swift in Sources */,
 				52D3F69B13BF64501B978F01 /* LicenseConfig.swift in Sources */,
