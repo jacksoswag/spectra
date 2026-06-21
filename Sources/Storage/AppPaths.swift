@@ -17,6 +17,10 @@ enum AppPaths {
     static var settingsFile: URL { supportDirectory.appendingPathComponent("settings.json") }
     static var stateFile: URL { supportDirectory.appendingPathComponent("state.json") }
     static var licenseFile: URL { supportDirectory.appendingPathComponent("license.json") }
+    /// Owner/developer override: if this hidden file exists, licensing reports the
+    /// full (licensed) tier regardless of any key. Create it to unlock a local build
+    /// without the purchase flow; delete it to test the gated free tier.
+    static var developerUnlockFile: URL { supportDirectory.appendingPathComponent(".developer-unlock") }
 
     /// Create the directory tree if needed. Safe to call repeatedly.
     static func ensureDirectories() {

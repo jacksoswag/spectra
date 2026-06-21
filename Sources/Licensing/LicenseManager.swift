@@ -35,11 +35,18 @@ final class LicenseManager {
         self.backend = backend
         let loaded = JSONStore.load(LicenseRecord.self, from: AppPaths.licenseFile) ?? LicenseRecord()
         self.record = loaded
-        self.status = Self.derive(record: loaded, now: now())
+        self.status = Self.developerUnlock ? .licensed : Self.derive(record: loaded, now: now())
     }
 
     var isLicensed: Bool { status.isLicensed }
     var licenseKey: String? { record.licenseKey }
+
+    /// Owner/developer unlock: a hidden sentinel file forces the licensed tier on this
+    /// Mac without the purchase flow (see AppPaths.developerUnlockFile). A customer
+    /// won't stumble into it; delete the file to test the gated free tier.
+    static var developerUnlock: Bool {
+        FileManager.default.fileExists(atPath: AppPaths.developerUnlockFile.path)
+    }
 
     /// Pure status derivation from a record + a clock. Kept static, nonisolated, and
     /// side-effect free so it is trivially unit-testable (free vs licensed, grace).
@@ -52,8 +59,11 @@ final class LicenseManager {
         return .licensed
     }
 
-    /// Recompute `status` from the record and clock (no network).
-    func recompute() { status = Self.derive(record: record, now: now()) }
+    /// Recompute `status` from the record and clock (no network). The developer-unlock
+    /// sentinel forces the licensed tier.
+    func recompute() {
+        status = Self.developerUnlock ? .licensed : Self.derive(record: record, now: now())
+    }
 
     /// Validate and store a license key. Returns whether it was accepted.
     @discardableResult
