@@ -816,6 +816,12 @@ final class SpectraEngine {
 
     // MARK: - Presets
 
+    /// The preset most recently applied to each display, by id. Unlike
+    /// `activePresetByDisplay` (which is cleared the moment the stack is hand-edited so
+    /// the menu label reflects the *current* stack), this survives edits so "Update
+    /// preset" knows which preset to overwrite with the tweaked stack.
+    @ObservationIgnored private var lastAppliedPresetID: [CGDirectDisplayID: UUID] = [:]
+
     func apply(_ preset: Preset, to displayID: CGDirectDisplayID? = nil) {
         let target = displayID ?? selectedDisplayID
         guard let target else { return }
@@ -823,14 +829,47 @@ final class SpectraEngine {
         stack(for: target).load(preset.chain)
         isApplyingPreset = false
         activePresetByDisplay[target] = preset.name
+        lastAppliedPresetID[target] = preset.id
         presets.markRecent(preset)
+    }
+
+    /// The editable (non-built-in) preset that "Update preset" would overwrite for the
+    /// selected display: the last one applied there, if it's a user preset. nil when the
+    /// last applied preset was a built-in or none has been applied this session.
+    var editablePresetForSelectedDisplay: Preset? {
+        guard let id = selectedDisplayID, let presetID = lastAppliedPresetID[id],
+              let preset = presets.preset(id: presetID), !preset.isBuiltIn else { return nil }
+        return preset
+    }
+
+    /// Overwrite a user preset's saved effects with the selected display's current stack.
+    /// No-op for built-in presets. The preset then matches the stack again, so it shows
+    /// as the active preset.
+    @discardableResult
+    func updatePreset(_ preset: Preset) -> Bool {
+        guard !preset.isBuiltIn, let stack = activeStack else { return false }
+        var updated = preset
+        updated.chain = stack.chain()
+        presets.update(updated)
+        if let id = selectedDisplayID {
+            activePresetByDisplay[id] = updated.name
+            lastAppliedPresetID[id] = updated.id
+        }
+        return true
     }
 
     @discardableResult
     func saveCurrentAsPreset(name: String, category: PresetCategory = .user,
-                             summary: String = "", tags: [String] = []) -> Preset? {
+                             summary: String = "", icon: String? = nil, tags: [String] = []) -> Preset? {
         guard let stack = activeStack else { return nil }
-        return presets.save(name: name, chain: stack.chain(), category: category, summary: summary, tags: tags)
+        let preset = presets.save(name: name, chain: stack.chain(), category: category,
+                                  summary: summary, icon: icon, tags: tags)
+        // Treat a just-saved preset as applied, so "Update preset" targets it next.
+        if let id = selectedDisplayID {
+            activePresetByDisplay[id] = preset.name
+            lastAppliedPresetID[id] = preset.id
+        }
+        return preset
     }
 
     // MARK: - Import / export
