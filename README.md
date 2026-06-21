@@ -8,7 +8,7 @@ Spectra is a desktop-wide GPU visual effects engine for macOS. It captures your 
 - Processes frames entirely on the GPU. There is no CPU image processing and the capture-to-texture path is zero-copy through a `CVMetalTextureCache`.
 - Renders the result back through a per-display overlay window that clicks through to the real desktop beneath it. The overlay presents through an EDR-capable 16-bit layer, so it is HDR-aware on capable displays, follows the user across Spaces, and shades native-fullscreen Spaces by elevating to the shielding window level for the duration of the fullscreen Space.
 - When a display's stack is made up entirely of per-channel color operations (brightness, contrast, exposure, gamma, black/white point, invert, posterize, solarize, levels), Spectra bakes it into a scanout transfer LUT and applies it through `CGSetDisplayTransferByTable` instead of the overlay. The grade then holds across every Space, swipe, and full-screen app without any window involved, and the original profile is restored on stop.
-- Ships 168 built-in effects across 14 categories, almost all real Metal fragment shaders (plus three desktop-level system effects).
+- Ships 169 built-in effects across 14 categories, almost all real Metal fragment shaders (plus three desktop-level system effects).
 - Stacks effects in any order, with per-effect strength, opacity, blend amount, and one of 16 blend modes applied to every effect for free.
 - Stores presets, and includes a curated library (Noir, Cyberpunk, Matrix, CRT, VHS, Frutiger Aero, Studio Ghibli, Comic Book, Impressionism, and more).
 - Lets you build new effects visually by composing existing building blocks, with a live preview, auto-generated controls, exposed parameters, and a generated thumbnail. No graphics programming required.
@@ -33,7 +33,7 @@ Shader authors who prefer to write Metal directly do so in their own editor and 
 
 ## Effect library
 
-168 effects, grouped into 14 categories:
+169 effects, grouped into 14 categories:
 
 - **Color** (26): brightness, contrast, saturation, vibrance, exposure, gamma, highlights, shadows, whites, blacks, black/white point, temperature, tint, sepia, invert, posterize, solarize, color balance, levels, hue shift, channel mixer, tone curve, freehand curves, color LUT, gradient map.
 - **Sharpen** (6): sharpen, unsharp mask, clarity, local contrast, detail enhancement, edge enhancement.
@@ -46,7 +46,7 @@ Shader authors who prefer to write Metal directly do so in their own editor and 
 - **Noise** (14): white, gaussian, blue, pink, brown, perlin, simplex, cellular, sensor grain, sensor, compression, dust, speckle, digital.
 - **Pixel** (12): pixelation, pixel sort, dithering, ordered dither, bayer, floyd-steinberg, color quantization, retro resolution, Game Boy, PS1, N64, arcade.
 - **Glitch** (13): datamosh, RGB split, scan corruption, frame tearing, signal corruption, digital failure, compression glitch, buffer corruption, bit crush, macroblocking, frame repeat, frame skip, digital rain. Datamosh and the frame repeat/skip effects use a true previous-frame feedback texture.
-- **Environment** (11): rain, fog, snow, dust motes, bubbles, underwater, heat haze, god rays, sun glare, lens flare, cloud overlay.
+- **Environment** (12): rain, fog, snow, dust motes, bubbles, splash, underwater, heat haze, god rays, sun glare, lens flare, cloud overlay.
 - **Artistic** (11): oil paint (colour-region cells), painterly (SLIC superpixels), flatten, quantize, cel, comic, ink, halftone, hatch, paper, relief.
 - **System / Desktop** (3): window transparency, automatic window layout, and an adaptive desktop tint (driven by yabai and a desktop-level overlay rather than a fragment shader).
 

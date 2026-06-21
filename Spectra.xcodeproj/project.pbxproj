@@ -45,6 +45,7 @@
 		3AE7B8F7D79CFB565BC0724F /* FrameSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7850FBDFB6AE07AEAB93041E /* FrameSample.swift */; };
 		3B1E53108FC4ED17FD82E3AA /* CursorCompositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1097DCFC978E64CE21C0DDDA /* CursorCompositor.swift */; };
 		3BAC9621D3ADF4FC174C012B /* TexturePool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2929E4F9B23CBF4439A6FDAE /* TexturePool.swift */; };
+		3C27A98A839C587987CACF74 /* PointerInputSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72D3110BD2C226EE1C46CBE /* PointerInputSampler.swift */; };
 		3C8CCD84FA9DAF16B4373E54 /* ScreenRecordingPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = E93F3DF6B98AE1EFFDCE9E3F /* ScreenRecordingPermission.swift */; };
 		3F1F1A334003544A0ADE83C9 /* EffectParameter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 973FFCD8DE30DB32ACC851F6 /* EffectParameter.swift */; };
 		40D2CFC79A7DFE638EC541BD /* YabaiBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 591FED7CF5298568EAB87DDE /* YabaiBridge.swift */; };
@@ -238,6 +239,7 @@
 		9B599C505A4A41CD5468AFF6 /* FilmEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEffects.swift; sourceTree = "<group>"; };
 		A0A832C04338C51578F906C8 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 		A52B3A43931C0B046486423C /* BuiltInPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInPresets.swift; sourceTree = "<group>"; };
+		A72D3110BD2C226EE1C46CBE /* PointerInputSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointerInputSampler.swift; sourceTree = "<group>"; };
 		B0C658D820143DA1065FEF55 /* JSONStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONStore.swift; sourceTree = "<group>"; };
 		B2E52F51B2413D4C8609A6B0 /* ComposedEffectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposedEffectStore.swift; sourceTree = "<group>"; };
 		B5E953304864E355F7B1B95E /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
@@ -544,6 +546,7 @@
 				C7002C0E14170B0EFBCCBF32 /* GradeLUTExtractor.swift */,
 				732223F3F6B52DC71C9E341E /* MetalContext.swift */,
 				E8244C8DE0CFFE861B820ABB /* OverlayWindow.swift */,
+				A72D3110BD2C226EE1C46CBE /* PointerInputSampler.swift */,
 				71310B95BE29EE617DAE60A4 /* RenderEngine.swift */,
 				7B55EDF95A9E0FE27E2BDC08 /* RenderLinkThread.swift */,
 				158942DE51BCA04AD8AE6A2E /* ResolvedEffect.swift */,
@@ -932,6 +935,7 @@
 				FAA5215EB0298586C39BA880 /* PermissionBanner.swift in Sources */,
 				9BA5E955E9CB780D2D87A1A4 /* Pixel.metal in Sources */,
 				43F82B444FCA12DD54F210AE /* PixelEffects.swift in Sources */,
+				3C27A98A839C587987CACF74 /* PointerInputSampler.swift in Sources */,
 				BCD2EA552E60A611AE88C181 /* Preset.swift in Sources */,
 				3199475CCC4964FBC7A7244F /* PresetLibrary.swift in Sources */,
 				1C544D2E2A06848D236BF80C /* PreviewView.swift in Sources */,

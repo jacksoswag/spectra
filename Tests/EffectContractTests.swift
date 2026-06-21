@@ -35,6 +35,6 @@ final class EffectContractTests: XCTestCase {
 
     func testEffectCountIsPinned() {
         // The number pinned in README / ARCHITECTURE / the UI. Update all four together.
-        XCTAssertEqual(all.count, 168)
+        XCTAssertEqual(all.count, 169)
     }
 }
