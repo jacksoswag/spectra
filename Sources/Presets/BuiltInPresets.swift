@@ -212,6 +212,15 @@ enum BuiltInPresets {
             fx("color.lut", ["amount": s(0.75), "lut": .lut("Watercolor")]),
         ]),
 
+        preset(31, "Comic Book", icon: "bubble.left.fill", .artistic, "Pop-art print: punchy flat posterized colour and a Ben-Day halftone dot screen.", ["comic", "manga", "pop art", "halftone", "ben-day", "cartoon", "lichtenstein", "art"], [
+            // Comic printing without the linework (owner's tuning). (1) Posterize the colour into bold
+            // flat fills with crisp-ish band edges and lifted saturation (the printed-ink look, not a
+            // photo gradient). (2) A fine Ben-Day halftone dot screen kept in the darker tones for the
+            // printed-shading texture.
+            fx("style.quantize", ["bands": i(8), "smoothness": s(0.3), "saturation": s(0.5), "blackPoint": s(0.1)]),
+            fx("style.halftone", ["scale": s(12.0), "angle": s(70), "strength": s(0.4), "coverage": s(0.14)]),
+        ]),
+
         preset(34, "Print Art", icon: "mountain.2.fill", .artistic, "Woodblock print: flat colour fields, crisp key block lines, a limited indigo-and-earth palette, and visible washi paper.", ["print", "woodblock", "ukiyo-e", "japanese", "hokusai", "hiroshige", "flat", "ink", "art"], [
             // Woodblock print built on the cel engine alone (no separate line pass): maximum
             // abstraction flattens forms, 8 tone bands with low smoothness keep crisp posterised
@@ -228,17 +237,6 @@ enum BuiltInPresets {
             // paper mode, tuned soft (lower sharpness = graphite, not hard ink) with a dark-grey
             // lead. Crisp, stable lines that hold still, no Sobel crawl.
             fx("style.lineart", ["lineScale": s(0.5), "strength": s(1.0), "threshold": s(0.0), "sharpness": s(0.5), "temporal": s(0.6), "paper": s(1.0), "ink": .color(SIMD4(0.22, 0.21, 0.23, 1)), "paperTint": .color(SIMD4(0.95, 0.93, 0.87, 1))]),
-        ]),
-
-        preset(31, "Comic Book", icon: "bubble.left.fill", .artistic, "Inked comic page: bold black outlines, Ben-Day halftone dots, and punchy flat colour.", ["comic", "manga", "pop art", "halftone", "ben-day", "ink", "cartoon", "lichtenstein", "art"], [
-            // Comic printing, in order. The technique IS the medium, so it reads as a real comic page
-            // on photos and UI alike. (1) Posterize the colour into bold flat fills with crisp band
-            // edges and lifted saturation (the printed-ink look, not a photo gradient). (2) A Ben-Day
-            // halftone dot screen through the shadows and mids for the printed-shading texture. (3)
-            // BOLD black key lines inked over the top, kept off small text by the threshold. No paper.
-            fx("style.quantize", ["bands": i(5), "smoothness": s(0.12), "saturation": s(0.5), "blackPoint": s(0.05)]),
-            fx("style.halftone", ["scale": s(6.0), "angle": s(45), "strength": s(0.45), "coverage": s(0.32)]),
-            fx("style.lineart", ["lineScale": s(1.3), "strength": s(0.95), "threshold": s(0.32), "sharpness": s(0.85), "temporal": s(0.6), "paper": s(0.0), "ink": .color(SIMD4(0.05, 0.05, 0.06, 1))]),
         ]),
 
         // MARK: Utility
