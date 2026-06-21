@@ -18,7 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Debug visual harness: if SPECTRA_SHADERTEST is set, render presets over test
         // images to PNGs and exit before any window/capture starts. No-op otherwise.
+        // Compiled out of release builds entirely (see ShaderTestHarness.swift).
+        #if DEBUG
         ShaderTestHarness.runIfRequested()
+        #endif
         NSApp.setActivationPolicy(.regular)
     }
 
