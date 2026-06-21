@@ -206,7 +206,7 @@ enum BuiltInPresets {
             // structure tensor: big strokes in flat areas, small ones over busy areas/text,
             // broken colour per cell, faint canvas tooth) finished with Watercolor's wash stack:
             // vibrance, a luminous watercolor LUT, and cold-press paper.
-            fx("style.oil", ["strokeRange": .range(0.0, 0.5), "temporal": s(0.3), "canvas": s(0.4), "renderScale": s(0.25), "detail": s(1.0), "amount": s(1.0), "flow": s(1.0), "warp": s(1.0), "edgeSmooth": s(1.0), "vanGogh": s(0.4)]),
+            fx("style.oil", ["strokeRange": .range(0.0, 1.0), "temporal": s(0.3), "canvas": s(0.4), "renderScale": s(0.25), "detail": s(1.0), "amount": s(1.0), "flow": s(1.0), "warp": s(1.0), "edgeSmooth": s(1.0), "vanGogh": s(0.4)]),
             fx("color.vibrance", ["amount": s(0.25)]),
             fx("style.paper", ["intensity": s(0.3), "scale": s(3.95), "drift": s(0.0), "tint": .color(SIMD4(0.98, 0.97, 0.93, 1))]),  // drift 0 = static grain: cheaper branch (1 fewer FBM + no history tap), no continuous redraw
             fx("color.lut", ["amount": s(0.75), "lut": .lut("Watercolor")]),
