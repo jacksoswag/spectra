@@ -443,7 +443,7 @@ final class RenderEngine {
         // Engage the pointer sampler only while an interactive effect (water splash, bubble pop)
         // is somewhere in a live chain. Tracked per display so one display's plain preset can't
         // disengage it while another still needs it.
-        let needsPointer = resolved.contains { effect in
+        let needsPointer = renderers[displayID] != nil && resolved.contains { effect in
             effect.descriptor.passes.contains { EffectChainRenderer.pointerEffectFunctions.contains($0.fragmentFunction) }
         }
         if needsPointer { pointerDisplayIDs.insert(displayID) } else { pointerDisplayIDs.remove(displayID) }
