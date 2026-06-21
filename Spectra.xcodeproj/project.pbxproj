@@ -14,6 +14,7 @@
 		10557624945C1D1DDF5DE113 /* FolderWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C186A1CC3D84789E8F833A /* FolderWatcher.swift */; };
 		110C8D0442616A2008F87B5B /* WallpaperProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C27306DC3BC6D0F18EB85E4 /* WallpaperProvider.swift */; };
 		112DC93AB3159843D19315C0 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDC9CD95E551DDB421FCECF /* LibraryView.swift */; };
+		121E3934A4AFF93D70032022 /* LicenseStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78DD65CF47DDA964F12ACE93 /* LicenseStatus.swift */; };
 		1429492899548EC206B04C05 /* ShaderTestHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0EE0CC7FBD431E341147C2 /* ShaderTestHarness.swift */; };
 		146CC5D136181360DB64EA18 /* CamcorderEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF8FF0CB6E08FCE8E2B5CC2 /* CamcorderEffects.swift */; };
 		1707D2F46B1455C50F740E27 /* StyleEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74FAE019D3B57B252A98BD53 /* StyleEffects.swift */; };
@@ -53,6 +54,7 @@
 		48B37D61A0917474571210F4 /* ShaderCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A64AA12AC74EA837E419AED /* ShaderCompiler.swift */; };
 		4BBA38C65AEF2C312000A64F /* ParameterValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8564B920117D10A8A7CE5CC4 /* ParameterValue.swift */; };
 		523A253735DDC0470AF04F18 /* MetalContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 732223F3F6B52DC71C9E341E /* MetalContext.swift */; };
+		52D3F69B13BF64501B978F01 /* LicenseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9975114FA127C3E33F4812E5 /* LicenseConfig.swift */; };
 		56644A5360FCB89B94256889 /* SystemEffectsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09A496972C07B7D6C25E65E5 /* SystemEffectsController.swift */; };
 		57D01FA6DBE8A7F8FF464016 /* DistortionEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78D63D70BBB38F991022033A /* DistortionEffects.swift */; };
 		593AEE58DA393AC4C9B897D8 /* ChainProfiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58B8CDE44B3645D4CCB05E1 /* ChainProfiler.swift */; };
@@ -94,6 +96,7 @@
 		A153D07B4F5A70C0C4F8360E /* Common.metal in Sources */ = {isa = PBXBuildFile; fileRef = CA99BBA6F1C42522CB2D3D49 /* Common.metal */; };
 		A33AB27CF4D16EE08A91CC80 /* EffectStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8CEA01AE88C9707BC79C59 /* EffectStackView.swift */; };
 		A41D363637E48C87EF13C973 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8965610CA83B8A5FA3C25FA5 /* SettingsView.swift */; };
+		A81668E2510529D89C88307A /* LicenseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EC30ED0945ACBBAD387EED /* LicenseView.swift */; };
 		AA8D122BEFB8BD1AFC2C09BA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F44AB8FA6C072028DC9AB61 /* AppDelegate.swift */; };
 		AB602DB6260AC4FEECB0EFBC /* ControlWindowBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D14EF9FC6F89EEECCCB266B /* ControlWindowBridge.swift */; };
 		AE5E893DD0F20A25FF8AFEEF /* Style.metal in Sources */ = {isa = PBXBuildFile; fileRef = 241950A4E966F6C4D7D187F8 /* Style.metal */; };
@@ -116,6 +119,7 @@
 		CF8583F23FA2DEC4ACAFA07B /* Blur.metal in Sources */ = {isa = PBXBuildFile; fileRef = BF49DA9EE9C0422C435C14EA /* Blur.metal */; };
 		D091DC66C2FFFED2D1F4E6CA /* DisplayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4292DB343E7D8D7AC275487D /* DisplayManager.swift */; };
 		D19B1684785EA442388ADDE2 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D909AAB23D329DD64B948360 /* MenuBarView.swift */; };
+		D947E1E6E65C79635775DB0A /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5988E367893DA575D7AE7C64 /* LicenseManager.swift */; };
 		DBB0B07334934EE62DE89C08 /* ComposedEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6763B05491520C35717833A /* ComposedEffect.swift */; };
 		DDFC8A72C920FE3DB6A674F5 /* ComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D32F32D856C16AA31BD55BC /* ComposerView.swift */; };
 		DFF10B5CEE905CA6DE827969 /* CaptureSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47877D322266D92564A30E4F /* CaptureSession.swift */; };
@@ -130,6 +134,7 @@
 		F69C94AFA1E230F448B9CD30 /* StudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7963027A306F993F410EC56C /* StudioView.swift */; };
 		FA22FDB88A81F791E1B35E39 /* NoiseEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93F2EE8C29C26630F4FA993 /* NoiseEffects.swift */; };
 		FAA5215EB0298586C39BA880 /* PermissionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EE4739A60C8C74EDE08569D /* PermissionBanner.swift */; };
+		FD3A6F42689235C1F3329BD7 /* LicenseBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2E1BDABEE28FCF43F449AD /* LicenseBackend.swift */; };
 		FE5E548E2C417193F2C1286E /* BatteryProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC655D6D48DB5D8D96889CEA /* BatteryProvider.swift */; };
 /* End PBXBuildFile section */
 
@@ -175,8 +180,10 @@
 		4AB605E52331AD4E2858D07E /* ParameterBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParameterBinding.swift; sourceTree = "<group>"; };
 		4ADBE1AD82E0A544E2650447 /* VHSEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VHSEffects.swift; sourceTree = "<group>"; };
 		4BDC9CD95E551DDB421FCECF /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		4E2E1BDABEE28FCF43F449AD /* LicenseBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseBackend.swift; sourceTree = "<group>"; };
 		58C186A1CC3D84789E8F833A /* FolderWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderWatcher.swift; sourceTree = "<group>"; };
 		591FED7CF5298568EAB87DDE /* YabaiBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YabaiBridge.swift; sourceTree = "<group>"; };
+		5988E367893DA575D7AE7C64 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManager.swift; sourceTree = "<group>"; };
 		5C69F43F148411D4310B1480 /* StatusBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBanner.swift; sourceTree = "<group>"; };
 		5D32F32D856C16AA31BD55BC /* ComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerView.swift; sourceTree = "<group>"; };
 		5D4F8C5B8F7D5E31D9CEC382 /* CustomShader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomShader.swift; sourceTree = "<group>"; };
@@ -195,6 +202,7 @@
 		74FAE019D3B57B252A98BD53 /* StyleEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyleEffects.swift; sourceTree = "<group>"; };
 		7850FBDFB6AE07AEAB93041E /* FrameSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSample.swift; sourceTree = "<group>"; };
 		78D63D70BBB38F991022033A /* DistortionEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DistortionEffects.swift; sourceTree = "<group>"; };
+		78DD65CF47DDA964F12ACE93 /* LicenseStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseStatus.swift; sourceTree = "<group>"; };
 		7963027A306F993F410EC56C /* StudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioView.swift; sourceTree = "<group>"; };
 		7A64AA12AC74EA837E419AED /* ShaderCompiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShaderCompiler.swift; sourceTree = "<group>"; };
 		7B55EDF95A9E0FE27E2BDC08 /* RenderLinkThread.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderLinkThread.swift; sourceTree = "<group>"; };
@@ -207,6 +215,7 @@
 		92F2280CF5D5ACC8AF652932 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		973FFCD8DE30DB32ACC851F6 /* EffectParameter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectParameter.swift; sourceTree = "<group>"; };
 		979FD8BFDA7C07A176C39D7D /* BlendMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlendMode.swift; sourceTree = "<group>"; };
+		9975114FA127C3E33F4812E5 /* LicenseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseConfig.swift; sourceTree = "<group>"; };
 		9B599C505A4A41CD5468AFF6 /* FilmEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEffects.swift; sourceTree = "<group>"; };
 		A52B3A43931C0B046486423C /* BuiltInPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInPresets.swift; sourceTree = "<group>"; };
 		B0C658D820143DA1065FEF55 /* JSONStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONStore.swift; sourceTree = "<group>"; };
@@ -247,6 +256,7 @@
 		EF4D622D65A32835C6042C7E /* SpectraCommon.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SpectraCommon.h; sourceTree = "<group>"; };
 		F030FFDEF28370B2431C58C2 /* EffectCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectCategory.swift; sourceTree = "<group>"; };
 		F195518442119740C860C107 /* ShaderImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShaderImporter.swift; sourceTree = "<group>"; };
+		F2EC30ED0945ACBBAD387EED /* LicenseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseView.swift; sourceTree = "<group>"; };
 		F5607D2E4650B96DF5FCD17C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F58B8CDE44B3645D4CCB05E1 /* ChainProfiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainProfiler.swift; sourceTree = "<group>"; };
 		F65418F91E245D94A1DE9F9F /* DisplayGrade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayGrade.swift; sourceTree = "<group>"; };
@@ -551,6 +561,7 @@
 		855FA50322B75C0E88281894 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				F2EC30ED0945ACBBAD387EED /* LicenseView.swift */,
 				8965610CA83B8A5FA3C25FA5 /* SettingsView.swift */,
 				BC4AC6B829571151C7012055 /* SIPRequiredView.swift */,
 				74760410DA657D639893C0C1 /* SystemAccessibility.swift */,
@@ -597,6 +608,7 @@
 				9C53E2714967490C3FA327BA /* Editor */,
 				528FDE7012ACD1CCB9C3C708 /* Effects */,
 				86A39432E07FCC60079B8A27 /* Engine */,
+				A2CFB0C84ABFEFC2E0E206C1 /* Licensing */,
 				62A7DFB5EB5A2E9A0E6175E9 /* Performance */,
 				11756DE972E1D21C8EF8090B /* Presets */,
 				6BC92EEE63837CEFBE5505EE /* Render */,
@@ -619,6 +631,17 @@
 				BE5C95868CF85D90BD003E4C /* ThumbnailRenderer.swift */,
 			);
 			path = Editor;
+			sourceTree = "<group>";
+		};
+		A2CFB0C84ABFEFC2E0E206C1 /* Licensing */ = {
+			isa = PBXGroup;
+			children = (
+				4E2E1BDABEE28FCF43F449AD /* LicenseBackend.swift */,
+				9975114FA127C3E33F4812E5 /* LicenseConfig.swift */,
+				5988E367893DA575D7AE7C64 /* LicenseManager.swift */,
+				78DD65CF47DDA964F12ACE93 /* LicenseStatus.swift */,
+			);
+			path = Licensing;
 			sourceTree = "<group>";
 		};
 		AA48A4DD8C0AEACED3F851EF /* Composer */ = {
@@ -832,6 +855,11 @@
 				0677F8617A390140DDE4C3C6 /* InspectorView.swift in Sources */,
 				20012AFD8F4CAE5A45E4B527 /* JSONStore.swift in Sources */,
 				112DC93AB3159843D19315C0 /* LibraryView.swift in Sources */,
+				FD3A6F42689235C1F3329BD7 /* LicenseBackend.swift in Sources */,
+				52D3F69B13BF64501B978F01 /* LicenseConfig.swift in Sources */,
+				D947E1E6E65C79635775DB0A /* LicenseManager.swift in Sources */,
+				121E3934A4AFF93D70032022 /* LicenseStatus.swift in Sources */,
+				A81668E2510529D89C88307A /* LicenseView.swift in Sources */,
 				479DFA6D3218055D36CBCBA0 /* Log.swift in Sources */,
 				D19B1684785EA442388ADDE2 /* MenuBarView.swift in Sources */,
 				7AC16050078D5CD55E5E10C2 /* MenuPanelCaptureBridge.swift in Sources */,

@@ -60,6 +60,11 @@ struct StudioView: View {
             set: { if !$0 { engine.settings.hasSeenWelcome = true } })) {
             WelcomeView(engine: engine) { engine.settings.hasSeenWelcome = true }
         }
+        .sheet(isPresented: Binding(
+            get: { engine.license.gatePrompted },
+            set: { if !$0 { engine.license.gatePrompted = false } })) {
+            LicenseGateView(engine: engine) { engine.license.gatePrompted = false }
+        }
     }
 
     // MARK: - Workspace
@@ -72,6 +77,7 @@ struct StudioView: View {
             if let message = engine.statusMessage {
                 StatusBanner(message: message) { engine.dismissStatusMessage() }
             }
+            TrialBanner(engine: engine)
             HSplitView {
                 PerformanceView(engine: engine)
                     .frame(minWidth: 240, idealWidth: 300, maxWidth: 420)
