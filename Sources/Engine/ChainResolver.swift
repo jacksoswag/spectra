@@ -21,7 +21,10 @@ struct ChainResolver {
             guard chain.isEffectivelyEnabled(instance) else { continue }
             if let composite = composedStore?.effect(for: instance.descriptorID) {
                 result.append(contentsOf: expand(composite, instance: instance))
-            } else if let descriptor = registry.descriptor(instance.descriptorID) {
+            } else if let descriptor = registry.descriptor(instance.descriptorID),
+                      descriptor.controllerKind == nil {
+                // System effects (window transparency/layout/tint) carry no GPU passes;
+                // they drive `SystemEffectsController`, never the render chain.
                 result.append(ResolvedEffect(
                     descriptor: descriptor,
                     instance: instance,

@@ -140,7 +140,7 @@ final class EffectChainRenderer {
                     var probe = SpectraUniforms()
                     effect.writeParameters(into: &probe)
                     let v = probe.param(slot)
-                    if v > 0.01 { passScale = max(0.25, min(1.0, v)) }
+                    if v > 0.01 { passScale = max(0.1, min(1.0, v)) }
                 }
                 let targetWidth = max(1, Int((Float(width) * passScale).rounded()))
                 let targetHeight = max(1, Int((Float(height) * passScale).rounded()))

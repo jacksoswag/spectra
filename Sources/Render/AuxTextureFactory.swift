@@ -154,7 +154,7 @@ enum LUTLooks {
         "Identity", "Teal & Orange", "Bleach Bypass", "Warm Film",
         "Cool Shadows", "Vintage", "Noir B&W", "Vibrant",
         // World palettes (baked grades for the Artistic presets).
-        "Van Gogh", "Ghibli", "90s Anime", "Comic", "Watercolor", "Graphite",
+        "Van Gogh", "Ghibli", "Watercolor", "Graphite", "Ukiyo-e",
     ]
 
     static func apply(_ name: String, to c: SIMD3<Double>) -> SIMD3<Double> {
@@ -168,10 +168,9 @@ enum LUTLooks {
         case "Vibrant": return vibrant(c)
         case "Van Gogh": return vanGogh(c)
         case "Ghibli": return ghibli(c)
-        case "90s Anime": return anime90s(c)
-        case "Comic": return comic(c)
         case "Watercolor": return watercolor(c)
         case "Graphite": return graphite(c)
+        case "Ukiyo-e": return ukiyoe(c)
         default: return clampv(c)
         }
     }
@@ -239,47 +238,49 @@ enum LUTLooks {
         return clampv(SIMD3(sCurve(v.x, 0.20), sCurve(v.y, 0.20), sCurve(v.z, 0.25)))
     }
 
-    /// Warm amber shadows, sage mids, sky-blue highlights, gently soft.
+    /// Lush Ghibli nature grade: warm amber shadows, sage mids, sky-blue highlights, with
+    /// boosted chroma so foliage and sky read like a hand-painted background.
+    /// Bright warm Ghibli daylight (tuned to a reference farm-scene cel): lifted soft shadows (no
+    /// crushed blacks), lush warm yellow-green midtones, and bright warm-pale highlights for sunlit
+    /// haze, with strong chroma for the vivid hand-painted greens.
     private static func ghibli(_ c: SIMD3<Double>) -> SIMD3<Double> {
         let l = luma(c)
-        let shadow = SIMD3(0.06, 0.03, -0.02)
-        let mid = SIMD3(-0.02, 0.04, -0.01)
-        let highlight = SIMD3(-0.02, 0.01, 0.06)
+        let shadow = SIMD3(0.05, 0.045, 0.0)      // warm, lifted shadows
+        let mid = SIMD3(0.0, 0.07, -0.04)         // lush warm yellow-green
+        let highlight = SIMD3(0.05, 0.05, 0.015)  // bright warm-pale sunlight
         let lowMid = mix(shadow, mid, smoothstep(0.0, 0.5, l))
         let tint = mix(lowMid, highlight, smoothstep(0.5, 1.0, l))
-        let warm = c + tint
-        let soft = mix(warm, SIMD3(luma(warm), luma(warm), luma(warm)), 0.08)
-        return clampv(soft * 0.97 + SIMD3(0.02, 0.02, 0.015))
+        var v = c + tint
+        v = mix(SIMD3(luma(v), luma(v), luma(v)), v, 1.32)   // vivid, lush chroma
+        let lift = smoothstep(0.45, 1.0, l) * 0.06           // brighten the lights (sunny haze)
+        v = v + SIMD3(lift, lift, lift)
+        return clampv(v * 0.99 + SIMD3(0.025, 0.028, 0.02))  // gentle warm base, soft blacks
     }
 
-    /// 90s-cel mood: desaturated mids, deep teal-blue shadows, warm amber highlights,
-    /// lowered exposure and firm contrast for the gritty OVA look.
-    private static func anime90s(_ c: SIMD3<Double>) -> SIMD3<Double> {
+    /// Ukiyo-e woodblock: deep indigo shadows, cool off-white washi mids, muted earth/ochre
+    /// highlights, and a limited (low-chroma) palette for the flat-ink print look.
+    private static func ukiyoe(_ c: SIMD3<Double>) -> SIMD3<Double> {
         let l = luma(c)
-        let midDesat = 0.35 * (1.0 - abs(2.0 * l - 1.0))      // pull chroma out of the mids
-        var v = mix(c, SIMD3(l, l, l), midDesat)
-        let shadow = SIMD3(-0.06, -0.01, 0.10)                // teal-blue shadows
-        let highlight = SIMD3(0.08, 0.03, -0.06)              // amber highlights
-        v = v + mix(shadow, highlight, smoothstep(0.15, 0.85, l))
-        // firmer contrast, then drop exposure a touch for the moody base
-        v = SIMD3(sCurve(v.x, 0.38), sCurve(v.y, 0.38), sCurve(v.z, 0.38))
-        return clampv(v * 0.88 + SIMD3(0.01, 0.012, 0.018))   // cool-lifted near-black
+        var v = mix(c, SIMD3(l, l, l), 0.30)                  // limited woodblock chroma
+        let shadow = SIMD3(-0.10, -0.08, 0.18)               // deep indigo in the darks
+        let mid = SIMD3(-0.02, 0.0, 0.06)                    // cool washi paper
+        let highlight = SIMD3(0.08, 0.05, -0.05)             // warm earth/ochre in the lights
+        let lowMid = mix(shadow, mid, smoothstep(0.0, 0.5, l))
+        let tint = mix(lowMid, highlight, smoothstep(0.5, 1.0, l))
+        v = v + tint
+        v = v * 0.96 + SIMD3(0.04, 0.038, 0.03)              // lift toward off-white paper
+        return clampv(SIMD3(sCurve(v.x, 0.12), sCurve(v.y, 0.12), sCurve(v.z, 0.12)))
     }
 
-    /// Bold saturated primaries with punchy contrast.
-    private static func comic(_ c: SIMD3<Double>) -> SIMD3<Double> {
-        let l = luma(c)
-        let v = mix(SIMD3(l, l, l), c, 1.6)
-        return clampv(SIMD3(sCurve(v.x, 0.40), sCurve(v.y, 0.40), sCurve(v.z, 0.40)))
-    }
-
-    /// Pale pastel wash: pulled toward white, slightly desaturated, soft contrast.
+    /// Luminous watercolor: chroma stays vivid (transparent pigment), highlights glow toward
+    /// paper-white, gentle positive contrast. Not a flat desaturated pull to grey.
     private static func watercolor(_ c: SIMD3<Double>) -> SIMD3<Double> {
         let l = luma(c)
-        var v = mix(c, SIMD3(1, 1, 1), 0.25)
-        v = mix(v, SIMD3(l, l, l), 0.15)
-        v = v * 0.95 + SIMD3(0.05, 0.05, 0.045)
-        return clampv(SIMD3(sCurve(v.x, -0.10), sCurve(v.y, -0.10), sCurve(v.z, -0.10)))
+        var v = mix(SIMD3(l, l, l), c, 1.22)            // boost saturation: pigment stays vivid
+        let lift = smoothstep(0.55, 1.0, l) * 0.12       // paper glow in the lights only
+        v = v + SIMD3(lift, lift, lift)
+        v = v * 0.97 + SIMD3(0.03, 0.03, 0.028)          // gentle warm-paper base
+        return clampv(SIMD3(sCurve(v.x, 0.08), sCurve(v.y, 0.08), sCurve(v.z, 0.08)))
     }
 
     /// Warm near-monochrome graphite on paper-white.

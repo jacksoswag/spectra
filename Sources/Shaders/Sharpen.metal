@@ -108,7 +108,11 @@ fragment float4 fx_sharpen_unsharpMask(RasterizerData in [[stage_in]],
     float amount = u.params[0];
     float radius = u.params[1];
 
-    float3 blurred = spectra_sharpen_gaussianBlur(src, in.uv, u.texelSize, radius, 3);
+    // Derive the tap count from the radius so the tap spacing (radius/taps) never drops below
+    // ~1 texel — at the old fixed taps=3 a radius-2 mask spaced taps 0.67px apart, aliasing
+    // adjacent samples onto the same texel. Also trims 49→25 taps at the common radius 2.
+    int taps = clamp(int(round(radius)), 2, 4);
+    float3 blurred = spectra_sharpen_gaussianBlur(src, in.uv, u.texelSize, radius, taps);
     float3 highFreq = c - blurred;
     float3 processed = c + highFreq * amount;
     return spectra_compositeRGBA(base, clamp(processed, 0.0, 1.0), u);
@@ -126,7 +130,9 @@ fragment float4 fx_sharpen_clarity(RasterizerData in [[stage_in]],
     float3 c = spectra_tex(src, in.uv).rgb;
     float amount = u.params[0];
 
-    float3 blurred = spectra_sharpen_boxBlur(src, in.uv, u.texelSize, 6.0, 3);
+    // taps 2 (5x5=25 samples) instead of 3 (7x7=49): at radius 6 the tap spacing is 3px, and the
+    // midtone-gated detail signal holds up at this density. Halves the clarity gather cost.
+    float3 blurred = spectra_sharpen_boxBlur(src, in.uv, u.texelSize, 6.0, 2);
     float3 detail = c - blurred;
 
     // Triangular midtone mask: peaks at 0.5 luma, falls to 0 at black/white.

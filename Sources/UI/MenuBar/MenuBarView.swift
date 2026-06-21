@@ -38,20 +38,25 @@ struct MenuBarView: View {
 
             Divider()
 
-            Button("Open Spectra Studio…") {
-                openWindow(id: "studio")
-                NSApp.activate(ignoringOtherApps: true)
-                engine.frontStudioWindow()
-            }
-            Button("Settings…") {
-                openWindow(id: "settings")
-                NSApp.activate(ignoringOtherApps: true)
+            HStack {
+                Button("Open Studio") {
+                    openWindow(id: "studio")
+                    NSApp.activate(ignoringOtherApps: true)
+                    engine.frontStudioWindow()
+                }
+                Spacer()
+                Toggle("Glass", isOn: Binding(
+                    get: { engine.settings.glassEnabled },
+                    set: { engine.setGlassEnabled($0) }))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .fixedSize()
             }
             Button("Quit Spectra") { NSApp.terminate(nil) }
         }
         .buttonStyle(.plain)
         .padding(Theme.Spacing.md)
-        .frame(width: 260)
+        .frame(width: 240)
     }
 
 
@@ -106,34 +111,37 @@ private struct PresetPicker: View {
             }
 
             if expanded {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                        ForEach(engine.presets.categories) { category in
+                // Categories as a 2-column table (the four built-ins land as a clean 2x2),
+                // each column's title and presets centred. A LazyVGrid reports a definite
+                // height, so the size-to-fit MenuBarExtra panel grows to host the whole grid
+                // with no scrolling — unlike a ScrollView, which collapses to ~0 here.
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: Theme.Spacing.sm),
+                              GridItem(.flexible(), spacing: Theme.Spacing.sm)],
+                    alignment: .center, spacing: Theme.Spacing.md
+                ) {
+                    ForEach(engine.presets.categories) { category in
+                        VStack(spacing: Theme.Spacing.xs) {
                             Text(category.displayName)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
-                                .padding(.top, 2)
                             ForEach(engine.presets.presets(in: category)) { preset in
                                 Button(preset.name) {
                                     engine.apply(preset)
                                     withAnimation(.easeInOut(duration: 0.15)) { expanded = false }
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(maxWidth: .infinity)
+                                .multilineTextAlignment(.center)
                             }
                         }
-                        Divider()
-                        Button("Browse All in Studio…", action: openStudio)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .top)
                     }
-                    .padding(.leading, Theme.Spacing.sm)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                // A definite height, not maxHeight: a ScrollView reports an indefinite height,
-                // so inside the size-to-fit MenuBarExtra panel `maxHeight` collapses it to ~0
-                // (the panel never grows to host it) and the expanded list shows nothing. A
-                // fixed height makes the panel allocate real space, so the presets appear and
-                // scroll within it.
-                .frame(height: 240)
+                .padding(.top, Theme.Spacing.xs)
+
+                Divider()
+                Button("Browse All in Studio…", action: openStudio)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
         }
     }

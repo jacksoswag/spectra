@@ -507,9 +507,11 @@ fragment float4 fx_film_bloom_combine(RasterizerData in [[stage_in]],
 // Bloom and Halation run an IDENTICAL prefilter + horizontal blur and differ only in
 // their final combine (screen vs warm tint). This effect runs that shared pyramid once
 // and emits BOTH looks together, so a preset that wanted both pays one pyramid instead of
-// two (8 passes → ~3). The vertical half of the separable Gaussian is folded into this
-// full-res combine — it reads the horizontally-blurred half-res glow on texture(0) and
-// completes the blur vertically while compositing — so the whole effect is 3 passes, not 4.
+// two (8 passes → 4). The prefilter and the separable horizontal+vertical Gaussian all run at
+// half res; this full-res combine reads the blurred half-res glow on texture(0) and composites
+// BOTH the screen bloom and the warm halation tint. Four passes total (prefilter, H, V, combine).
+// (Folding the V-blur into this full-res combine was tried and reverted — a 13-tap vertical loop
+// at full res costs more than a half-res V pass plus one bilinear read here.)
 // An optional finishing grain (params[3..4]) folds a preset's trailing film grain in here
 // too, costing no extra pass; it animates whenever a live frame arrives (no isAnimated
 // idle-repaint needed) and is imperceptibly static on a frozen screen.

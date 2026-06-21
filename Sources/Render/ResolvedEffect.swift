@@ -46,6 +46,16 @@ struct ResolvedEffect {
             && !descriptor.needsHistory
     }
 
+    /// Whether this instance actually animates (needs idle redraws). An effect can declare
+    /// `isAnimated` but gate it on a parameter (`animatedParam`): e.g. film.grain at speed 0
+    /// is a fixed pattern, so it should not keep the chain re-rendering on a static desktop.
+    var isEffectivelyAnimated: Bool {
+        guard descriptor.isAnimated else { return false }
+        guard let gateID = descriptor.animatedParam else { return true }
+        let value = instance.values[gateID] ?? descriptor.parameters.first { $0.id == gateID }?.defaultValue
+        return (value?.floats.first ?? 1) > 0.0001
+    }
+
     /// This instance's parameter values flattened into GPU float order (declaration
     /// order, each parameter contributing its component count) — the same packing
     /// `writeParameters` does into `u.params`.

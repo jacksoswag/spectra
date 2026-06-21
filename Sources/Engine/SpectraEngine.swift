@@ -134,6 +134,14 @@ final class SpectraEngine {
         GradeLUTExtractor(context: context, shaders: renderEngine.shaders)
     @ObservationIgnored private var gradeDisplays: Set<CGDirectDisplayID> = []
 
+    /// Drives the system effects — window transparency and layout (via yabai) and the
+    /// adaptive tint overlay. Reconciled from the union of every display's stack
+    /// whenever a chain changes or the master switch flips, and restored on disable/quit.
+    @ObservationIgnored private lazy var systemEffects = SystemEffectsController()
+    /// Latest yabai provisioning status, surfaced to the inspector so the yabai-backed
+    /// system-effect rows can reflect install / admin-prompt / SIP / ready state.
+    private(set) var systemEffectsStatus: YabaiProvisioner.Status = .unknown
+
     /// Effects whose transfer is per-channel separable — exactly reproducible by a
     /// scanout LUT (verified against their `colorproc_*` math). Cross-channel ops
     /// (saturation, vibrance, highlights/shadows/whites/blacks, temperature/tint's
@@ -263,6 +271,17 @@ final class SpectraEngine {
             self?.refreshCaptureExceptions()
             self?.armCaptureStallWatchdog()   // catch a stream that silently stalled on the carry
         }
+        // SwiftUI's ColorPicker opens the shared NSColorPanel, which is born at a normal window
+        // level — behind the elevated overlay, so clicking a colour swatch looks like nothing
+        // happens. When it becomes key, register it like a control window so it's lifted crisp
+        // ABOVE the overlay (and follows Space switches). Every colour parameter shares this one
+        // panel, so this fixes all of them at once.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let panel = note.object as? NSColorPanel else { return }
+            MainActor.assumeIsolated { self?.registerControlWindow(panel) }
+        }
         AppPaths.ensureDirectories()
         permissionAuthorized = ScreenRecordingPermission.isAuthorized
         await displayManager.refresh()
@@ -279,6 +298,12 @@ final class SpectraEngine {
             isEnabled = true
         }
         autoScale = settings.renderScale   // governor starts from the saved quality if Auto is on
+        // System effects: forward the adaptive-tint windows into the capture-exception
+        // path and surface yabai availability to the inspector. `updatePipelines` below
+        // reconciles the actual state, so these hooks must be set first.
+        systemEffects.onCaptureExceptionsChanged = { [weak self] in self?.refreshCaptureExceptions() }
+        systemEffects.onStatusChanged = { [weak self] status in self?.systemEffectsStatus = status }
+        systemEffects.refreshStatus(needsOpacity: true)
         updatePipelines()
         startRefreshTimer()
         startFolderWatch()
@@ -311,6 +336,7 @@ final class SpectraEngine {
         folderWatcher?.stop()
         globalPanicHotKey = nil   // unregisters the Carbon hotkey
         displayGrade.clearAll()   // restore every display's colour profile (scanout LUT)
+        systemEffects.shutdown()  // restore window opacity/tiling synchronously + remove the tint
         cursorEnforcer.setHidden(false)   // restores the cursor + removes the motion monitor
         for session in sessions.values { Task { await session.stop() } }
         renderEngine.shutdown()
@@ -531,6 +557,12 @@ final class SpectraEngine {
         renderEngine.setCoversMenuBarAndDock(on)
     }
 
+    /// Re-probe yabai status read-only (the inspector calls this when a yabai-backed system
+    /// effect is shown, so install / SIP / ready state updates live without side effects).
+    func refreshSystemEffectsStatus(needsOpacity: Bool) {
+        systemEffects.refreshStatus(needsOpacity: needsOpacity)
+    }
+
     // MARK: - Stacks
 
     func stack(for displayID: CGDirectDisplayID) -> EffectStack {
@@ -560,8 +592,17 @@ final class SpectraEngine {
         // pipeline so the overlay+capture spin down or up accordingly; otherwise the
         // grade reconcile alone refreshes the LUT for live parameter edits.
         let wasGrade = gradeDisplays.contains(displayID)
+        let wasOverlayActive = renderEngine.renderer(for: displayID)?.isActive ?? false
         reconcileGlobalGrade()
-        if gradeDisplays.contains(displayID) != wasGrade { updatePipelines() }
+        // Re-reconcile the whole pipeline when this display crosses the grade boundary OR the
+        // overlay boundary — e.g. the last pixel effect was removed leaving only system effects,
+        // so capture + overlay should spin down (or vice versa).
+        if gradeDisplays.contains(displayID) != wasGrade || wantsOverlay(displayID) != wasOverlayActive {
+            updatePipelines()
+        }
+        // A system effect (transparency/layout/tint) may have been toggled or tuned in
+        // this chain — drive yabai and the tint overlay to match.
+        reconcileSystemEffects()
         saveState()
     }
 
@@ -775,7 +816,21 @@ final class SpectraEngine {
     private func wantsOverlay(_ displayID: CGDirectDisplayID) -> Bool {
         // A display routed to the global grade is rendered by the scanout LUT, not the
         // overlay — running both would double-apply the grade on the current Space.
+        // A stack of only system effects (or empty) has no pixel passes, so it needs no
+        // capture or overlay at all: it runs at full quality and the display's refresh.
         isEnabled && permissionAuthorized && !gradeDisplays.contains(displayID)
+            && hasRenderableEffects(displayID)
+    }
+
+    /// Whether a display's stack has any effectively-enabled effect that actually renders a
+    /// pixel pass. System effects (transparency/layout/tint) drive controllers, not the GPU,
+    /// so a stack made up only of them (the new Liquid Glass) skips capture and the overlay
+    /// entirely — zero render cost, no frame-rate hit.
+    private func hasRenderableEffects(_ displayID: CGDirectDisplayID) -> Bool {
+        let chain = stack(for: displayID).chain()
+        return chain.effects.contains {
+            chain.isEffectivelyEnabled($0) && registry.descriptor($0.descriptorID)?.controllerKind == nil
+        }
     }
 
     /// Whether a display's live stack is made up ENTIRELY of per-channel color
@@ -784,7 +839,11 @@ final class SpectraEngine {
     /// collapse the run into one synthetic descriptor — doesn't hide the membership.
     private func chainIsGlobalGrade(_ displayID: CGDirectDisplayID) -> Bool {
         let chain = stack(for: displayID).chain()
-        let enabled = chain.effects.filter { chain.isEffectivelyEnabled($0) }
+        // System effects carry no pixels; they never block a colour-only chain from the
+        // scanout LUT, so exclude them from the membership test.
+        let enabled = chain.effects.filter {
+            chain.isEffectivelyEnabled($0) && registry.descriptor($0.descriptorID)?.controllerKind == nil
+        }
         guard !enabled.isEmpty else { return false }
         return enabled.allSatisfy { Self.globalGradeEffectIDs.contains($0.descriptorID) }
     }
@@ -814,6 +873,66 @@ final class SpectraEngine {
         gradeDisplays = next
     }
 
+    // MARK: - System effects
+
+    /// Reconcile the system effects (window transparency/layout via yabai, the adaptive
+    /// tint overlay) with the current chains. Gated on the master switch: when Spectra is
+    /// off the desired state is `.inactive`, so window opacity, tiling, and the tint are
+    /// all restored. Idempotent and cheap — safe to call on every chain edit and pipeline
+    /// reconcile.
+    private func reconcileSystemEffects() {
+        systemEffects.apply(desiredSystemState(), displayIDs: orderedSystemDisplayIDs())
+    }
+
+    /// The menu-bar Glass toggle: window transparency + the adaptive tint, applied directly
+    /// (no preset, and no need to Start the main effects pipeline).
+    func setGlassEnabled(_ on: Bool) {
+        settings.glassEnabled = on
+        reconcileSystemEffects()
+    }
+
+    /// The desired aggregate system-effect state. Two sources, deduplicated (first wins):
+    /// per-effect rows in a display's stack (only while the main pipeline is enabled), and
+    /// the standalone menu-bar Glass toggle (transparency + tint, independent of the master
+    /// switch). The selected display is considered first so its parameters win for the single
+    /// global yabai configuration.
+    private func desiredSystemState() -> SystemEffectsState {
+        var state = SystemEffectsState()
+        if isEnabled {
+            for id in orderedSystemDisplayIDs() {
+                let chain = stack(for: id).chain()
+                for instance in chain.effects {
+                    guard chain.isEffectivelyEnabled(instance),
+                          let kind = registry.descriptor(instance.descriptorID)?.controllerKind else { continue }
+                    switch kind {
+                    case .windowTransparency:
+                        if state.transparency == nil { state.transparency = TransparencySettings(instance) }
+                    case .windowLayout:
+                        if state.layout == nil { state.layout = LayoutSettings(instance) }
+                    case .adaptiveTint:
+                        if state.tint == nil { state.tint = TintSettings(instance) }
+                    }
+                }
+            }
+        }
+        if settings.glassEnabled {
+            if state.transparency == nil { state.transparency = .glass }
+            if state.tint == nil { state.tint = .glass }
+        }
+        return state
+    }
+
+    /// Display ids with the selected display first, so its system-effect parameters take
+    /// precedence for the single global yabai configuration and the tint window order.
+    private func orderedSystemDisplayIDs() -> [CGDirectDisplayID] {
+        var ids = displays.map(\.id)
+        if let selected = selectedDisplayID, let index = ids.firstIndex(of: selected) {
+            ids.remove(at: index)
+            ids.insert(selected, at: 0)
+        }
+        return ids
+    }
+
     private func wantsCapture(_ displayID: CGDirectDisplayID) -> Bool {
         // Capture only when the overlay is actually rendering. The Studio preview
         // runs on the wallpaper, so it never needs a live capture — this also means
@@ -828,6 +947,9 @@ final class SpectraEngine {
         // capture permission, and it must update `gradeDisplays` before `wantsOverlay`
         // is consulted below so graded displays skip the overlay/capture path.
         reconcileGlobalGrade()
+        // Reconcile system effects up front so the master switch (and display changes)
+        // restore window opacity/tiling/tint even when the capture path is unavailable.
+        reconcileSystemEffects()
         guard permissionAuthorized else {
             for (id, session) in sessions { Task { await session.stop() }; sessions[id] = nil }
             for id in renderEngine.activeDisplayIDs { renderEngine.deactivate(id) }
@@ -944,6 +1066,10 @@ final class SpectraEngine {
         // rather than being hidden behind the overlay (its window number changes per open, so it
         // is tracked live by `MenuPanelCaptureBridge`, not registered like a control window).
         if let menuPanelWindow { numbers.insert(menuPanelWindow.windowNumber) }
+        // Except the adaptive-tint windows so they're captured below the real windows and
+        // graded with the scene. They are desktop-level and contain no captured content,
+        // so excepting them can't feed back the way the overlay would.
+        for number in systemEffects.tintWindowNumbers { numbers.insert(number) }
         numbers.subtract(overlayNumbers)
         return await displayManager.shareableWindows(matching: numbers)
     }
@@ -1091,6 +1217,7 @@ final class SpectraEngine {
             selectedDisplayID = displayManager.mainDisplay?.id
         }
         for display in displays { renderEngine.updateGeometry(display) }
+        systemEffects.refreshDisplays(orderedSystemDisplayIDs())
         updatePipelines()
     }
 

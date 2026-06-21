@@ -461,8 +461,11 @@ fragment float4 fx_glitch_digitalRain(RasterizerData in [[stage_in]],
     const float bright[3]   = { 0.45, 0.7, 1.0 };
     const float seeds[3]    = { 0.0, 53.1, 121.7 };
 
+    // TWO layers (mid + near): the far layer (i=0) is the dimmest/smallest and its depth
+    // contribution is largely masked by the mid and near layers, so dropping it cuts ~33% of
+    // the per-pixel ALU. Start the loop at 1 to skip it. (Flattens the depth illusion slightly.)
     float3 rain = float3(0.0);
-    for (int i = 0; i < 3; i++) {
+    for (int i = 1; i < 3; i++) {
         rain += glitch_rainLayer(in.uv, u.time, baseColumns * colScale[i], aspect,
                                  speed * speedMul[i], bright[i], seeds[i]);
     }
