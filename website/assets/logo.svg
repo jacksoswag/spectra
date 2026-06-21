@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 30" width="150" height="30" fill="none">
+  <defs>
+    <linearGradient id="spec" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff3df0"/>
+      <stop offset="0.4" stop-color="#8b5cff"/>
+      <stop offset="0.7" stop-color="#2fd9ff"/>
+      <stop offset="1" stop-color="#b6ff3d"/>
+    </linearGradient>
+  </defs>
+  <!-- prism mark: a triangle splitting a white beam into the spectrum -->
+  <g>
+    <path d="M15 4 L26 23 L4 23 Z" fill="url(#spec)" opacity="0.18"/>
+    <path d="M15 4 L26 23 L4 23 Z" stroke="url(#spec)" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M0 14 L11 14" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M19.5 14 L30 10.5" stroke="#ff3df0" stroke-width="1.4" stroke-linecap="round"/>
+    <path d="M20 16 L30 16" stroke="#8b5cff" stroke-width="1.4" stroke-linecap="round"/>
+    <path d="M19.5 18 L30 21.5" stroke="#2fd9ff" stroke-width="1.4" stroke-linecap="round"/>
+  </g>
+  <text x="38" y="21" font-family="'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="800" letter-spacing="0.5" fill="#f4f2ff">SPECTRA</text>
+</svg>

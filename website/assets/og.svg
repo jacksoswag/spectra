@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" fill="none">
+  <defs>
+    <linearGradient id="spec" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff3df0"/><stop offset="0.4" stop-color="#8b5cff"/>
+      <stop offset="0.7" stop-color="#2fd9ff"/><stop offset="1" stop-color="#b6ff3d"/>
+    </linearGradient>
+    <radialGradient id="g1" cx="0.75" cy="0.1" r="0.7"><stop offset="0" stop-color="#1a1140"/><stop offset="1" stop-color="#06050d"/></radialGradient>
+    <radialGradient id="g2" cx="0.1" cy="0.9" r="0.6"><stop offset="0" stop-color="#0a2233" stop-opacity="0.9"/><stop offset="1" stop-color="#06050d" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#06050d"/>
+  <rect width="1200" height="630" fill="url(#g1)"/>
+  <rect width="1200" height="630" fill="url(#g2)"/>
+  <!-- prism mark -->
+  <g transform="translate(110,150)">
+    <path d="M90 0 L150 120 L30 120 Z" fill="url(#spec)" opacity="0.18"/>
+    <path d="M90 0 L150 120 L30 120 Z" stroke="url(#spec)" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M0 72 L66 72" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+    <path d="M118 72 L196 50" stroke="#ff3df0" stroke-width="5" stroke-linecap="round"/>
+    <path d="M120 80 L200 80" stroke="#8b5cff" stroke-width="5" stroke-linecap="round"/>
+    <path d="M118 88 L196 110" stroke="#2fd9ff" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <text x="110" y="380" font-family="'Helvetica Neue', Arial, sans-serif" font-size="92" font-weight="800" fill="#f4f2ff">Your whole desktop,</text>
+  <text x="110" y="478" font-family="'Helvetica Neue', Arial, sans-serif" font-size="92" font-weight="800" fill="url(#spec)">shaded in real time.</text>
+  <text x="112" y="552" font-family="'Helvetica Neue', Arial, sans-serif" font-size="34" font-weight="500" fill="#a59fce">169 real-time GPU effects across your Mac · $9.99 one-time</text>
+</svg>

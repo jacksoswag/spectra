@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" fill="none">
+  <!-- Spectra DMG installer background. Export to dmg-background.png (and @2x) before
+       use; Finder does not render SVG. The app icon sits ~ (160,200) and the
+       Applications alias ~ (480,200); this art frames the drag between them. -->
+  <defs>
+    <linearGradient id="spec" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff3df0"/><stop offset="0.4" stop-color="#8b5cff"/>
+      <stop offset="0.7" stop-color="#2fd9ff"/><stop offset="1" stop-color="#b6ff3d"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="0.5" cy="0.0" r="1"><stop offset="0" stop-color="#171036"/><stop offset="1" stop-color="#08070f"/></radialGradient>
+  </defs>
+  <rect width="640" height="400" fill="url(#bg)"/>
+  <!-- header logo -->
+  <g transform="translate(258,40)">
+    <path d="M18 0 L30 22 L6 22 Z" fill="url(#spec)" opacity="0.2"/>
+    <path d="M18 0 L30 22 L6 22 Z" stroke="url(#spec)" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M-2 13 L13 13" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="40" y="20" font-family="'Helvetica Neue',Arial,sans-serif" font-size="22" font-weight="800" fill="#f4f2ff">SPECTRA</text>
+  </g>
+  <!-- drag arrow from app (left) to Applications (right) -->
+  <g opacity="0.9">
+    <path d="M232 200 L408 200" stroke="url(#spec)" stroke-width="3" stroke-dasharray="2 9" stroke-linecap="round"/>
+    <path d="M404 192 L420 200 L404 208" stroke="url(#spec)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="320" y="312" text-anchor="middle" font-family="'Helvetica Neue',Arial,sans-serif" font-size="15" font-weight="600" fill="#cbc7ea">Drag Spectra onto Applications to install</text>
+  <text x="320" y="338" text-anchor="middle" font-family="'Helvetica Neue',Arial,sans-serif" font-size="12" fill="#7d79a4">Your whole desktop, shaded.</text>
+</svg>

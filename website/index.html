@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spectra — your whole desktop, shaded</title>
+  <meta name="description" content="Real-time GPU shader effects across your entire Mac desktop. 169 effects, build your own, click-through overlay over everything. One-time $9.99." />
+
+  <!-- Social share -->
+  <meta property="og:title" content="Spectra — your whole desktop, shaded" />
+  <meta property="og:description" content="CRT, VHS, glitch, oil paint, Ghibli worlds — real shaders running on your whole Mac desktop. Try them live in your browser." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="assets/og.svg" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <!-- NAV -->
+  <header class="nav">
+    <a class="brand" href="#top" aria-label="Spectra home">
+      <img src="assets/logo.svg" alt="" width="132" height="28" />
+    </a>
+    <nav class="nav-links">
+      <a href="#effects">Effects</a>
+      <a href="#worlds">Worlds</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <a class="btn btn-primary nav-cta" href="#pricing">Get Spectra</a>
+  </header>
+
+  <!-- HERO + LIVE DEMO -->
+  <section id="top" class="hero">
+    <div class="hero-copy">
+      <div class="eyebrow"><span class="dot"></span> Live in your browser — these are real shaders</div>
+      <h1>Your whole desktop,<br /><span class="grad">shaded in real time.</span></h1>
+      <p class="lede">Spectra runs a Metal shader pipeline over every pixel of your Mac. CRT, VHS, glitch, oil paint, whole Ghibli worlds — 169 effects, stack them, build your own. Play with the real thing right here.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#pricing">Get Spectra — $9.99</a>
+        <a class="btn btn-ghost" href="#effects">Try the effects ↓</a>
+      </div>
+      <div class="trust">One-time. No subscription. Free tier included.</div>
+    </div>
+
+    <div class="demo-stage">
+      <div class="demo-frame">
+        <div class="demo-bar"><span></span><span></span><span></span><em>spectra — live</em></div>
+        <canvas id="demo" aria-label="Live shader demo"></canvas>
+        <div class="gl-fallback">Your browser blocked WebGL, so the live demo can't run. The effects look even better on the real desktop.</div>
+        <input id="wipe" class="wipe" type="range" min="0" max="100" value="0" aria-label="Before / after wipe" />
+      </div>
+
+      <div class="demo-controls">
+        <div class="chips" id="chips" role="tablist" aria-label="Effects"></div>
+        <div class="sliders">
+          <label>Intensity <input id="amount" type="range" min="0" max="100" value="85" /></label>
+          <button id="cam" class="btn btn-ghost btn-sm" type="button">Shade my camera</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MARQUEE -->
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee-track">
+      <span>169 effects</span><span>•</span><span>build your own</span><span>•</span><span>multi-monitor</span><span>•</span><span>HDR-aware</span><span>•</span><span>so real it can't be screen-captured</span><span>•</span><span>Apple Silicon</span><span>•</span>
+      <span>169 effects</span><span>•</span><span>build your own</span><span>•</span><span>multi-monitor</span><span>•</span><span>HDR-aware</span><span>•</span><span>so real it can't be screen-captured</span><span>•</span><span>Apple Silicon</span><span>•</span>
+    </div>
+  </div>
+
+  <!-- EFFECTS -->
+  <section id="effects" class="section">
+    <div class="section-head">
+      <h2>Pick a vibe. <span class="grad">Watch it take over.</span></h2>
+      <p>Every chip loads a real shader into the demo above. The app ships 169 of them across 14 categories.</p>
+    </div>
+    <div class="cat-grid" id="catGrid"></div>
+  </section>
+
+  <!-- WORLDS -->
+  <section id="worlds" class="section worlds">
+    <div class="section-head">
+      <h2>Turn your Mac into a <span class="grad">world.</span></h2>
+      <p>The worlds are full looks, not filters: painterly oil cells, ink-and-cel anime, pop-art comic, a calm reading mode. The viral one is the artistic desktop nobody else has.</p>
+    </div>
+    <div class="world-row">
+      <button class="world-card" data-effect="oil"><b>Impressionism</b><span>colour-region oil cells</span></button>
+      <button class="world-card" data-effect="comic"><b>Comic Book</b><span>posterize + Ben-Day halftone</span></button>
+      <button class="world-card" data-effect="dream"><b>Dreamy</b><span>bloom + warm cinema grade</span></button>
+      <button class="world-card" data-effect="gameboy"><b>Game Boy</b><span>4-tone DMG palette</span></button>
+    </div>
+  </section>
+
+  <!-- HOW -->
+  <section class="section how">
+    <div class="section-head"><h2>How it pulls this off</h2></div>
+    <div class="steps">
+      <div class="step"><span class="num">01</span><h3>Capture</h3><p>ScreenCaptureKit streams every display straight to a Metal texture. Zero-copy, on the GPU, never touching disk.</p></div>
+      <div class="step"><span class="num">02</span><h3>Shade</h3><p>Your stack of effects runs as fragment shaders, in any order, with strength, opacity, and 16 blend modes per layer.</p></div>
+      <div class="step"><span class="num">03</span><h3>Overlay</h3><p>A click-through, HDR-aware window paints the result back over your desktop. It follows you across Spaces and full-screen apps.</p></div>
+    </div>
+    <div class="mystique">
+      <h3>So real it can't be screen-captured.</h3>
+      <p>The overlay excludes itself from capture, so screen recordings miss the magic. That's not a bug, it's the flex. Flip one toggle when you actually want it in your screenshots.</p>
+    </div>
+  </section>
+
+  <!-- PRICING -->
+  <section id="pricing" class="section pricing">
+    <div class="section-head"><h2>One price. <span class="grad">Yours forever.</span></h2></div>
+    <div class="price-cards">
+      <div class="price-card">
+        <div class="tier">Free</div>
+        <div class="amount">$0</div>
+        <ul>
+          <li>✓ The cinematic presets</li>
+          <li>✓ Intensity + quality controls</li>
+          <li>✓ Across your whole desktop</li>
+          <li class="off">— Full 169-effect library</li>
+          <li class="off">— Build &amp; edit your own</li>
+        </ul>
+        <a class="btn btn-ghost" href="#download">Download free</a>
+      </div>
+      <div class="price-card featured">
+        <div class="flare" aria-hidden="true"></div>
+        <div class="tier">Full</div>
+        <div class="amount">$9.99 <small>one-time</small></div>
+        <ul>
+          <li>✓ All 169 effects, every preset</li>
+          <li>✓ Stack, edit, and tune everything</li>
+          <li>✓ Visual composer + shader import</li>
+          <li>✓ Glass: live window transparency</li>
+          <li>✓ Free updates</li>
+        </ul>
+        <a class="btn btn-primary" href="#download">Get Spectra</a>
+        <div class="fine">30-day money-back. No subscription, ever.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq" class="section faq">
+    <div class="section-head"><h2>Questions</h2></div>
+    <div class="faq-list">
+      <details><summary>What do I need to run it?</summary><p>An Apple Silicon Mac on macOS 15 or later. You grant Screen Recording once (everything is processed on your Mac and never leaves it), then turn effects on.</p></details>
+      <details><summary>Is my screen sent anywhere?</summary><p>No. Frames are processed on the GPU and discarded. Nothing is recorded, saved, or uploaded. No accounts, no analytics.</p></details>
+      <details><summary>What's the free tier?</summary><p>The cinematic presets, applied as-is, with the intensity and quality controls. One $9.99 purchase unlocks the full library, editing, the composer, and Glass.</p></details>
+      <details><summary>What is "Glass" and does it need anything special?</summary><p>Glass adds live window transparency and a desktop tint. It's optional, and it's the only feature that needs part of System Integrity Protection disabled (a reversible, one-time Recovery step). Everything else works without it.</p></details>
+      <details><summary>Refunds?</summary><p>Yes — 30 days, no questions. Purchases run through Lemon Squeezy as the merchant of record.</p></details>
+    </div>
+  </section>
+
+  <!-- DOWNLOAD / FOOTER CTA -->
+  <section id="download" class="section download">
+    <h2>Make your Mac <span class="grad">unreal.</span></h2>
+    <a class="btn btn-primary btn-lg" href="#">Download Spectra</a>
+    <p class="fine">Apple Silicon · macOS 15+ · signed &amp; notarized</p>
+  </section>
+
+  <footer class="footer">
+    <div class="foot-brand"><img src="assets/logo.svg" alt="Spectra" width="120" height="26" /><span>Your whole desktop, shaded.</span></div>
+    <nav class="foot-links">
+      <a href="../docs/EULA.md">License</a>
+      <a href="../docs/PRIVACY.md">Privacy</a>
+      <a href="mailto:jacksoswag@proton.me">Support</a>
+    </nav>
+    <div class="foot-fine">© <span id="year"></span> Spectra. Built for Apple Silicon.</div>
+  </footer>
+
+  <script src="js/demo.js"></script>
+  <script src="js/site.js"></script>
+</body>
+</html>
