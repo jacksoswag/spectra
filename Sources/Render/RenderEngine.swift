@@ -273,6 +273,13 @@ final class RenderEngine {
         renderers[displayID]
     }
 
+    /// Whether a display's overlay is currently on-screen (its Space is displayed).
+    /// Used to skip the capture heartbeat for a dormant Space's stream, which
+    /// legitimately delivers no frames.
+    func isOverlayVisible(_ displayID: CGDirectDisplayID) -> Bool {
+        overlays[displayID]?.occlusionState.contains(.visible) ?? false
+    }
+
     var activeDisplayIDs: [CGDirectDisplayID] { Array(renderers.keys) }
 
     /// Window numbers of the live overlay windows. Two uses: the cursor enforcer

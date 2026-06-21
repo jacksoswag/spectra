@@ -52,12 +52,13 @@ final class SpectraEngine {
     // so `handleSessionStopped` never restarts it and the overlay freezes on a stale frame
     // until the user toggles the effect off/on. Once a Space transition settles the captured
     // content has definitely changed, so a healthy stream MUST deliver a fresh frame within the
-    // grace period; if a display's frame count hasn't advanced by then, its stream stalled and
-    // is restarted. Scoped to the post-switch window so a genuinely static desktop (which
-    // legitimately delivers no frames) is never restarted. `deadline == 0` means disarmed.
-    @ObservationIgnored private var captureStallBaseline: [CGDirectDisplayID: UInt64] = [:]
-    @ObservationIgnored private var captureStallDeadline: CFTimeInterval = 0
-    private static let captureStallGracePeriod: CFTimeInterval = 1.5
+    // grace window; if a display's last-frame timestamp hasn't advanced past the settle by then,
+    // its stream stalled silently (no `didStopWithError`) and gets a full SCStream rebuild. Scoped
+    // to the post-switch window and gated on the overlay being visible, so a genuinely static or
+    // dormant desktop (which legitimately delivers no frames) is never restarted. The generation
+    // counter supersedes a pending check when another Space switch arrives first.
+    @ObservationIgnored private var spaceCaptureCheckGeneration: UInt64 = 0
+    private static let captureStallGracePeriod: CFTimeInterval = 0.4
 
     // Hard-freeze failsafe. The window-tied render clock (CAMetalDisplayLink) can stop delivering
     // callbacks after a Space carry/elevation; the overlay then freezes on a stale frame while
@@ -1183,36 +1184,38 @@ final class SpectraEngine {
         }
     }
 
-    /// Snapshot each capturing display's frame count and arm the post-Space-switch stall check
-    /// (see `captureStallBaseline`). Called once a Space transition has settled, right after the
-    /// capture filter is re-issued (which itself nudges a healthy stream to emit a fresh frame).
+    /// Arm the fast post-Space-switch capture-liveness check. A Space switch always
+    /// changes on-screen content, so a healthy stream MUST deliver a fresh frame within
+    /// the short grace window; if a visible display's last-frame timestamp hasn't moved
+    /// past the settle by then, its SCStream stalled silently and is rebuilt. Runs as a
+    /// one-shot ~0.4s after settle (much faster than the old 1.5s-grace + 0.5s-tick path)
+    /// and is generation-guarded so a rapid second swipe supersedes a pending check.
+    /// Called from `onActiveSpaceSettled`, right after the capture filter is re-issued.
     private func armCaptureStallWatchdog() {
         guard !sessions.isEmpty else { return }
-        captureStallBaseline.removeAll(keepingCapacity: true)
-        for id in sessions.keys {
-            captureStallBaseline[id] = renderEngine.renderer(for: id)?.capturedFrameCount ?? 0
+        spaceCaptureCheckGeneration &+= 1
+        let generation = spaceCaptureCheckGeneration
+        let settleTime = CACurrentMediaTime()
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.captureStallGracePeriod) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, generation == self.spaceCaptureCheckGeneration else { return }
+                self.rebuildStalledCaptureAfterSpaceSwitch(settleTime: settleTime)
+            }
         }
-        captureStallDeadline = CACurrentMediaTime() + Self.captureStallGracePeriod
-        Log.capture.debug("Armed capture-stall watchdog for \(self.captureStallBaseline.count, privacy: .public) display(s)")
     }
 
-    /// Engine-tick check armed by `armCaptureStallWatchdog`: once the grace period has elapsed,
-    /// restart any display whose capture delivered no new frame since the Space switch — its
-    /// SCStream stalled silently (no `didStopWithError`, so the normal restart never fired).
-    /// Mirrors `handleSessionStopped`'s recovery — drop the dead session, then `updatePipelines`
-    /// starts a fresh one and re-wires frame delivery — which the overlay's still-live renderer
-    /// immediately resumes painting from. One-shot per arm.
-    private func detectStalledCapture() {
-        guard captureStallDeadline > 0, CACurrentMediaTime() > captureStallDeadline else { return }
-        let baselines = captureStallBaseline
-        captureStallDeadline = 0
-        captureStallBaseline.removeAll(keepingCapacity: true)
+    /// Rebuild any visible display's capture stream that delivered no fresh frame since
+    /// the Space switch settled (its SCStream stopped silently, with no `didStopWithError`,
+    /// so the normal restart never fired). Mirrors `handleSessionStopped`'s recovery — drop
+    /// the dead session, then `updatePipelines` starts a fresh one and re-wires delivery,
+    /// which the overlay's still-live renderer immediately resumes painting from. Gated on
+    /// `isOverlayVisible` so a dormant Space's (legitimately frame-less) stream is left alone.
+    private func rebuildStalledCaptureAfterSpaceSwitch(settleTime: Double) {
         var stalled = false
-        for (id, baseline) in baselines {
-            guard let session = sessions[id], wantsCapture(id) else { continue }
-            let current = renderEngine.renderer(for: id)?.capturedFrameCount ?? baseline
-            guard current == baseline else { continue }   // a fresh frame arrived → stream healthy
-            Log.capture.error("Capture stalled after Space switch on display \(id, privacy: .public); restarting stream")
+        for (id, session) in sessions {
+            guard wantsCapture(id), renderEngine.isOverlayVisible(id) else { continue }
+            guard session.lastFrameTime <= settleTime else { continue }   // fresh frame arrived → healthy
+            Log.capture.error("Capture stalled after Space switch on display \(id, privacy: .public); rebuilding stream")
             sessions[id] = nil
             Task { await session.stop() }
             stalled = true
@@ -1322,7 +1325,6 @@ final class SpectraEngine {
         performance.refresh()
         renderEngine.restartStalledDisplayLinks()     // rebuild any clock that died on a carry (fixes the freeze)
         renderEngine.ensureOverlaysOnActiveSpace()   // follow the user across Spaces (focused-display, occlusion-gated)
-        detectStalledCapture()                       // restart a capture stream that silently stalled on a Space switch
         detectAndRecoverHardFreeze()                 // failsafe: auto-recover a frozen overlay so it can't trap the screen
         governAutoQuality()                          // adaptive quality (the "Auto" toggle), no-op unless enabled
         // Render scale is applied on every path that changes it (setRenderScale) or
