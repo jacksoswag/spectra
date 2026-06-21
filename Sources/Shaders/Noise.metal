@@ -61,6 +61,8 @@ fragment float4 fx_noise_white(RasterizerData in [[stage_in]],
 }
 
 // MARK: - Gaussian noise (normal distribution, additive)
+// Samples at a coarser cell grid so the bell-curve distribution reads as visible
+// blobs rather than the sharp per-pixel speckle of white noise.
 
 fragment float4 fx_noise_gaussian(RasterizerData in [[stage_in]],
                                   texture2d<float> src [[texture(0)]],
@@ -74,16 +76,17 @@ fragment float4 fx_noise_gaussian(RasterizerData in [[stage_in]],
     float speed = u.params[2];
     float colorize = u.params[3];
 
-    float2 p = fx_noise_coord(in.uv, scale, u.seed);
+    // Coarser grid than white noise so the gaussian character (continuous smooth
+    // blobs from the Box-Muller kernel) is visible rather than aliased sharp speckle.
+    float2 p = fx_noise_coord(in.uv, scale * 0.25, u.seed);
     float t = u.time * speed;
     float3 off = fx_noise_channelOffset(u.seed);
 
-    // Gaussian noise has unbounded range; scale down so intensity stays tasteful.
-    float mono = spectra_gaussianNoise(p + t) * 0.3;
+    float mono = spectra_gaussianNoise(p + t) * 0.4;
     float3 colored = float3(
         spectra_gaussianNoise(p + off.x + t),
         spectra_gaussianNoise(p + off.y + t),
-        spectra_gaussianNoise(p + off.z + t)) * 0.3;
+        spectra_gaussianNoise(p + off.z + t)) * 0.4;
 
     float3 n = fx_noise_colorBlend(mono, colored, colorize);
     float3 processed = c + n * intensity;
@@ -212,7 +215,22 @@ fragment float4 fx_noise_brown(RasterizerData in [[stage_in]],
     return spectra_compositeRGBA(base, processed, u);
 }
 
-// MARK: - Perlin noise (gradient noise, additive)
+// MARK: - Perlin noise (multi-octave gradient noise, additive)
+// Sums 4 octaves of gradient (Perlin-style) noise for a layered cloud-band
+// character visually distinct from the single-frequency simplex swirl below.
+
+inline float fx_noise_perlinFbm(float2 p, float t) {
+    float value = 0.0;
+    float amplitude = 0.5;
+    float norm = 0.0;
+    for (int i = 0; i < 4; i++) {
+        value += amplitude * (spectra_gradientNoise(p + t) - 0.5);
+        norm += amplitude;
+        p *= 2.1;
+        amplitude *= 0.5;
+    }
+    return value / max(norm, 1.0e-4);
+}
 
 fragment float4 fx_noise_perlin(RasterizerData in [[stage_in]],
                                 texture2d<float> src [[texture(0)]],
@@ -227,21 +245,32 @@ fragment float4 fx_noise_perlin(RasterizerData in [[stage_in]],
     float colorize = u.params[3];
 
     float2 p = fx_noise_coord(in.uv, scale, u.seed);
-    float t = u.time * speed;
+    float t = u.time * speed * 0.4;
     float3 off = fx_noise_channelOffset(u.seed);
 
-    float mono = spectra_gradientNoise(p + t) - 0.5;
+    float mono = fx_noise_perlinFbm(p, t);
     float3 colored = float3(
-        spectra_gradientNoise(p + off.x + t) - 0.5,
-        spectra_gradientNoise(p + off.y + t) - 0.5,
-        spectra_gradientNoise(p + off.z + t) - 0.5);
+        fx_noise_perlinFbm(p + off.x, t),
+        fx_noise_perlinFbm(p + off.y, t),
+        fx_noise_perlinFbm(p + off.z, t));
 
     float3 n = fx_noise_colorBlend(mono, colored, colorize);
-    float3 processed = c + n * intensity * 1.5;
+    float3 processed = c + n * intensity * 2.0;
     return spectra_compositeRGBA(base, processed, u);
 }
 
-// MARK: - Simplex noise (additive)
+// MARK: - Simplex noise (domain-warped, additive)
+// Applies a single-pass domain warp (sample position bent by a low-frequency
+// simplex offset) before the final simplex evaluation. This produces organic
+// swirling tendrils that read clearly differently from perlin's layered cloud
+// bands, using the same underlying generator at a very different character.
+
+inline float fx_noise_simplexWarped(float2 p, float t) {
+    float2 warp = float2(
+        spectra_simplex(p * 0.5 + float2(t * 0.3, 1.7)),
+        spectra_simplex(p * 0.5 + float2(2.3, t * 0.3 + 4.1)));
+    return spectra_simplex(p + warp * 1.5 + t);
+}
 
 fragment float4 fx_noise_simplex(RasterizerData in [[stage_in]],
                                  texture2d<float> src [[texture(0)]],
@@ -256,18 +285,17 @@ fragment float4 fx_noise_simplex(RasterizerData in [[stage_in]],
     float colorize = u.params[3];
 
     float2 p = fx_noise_coord(in.uv, scale, u.seed);
-    float t = u.time * speed;
+    float t = u.time * speed * 0.25;
     float3 off = fx_noise_channelOffset(u.seed);
 
-    // spectra_simplex returns roughly [-1, 1].
-    float mono = spectra_simplex(p + t) * 0.5;
+    float mono = fx_noise_simplexWarped(p, t) * 0.45;
     float3 colored = float3(
-        spectra_simplex(p + off.x + t),
-        spectra_simplex(p + off.y + t),
-        spectra_simplex(p + off.z + t)) * 0.5;
+        fx_noise_simplexWarped(p + off.x, t),
+        fx_noise_simplexWarped(p + off.y, t),
+        fx_noise_simplexWarped(p + off.z, t)) * 0.45;
 
     float3 n = fx_noise_colorBlend(mono, colored, colorize);
-    float3 processed = c + n * intensity * 1.5;
+    float3 processed = c + n * intensity;
     return spectra_compositeRGBA(base, processed, u);
 }
 

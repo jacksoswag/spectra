@@ -721,6 +721,11 @@ final class SpectraEngine {
                 shader.id = Self.stableID(for: url) ?? shader.id
                 customShaders.upsert(shader)
             case .preset(let preset):
+                // Dedupe: the same .spectra file produces the same Preset UUID on
+                // every decode. Skip registration if that ID is already in the user
+                // library, so re-importing on every launch (importedFileDates is
+                // in-memory and resets on restart) never creates duplicate entries.
+                guard !presets.user.contains(where: { $0.id == preset.id }) else { break }
                 presets.add(preset)
             case .composed(let composed):
                 composedEffects.upsert(composed)

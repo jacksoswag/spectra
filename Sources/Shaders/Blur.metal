@@ -75,11 +75,13 @@ fragment float4 fx_blur_downsample(RasterizerData in [[stage_in]],
     return float4(c * 0.25, 1.0);
 }
 
-// Shared 1D separable Gaussian, run on the half-resolution image. The radius is
-// scaled by the pass scale so the visual blur width matches the full-res radius,
-// and densely sampled (≤1.3px apart in half-res space) for a smooth falloff.
+// Shared 1D separable Gaussian, run on the half-resolution image. `dir` is the
+// unit axis to sample along (float2(1,0) for H, float2(0,1) for V). The radius
+// is scaled by the pass scale so the visual blur width matches the full-res
+// radius, and densely sampled (≤1.3px apart in half-res space) for a smooth
+// falloff.
 inline float3 fx_blur_gaussian1D(texture2d<float> src, float2 uv,
-                                 constant SpectraUniforms &u) {
+                                 float2 dir, constant SpectraUniforms &u) {
     float radiusPx = max(u.params[0], 0.0) * max(u.passScale, 0.001);
     if (radiusPx < 0.5) { return spectra_tex(src, uv).rgb; }
 
@@ -108,7 +110,7 @@ inline float3 fx_blur_gaussian1D(texture2d<float> src, float2 uv,
         } else {
             d = d0; w = w0;                        // odd leftover tap, sampled singly
         }
-        float2 o = u.direction * u.texelSize * d;
+        float2 o = dir * u.texelSize * d;
         sum += spectra_tex(src, uv + o).rgb * w;
         sum += spectra_tex(src, uv - o).rgb * w;
         wsum += 2.0 * w;
@@ -117,18 +119,20 @@ inline float3 fx_blur_gaussian1D(texture2d<float> src, float2 uv,
 }
 
 // Horizontal and vertical half-resolution passes (intermediate, no composite).
+// Each pass hardcodes its sampling axis so the separable blur is correct
+// regardless of what u.direction carries from the descriptor.
 fragment float4 fx_blur_gaussian_h(RasterizerData in [[stage_in]],
                                    texture2d<float> src [[texture(0)]],
                                    texture2d<float> orig [[texture(1)]],
                                    constant SpectraUniforms &u [[buffer(0)]]) {
-    return float4(fx_blur_gaussian1D(src, in.uv, u), 1.0);
+    return float4(fx_blur_gaussian1D(src, in.uv, float2(1.0, 0.0), u), 1.0);
 }
 
 fragment float4 fx_blur_gaussian_v(RasterizerData in [[stage_in]],
                                    texture2d<float> src [[texture(0)]],
                                    texture2d<float> orig [[texture(1)]],
                                    constant SpectraUniforms &u [[buffer(0)]]) {
-    return float4(fx_blur_gaussian1D(src, in.uv, u), 1.0);
+    return float4(fx_blur_gaussian1D(src, in.uv, float2(0.0, 1.0), u), 1.0);
 }
 
 // Final pass (full resolution): bilinearly upsample the blurred half-res result

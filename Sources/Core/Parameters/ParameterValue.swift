@@ -33,6 +33,11 @@ struct GradientStop: Codable, Hashable, Sendable, Identifiable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         position = try c.decode(Double.self, forKey: .position)
         let rgba = try c.decode([Double].self, forKey: .color)
+        guard rgba.count >= 4 else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: c.codingPath + [CodingKeys.color],
+                debugDescription: "GradientStop color requires 4 elements, got \(rgba.count)"))
+        }
         color = SIMD4(rgba[0], rgba[1], rgba[2], rgba[3])
         id = UUID()
     }
@@ -174,15 +179,35 @@ extension ParameterValue {
         case .index: self = .index(try container.decode(Int.self, forKey: .value))
         case .color:
             let c = try container.decode([Double].self, forKey: .value)
+            guard c.count >= 4 else {
+                throw DecodingError.dataCorrupted(DecodingError.Context(
+                    codingPath: container.codingPath + [CodingKeys.value],
+                    debugDescription: "color requires 4 elements, got \(c.count)"))
+            }
             self = .color(SIMD4(c[0], c[1], c[2], c[3]))
         case .point:
             let p = try container.decode([Double].self, forKey: .value)
+            guard p.count >= 2 else {
+                throw DecodingError.dataCorrupted(DecodingError.Context(
+                    codingPath: container.codingPath + [CodingKeys.value],
+                    debugDescription: "point requires 2 elements, got \(p.count)"))
+            }
             self = .point(SIMD2(p[0], p[1]))
         case .vector3:
             let v = try container.decode([Double].self, forKey: .value)
+            guard v.count >= 3 else {
+                throw DecodingError.dataCorrupted(DecodingError.Context(
+                    codingPath: container.codingPath + [CodingKeys.value],
+                    debugDescription: "vector3 requires 3 elements, got \(v.count)"))
+            }
             self = .vector3(SIMD3(v[0], v[1], v[2]))
         case .vector4:
             let v = try container.decode([Double].self, forKey: .value)
+            guard v.count >= 4 else {
+                throw DecodingError.dataCorrupted(DecodingError.Context(
+                    codingPath: container.codingPath + [CodingKeys.value],
+                    debugDescription: "vector4 requires 4 elements, got \(v.count)"))
+            }
             self = .vector4(SIMD4(v[0], v[1], v[2], v[3]))
         case .range:
             self = .range(try container.decode(Double.self, forKey: .lo),

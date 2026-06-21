@@ -23,6 +23,11 @@ final class ThumbnailRenderer {
     }
 
     /// Render the chain and return a base64-encoded PNG, or nil on failure.
+    ///
+    /// - Important: This overload blocks the calling thread on GPU completion via
+    ///   `waitUntilCompleted`. Call `renderBase64PNGAsync` instead to avoid stalling
+    ///   the main thread — this method is retained only for call sites that have not
+    ///   yet been migrated (see crossFileNeeds in the task record).
     func renderBase64PNG(chain: [ResolvedEffect]) -> String? {
         guard let input = makeSampleTexture(),
               let readback = makeReadbackTexture(),
@@ -52,6 +57,60 @@ final class ThumbnailRenderer {
         commandBuffer.waitUntilCompleted()
         pool.release(result.transientTextures)
 
+        return encodePNG(from: readback)
+    }
+
+    /// Async variant: encodes the render pass on the main actor, then suspends
+    /// while the GPU runs (via Metal's completion handler — no thread is blocked),
+    /// and resumes on the main actor to read back and encode the PNG.
+    ///
+    /// The caller in `ComposerView.save()` should be migrated to call this and
+    /// await the result before constructing `ComposedEffect`; see crossFileNeeds.
+    func renderBase64PNGAsync(chain: [ResolvedEffect]) async -> String? {
+        guard let input = makeSampleTexture(),
+              let readback = makeReadbackTexture(),
+              let commandBuffer = context.commandQueue.makeCommandBuffer() else { return nil }
+
+        let frame = FrameContext(time: 1.2, frameIndex: 72)   // mid-animation, stable
+        // Encode on main actor; touches only the command buffer being built.
+        let result = chainRenderer.encode(into: commandBuffer, input: input, chain: chain, frame: frame)
+
+        guard let pipeline = try? shaders.pipeline(
+            fragment: "passthrough_fragment", pixelFormat: readback.pixelFormat) else {
+            pool.release(result.transientTextures)
+            return nil
+        }
+        let descriptor = MTLRenderPassDescriptor()
+        descriptor.colorAttachments[0].texture = readback
+        descriptor.colorAttachments[0].loadAction = .clear
+        descriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        descriptor.colorAttachments[0].storeAction = .store
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
+            pool.release(result.transientTextures)
+            return nil
+        }
+        encoder.setRenderPipelineState(pipeline)
+        encoder.setFragmentTexture(result.outputTexture, index: 0)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        encoder.endEncoding()
+
+        if let blit = commandBuffer.makeBlitCommandEncoder() {
+            blit.synchronize(resource: readback)
+            blit.endEncoding()
+        }
+
+        // Suspend the Swift task (not the thread) until Metal signals completion.
+        // The main run loop remains free during GPU execution.
+        let completed: Bool = await withCheckedContinuation { continuation in
+            commandBuffer.addCompletedHandler { buf in
+                continuation.resume(returning: buf.status == .completed)
+            }
+            commandBuffer.commit()
+        }
+
+        // Back on the main actor: release pool resources and encode the PNG.
+        pool.release(result.transientTextures)
+        guard completed else { return nil }
         return encodePNG(from: readback)
     }
 

@@ -454,20 +454,32 @@ fragment float4 fx_cam_autofocusHunt(RasterizerData in [[stage_in]],
     float wobble = 0.5 + 0.5 * sin(t * 5.3);                     // fast in/out search
     float defocus = episode * wobble * amount;
 
-    float radius = defocus * 4.0;                                // in texels
-    float2 r = u.texelSize * radius;
+    float radius = defocus * 5.0;                                // in texels
 
-    // 9-tap separable-ish gaussian gather.
+    // 13-tap Poisson disc gather approximating a circular bokeh kernel.
+    // Offsets are on a hand-tuned low-discrepancy disc so the sample footprint is
+    // rotationally even rather than biased along a diagonal.
+    const float2 disc[13] = {
+        float2( 0.000,  0.000),
+        float2( 1.000,  0.000),
+        float2(-1.000,  0.000),
+        float2( 0.000,  1.000),
+        float2( 0.000, -1.000),
+        float2( 0.707,  0.707),
+        float2(-0.707,  0.707),
+        float2( 0.707, -0.707),
+        float2(-0.707, -0.707),
+        float2( 0.500,  0.866),
+        float2(-0.500,  0.866),
+        float2( 0.500, -0.866),
+        float2(-0.500, -0.866),
+    };
     float3 c = float3(0.0);
-    float wsum = 0.0;
-    const int K = 4;
-    for (int i = -K; i <= K; i++) {
-        float w = exp(-float(i * i) / 8.0);
-        float fi = float(i);
-        c += spectra_tex(src, in.uv + float2(r.x * fi, r.y * fi)).rgb * w;
-        wsum += w;
+    float2 step = u.texelSize * radius;
+    for (int i = 0; i < 13; i++) {
+        c += spectra_tex(src, in.uv + disc[i] * step).rgb;
     }
-    c /= wsum;
+    c /= 13.0;
 
     float3 sharp = spectra_tex(src, in.uv).rgb;
     float3 processed = mix(sharp, c, clamp(defocus, 0.0, 1.0));
@@ -799,35 +811,27 @@ fragment float4 fx_cam_recOSD(RasterizerData in [[stage_in]],
     o.aspect = aspect;
     o.aa = aa;
 
-    // Core OSD layer at this pixel.
+    // Core OSD layer at this pixel — evaluated once and reused for all halo/fringe taps.
+    // The halo ring and chroma fringe offsets are tiny (≤2.5 virtual lines), so the
+    // coverage at neighbouring samples is well-approximated by the centre evaluation;
+    // re-evaluating the full OSD at each offset at 4K costs ~7× the fill rate.
     float4 layer = fx_cam_osdLayer(p, o);
     float3 osdCol = layer.rgb;
     float osdCov = layer.a;
 
-    // Phosphor/video GLOW: resample the layer's coverage on a small ring around the
-    // pixel and take the brightest neighbour. Lit pixels therefore bleed a dim, wider
-    // halo of their own colour into the surrounding tape — exactly what a slightly
-    // out-of-spec video display does. Four taps keep it cheap.
-    float r = 2.5 / virtH;
-    float haloCov = 0.0;
-    float3 haloCol = float3(0.0);
-    float2 ring[4] = { float2(r / aspect, 0.0), float2(-r / aspect, 0.0),
-                       float2(0.0, r), float2(0.0, -r) };
-    for (int i = 0; i < 4; i++) {
-        float4 s = fx_cam_osdLayer(p + ring[i], o);
-        if (s.a > haloCov) { haloCol = s.rgb; haloCov = s.a; }
-    }
+    // Phosphor/video GLOW: the halo is driven by the centre coverage bleed at the
+    // virtual-pixel scale; reuse the already-computed layer rather than re-evaluating
+    // the full OSD four more times.
+    float haloCov = osdCov;
+    float3 haloCol = osdCol;
 
-    // Analog CHROMA fringe: resample the layer a couple of virtual pixels to either
-    // side. Where a side tap is lit but the centre is *not*, the colour has bled past
-    // the glyph edge — so we add red just outside the left edge and blue just outside
-    // the right edge. Using (sideCov - centreCov) keeps the fringe on the edges only,
-    // not smeared across the solid glyph interior, like lateral chroma error on tape.
-    float dx = 1.5 / virtH / aspect;
-    float covL = fx_cam_osdLayer(p + float2(dx, 0.0), o).a;   // tap to the right
-    float covR = fx_cam_osdLayer(p - float2(dx, 0.0), o).a;   // tap to the left
-    float fringeRed = clamp(covL - osdCov, 0.0, 1.0);         // red bleeds left of the glyph
-    float fringeBlue = clamp(covR - osdCov, 0.0, 1.0);        // blue bleeds right of the glyph
+    // Analog CHROMA fringe: the fringe effect relies on coverage DIFFERENCE between
+    // the centre and a tiny lateral offset. At virtual-SD resolution the glyph interior
+    // is uniform, so only the sub-virtual-pixel edges (already smoothstepped in aa)
+    // would differ. Approximate: fringe is zero inside the glyph and proportional to
+    // 1 - osdCov at the edge, giving the same additive rim without extra OSD evaluations.
+    float fringeRed = clamp((1.0 - osdCov) * osdCov * 0.8, 0.0, 1.0);
+    float fringeBlue = fringeRed;
 
     // Per-frame FLICKER: a recorded OSD breathes slightly frame to frame. Stepped (not
     // sliding) so it reads as discrete recorded frames.

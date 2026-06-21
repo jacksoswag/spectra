@@ -130,7 +130,7 @@ fragment float4 fx_env_snow(RasterizerData in [[stage_in]],
         float spawn = step(1.0 - clamp(intensity, 0.0, 1.0), spectra_hash21(cellID + fl * 19.0));
         float d = length(f - jitter);
         float radius = mix(0.05, 0.16, size) * depth;
-        flakes += smoothstep(radius, radius * 0.3, d) * spawn * depth;
+        flakes += (1.0 - smoothstep(radius * 0.3, radius, d)) * spawn * depth;
     }
 
     float3 processed = c + clamp(flakes, 0.0, 1.0) * float3(0.95, 0.97, 1.0);
@@ -330,9 +330,13 @@ fragment float4 fx_env_godRays(RasterizerData in [[stage_in]],
     float3 c = spectra_tex(src, in.uv).rgb;
 
     // March from the pixel toward the sun, accumulating bright luminance.
+    // A per-pixel hash offsets the start position within [0,1) of one step so
+    // all pixels don't sample the same discrete positions; this breaks the
+    // structured banding that appears at low sample counts.
     const int SAMPLES = 32;
     float2 delta = (in.uv - sun) / float(SAMPLES);
-    float2 coord = in.uv;
+    float jitter = spectra_hash21(in.uv * u.resolution + u.seed * 97.0);
+    float2 coord = in.uv - delta * jitter;
     float illum = 1.0;
     float rays = 0.0;
     float dec = mix(1.0, 0.9, clamp(decay, 0.0, 1.0));

@@ -92,7 +92,7 @@ fragment float4 fx_sharpen_sharpen(RasterizerData in [[stage_in]],
     // Laplacian high-pass: 5*centre - 4 neighbours.
     float3 highPass = c * 5.0 - (n + s + e + w);
     float3 processed = c + (highPass - c) * amount;
-    return spectra_compositeRGBA(base, clamp(processed, 0.0, 1.0), u);
+    return spectra_compositeRGBA(base, max(processed, 0.0), u);
 }
 
 // MARK: - Unsharp Mask
@@ -115,7 +115,7 @@ fragment float4 fx_sharpen_unsharpMask(RasterizerData in [[stage_in]],
     float3 blurred = spectra_sharpen_gaussianBlur(src, in.uv, u.texelSize, radius, taps);
     float3 highFreq = c - blurred;
     float3 processed = c + highFreq * amount;
-    return spectra_compositeRGBA(base, clamp(processed, 0.0, 1.0), u);
+    return spectra_compositeRGBA(base, max(processed, 0.0), u);
 }
 
 // MARK: - Clarity
@@ -141,7 +141,7 @@ fragment float4 fx_sharpen_clarity(RasterizerData in [[stage_in]],
     midMask = smoothstep(0.0, 1.0, max(midMask, 0.0));
 
     float3 processed = c + detail * amount * 1.5 * midMask;
-    return spectra_compositeRGBA(base, clamp(processed, 0.0, 1.0), u);
+    return spectra_compositeRGBA(base, max(processed, 0.0), u);
 }
 
 // MARK: - Local Contrast
@@ -164,7 +164,7 @@ fragment float4 fx_sharpen_localContrast(RasterizerData in [[stage_in]],
     // Scale chroma around the new luma so colours track the contrast change.
     float ratio = boostedL / max(l, 1.0e-4);
     float3 processed = c * ratio;
-    return spectra_compositeRGBA(base, clamp(processed, 0.0, 1.0), u);
+    return spectra_compositeRGBA(base, max(processed, 0.0), u);
 }
 
 // MARK: - Detail Enhancement
@@ -189,7 +189,7 @@ fragment float4 fx_sharpen_detail(RasterizerData in [[stage_in]],
 
     float3 detail = fine * 1.0 + medium * 0.6 + coarse * 0.35;
     float3 processed = c + detail * amount;
-    return spectra_compositeRGBA(base, clamp(processed, 0.0, 1.0), u);
+    return spectra_compositeRGBA(base, max(processed, 0.0), u);
 }
 
 // MARK: - Edge Enhancement
@@ -218,5 +218,5 @@ fragment float4 fx_sharpen_edge(RasterizerData in [[stage_in]],
     float edge = sqrt(gx * gx + gy * gy);
 
     float3 processed = c + edge * amount;
-    return spectra_compositeRGBA(base, clamp(processed, 0.0, 1.0), u);
+    return spectra_compositeRGBA(base, max(processed, 0.0), u);
 }

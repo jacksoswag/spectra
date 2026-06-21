@@ -126,8 +126,8 @@ fragment float4 fx_crt_crt(RasterizerData in [[stage_in]],
     float tube = fx_crt_tubeMask(warped, 0.04);
 
     float3 c = fx_crt_sampleTube(src, wuv, u.texelSize);
-    c *= fx_crt_scanline(in.uv.y, u.resolution.y * 0.5, scanStrength);
-    float3 mask = fx_crt_shadowMask(in.uv * u.resolution, 3.0);
+    c *= fx_crt_scanline(wuv.y, u.resolution.y * 0.5, scanStrength);
+    float3 mask = fx_crt_shadowMask(wuv * u.resolution, 3.0);
     c *= mix(float3(1.0), mask, maskStrength);
     c *= brightness * tube;
     return spectra_compositeFullRGBA(base, c, u);

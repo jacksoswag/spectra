@@ -425,6 +425,16 @@ inline OilCell oil_cell_at(texture2d<float> orig, sampler s, float2 qpx, float2 
     float3 bestCol = pcol, secondCol = pcol;
     float2 bestCell = baseCell;
     const float2 ring[4] = { float2(1.0, 0.0), float2(-1.0, 0.0), float2(0.0, 1.0), float2(0.0, -1.0) };
+    // Early-out for homogeneous cells: two cheap neighbour taps estimate local colour variance.
+    // In flat areas (UI panels, solid fills) the mean-shift ring shifts ~0 for every seed, so
+    // all 36 ring taps are wasted. Skip them when the neighbourhood is already uniform.
+    // Uses 2 taps; saves 36 taps per call in flat regions (the common case on a desktop).
+    bool doAdapt = false;
+    if (adapt > 0.0) {
+        float3 nb0 = orig.sample(s, (qpx + float2( cellPx * 0.5,  cellPx * 0.5)) * texel).rgb;
+        float3 nb1 = orig.sample(s, (qpx + float2(-cellPx * 0.5, -cellPx * 0.5)) * texel).rgb;
+        doAdapt = max(distance(nb0, pcol), distance(nb1, pcol)) > 0.025;
+    }
     for (int j = -1; j <= 1; j++) {
         for (int i = -1; i <= 1; i++) {
             float2 cid = baseCell + float2(float(i), float(j));
@@ -438,7 +448,7 @@ inline OilCell oil_cell_at(texture2d<float> orig, sampler s, float2 qpx, float2 
             // near an edge the similar-coloured side outweighs the other, so the seed slides
             // INTO its colour region and off the boundary. This dissolves the rigid screen
             // lattice and makes cells latch onto image features instead of grid positions.
-            if (adapt > 0.0) {
+            if (doAdapt) {
                 float2 acc = float2(0.0);
                 float wPos = 1e-3;
                 float3 colAcc = scol;   // edge-preserving colour average (centre weight 1)
