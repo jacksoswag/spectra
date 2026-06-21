@@ -470,7 +470,7 @@ fragment float4 fx_env_splash(RasterizerData in [[stage_in]],
             float field = nearD - headR * (1.0 - 0.4 * retract);
             for (int i = 0; i < trailN - 1; i++) {
                 float fa = float(i) / float(max(trailN - 1, 1));   // 0 head .. 1 tail
-                if (fa < retract) { continue; }                    // retracted tail removed
+                if (fa > 1.0 - retract) { continue; }              // tail segments drop first, rope pulls back to the cursor
                 float2 a = float2(u.params[22 + 2 * i] * aspect,       u.params[23 + 2 * i]);
                 float2 b = float2(u.params[22 + 2 * (i + 1)] * aspect, u.params[23 + 2 * (i + 1)]);
                 float2 pa = P - a, ba = b - a;

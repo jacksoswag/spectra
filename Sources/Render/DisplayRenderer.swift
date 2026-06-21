@@ -194,13 +194,20 @@ final class DisplayRenderer: NSObject {
             SIMD2(Float((p.x - frame.minX) / frame.width),
                   Float((frame.height - (p.y - frame.minY)) / frame.height))   // flip to top-left
         }
-        ctx.pressActive = snapshot.pressed ? 1 : 0
-        ctx.releaseAge = snapshot.lastUpTime >= 0 ? Float(now - snapshot.lastUpTime) : 999
-        if snapshot.lastDownTime >= 0 {
+        // Confine each interaction to the display it actually happens on: a click or drag on
+        // another screen must not make this one run the splash (its geometry is off-canvas, but
+        // the crown's droplet loop would still burn fullscreen GPU for its whole lifetime).
+        if snapshot.lastDownTime >= 0, frame.contains(snapshot.lastDownPos) {
             ctx.clickPoint = toUV(snapshot.lastDownPos)
             ctx.clickAge = Float(now - snapshot.lastDownTime)
         }
-        if snapshot.trailLength > 0 {
+        let headOnDisplay = snapshot.trailLength > 0 && frame.contains(snapshot.trail[0])
+        guard headOnDisplay else { return }
+        ctx.pressActive = snapshot.pressed ? 1 : 0
+        ctx.releaseAge = snapshot.lastUpTime >= 0 ? Float(now - snapshot.lastUpTime) : 999
+        // Only build the trail while it's needed (held, or within the release-collapse window);
+        // a long-idle frozen trail otherwise allocates an array every frame for nothing.
+        if snapshot.pressed || (snapshot.lastUpTime >= 0 && now - snapshot.lastUpTime < 1.0) {
             var trail: [SIMD2<Float>] = []
             trail.reserveCapacity(snapshot.trailLength)
             for i in 0..<snapshot.trailLength { trail.append(toUV(snapshot.trail[i])) }

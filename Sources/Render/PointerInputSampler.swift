@@ -89,6 +89,7 @@ final class PointerInputSampler {
             trail.removeAll()
             pressed = false
             lastDownTime = -1
+            lastDownPos = .zero
             lastUpTime = -1
             publish(Snapshot())
         }
@@ -111,10 +112,11 @@ final class PointerInputSampler {
             if !pressed {           // press began between ticks and the monitor missed it (rare)
                 pressed = true
                 if lastDownTime < 0 { lastDownTime = CACurrentMediaTime(); lastDownPos = pos }
-                trail = [pos]
+                trail = [pos]       // seed the rope; the insert below is skipped so it isn't doubled
+            } else {
+                trail.insert(pos, at: 0)
+                if trail.count > Self.trailCount { trail.removeLast() }
             }
-            trail.insert(pos, at: 0)
-            if trail.count > Self.trailCount { trail.removeLast() }
         } else if pressed {
             pressed = false
             lastUpTime = CACurrentMediaTime()
