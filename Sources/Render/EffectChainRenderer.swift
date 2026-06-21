@@ -89,9 +89,6 @@ final class EffectChainRenderer {
     /// `writeParameters` (which clears all 64 slots). A no-op for every other effect.
     private func injectPointer(into uniforms: inout SpectraUniforms, function: String, frame: FrameContext) {
         guard Self.pointerEffectFunctions.contains(function) else { return }
-        if frame.clickAge < 0.5 {
-            NSLog("SPLASHDBG inject fn=\(function) clickAge=\(frame.clickAge) press=\(frame.pressActive) trailN=\(frame.pointerTrailCount) click=\(frame.clickPoint.x),\(frame.clickPoint.y)")
-        }
         let base = Self.pointerSlotBase
         uniforms.setParam(base + 0, frame.clickPoint.x)
         uniforms.setParam(base + 1, frame.clickPoint.y)
