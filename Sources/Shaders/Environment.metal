@@ -195,6 +195,8 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
     float size = clamp(u.params[1], 0.0, 1.0);
     float speed = clamp(u.params[2], 0.0, 1.0);
     float opacity = clamp(u.params[3], 0.0, 1.0);
+    bool popOn  = u.params[4] > 0.5;
+    bool foamOn = u.params[5] > 0.5;
     float aspect = fx_env_aspect(u);
 
     float3 glow = float3(0.0);
@@ -245,7 +247,7 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
                 // Pop lifecycle: ~40% of bubbles balloon and burst on a slow personal clock; the
                 // rest just rise. A birth fade-in keeps a re-spawn from blinking.
                 float alpha = 1.0, popBall = 0.0, popFlash = 0.0;
-                if (hPop > 0.60) {
+                if (popOn && hPop > 0.60) {
                     float life = fract(u.time * (0.05 + hTex * 0.04) + hPop * 9.0);
                     popBall  = smoothstep(0.90, 1.0, life);                        // swell over final 10%
                     popFlash = popBall * (1.0 - smoothstep(0.985, 1.0, life));     // bright burst, then gone
@@ -306,7 +308,7 @@ fragment float4 fx_env_bubbles(RasterizerData in [[stage_in]],
 
     // Foam: a fine, fast layer of tiny specks for froth / cluster detail. Single-cell lookup
     // (no 3x3 neighbourhood) — at this size any edge clipping is invisible, so it stays cheap.
-    {
+    if (foamOn) {
         float2 fp = uvA * 26.0;
         fp.y += u.time * speed * 0.85 + u.seed * 7.0;
         float2 fc = floor(fp);

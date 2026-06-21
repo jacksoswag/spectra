@@ -67,6 +67,8 @@ enum EnvironmentEffects {
             .slider("size", "Size", 0...1, default: 0.0),
             .slider("speed", "Speed", 0...1, default: 0.1),
             .slider("opacity", "Opacity", 0...1, default: 0.5),
+            .toggle("pop", "Pop", default: true, help: "Bubbles occasionally swell and burst."),
+            .toggle("foam", "Foam", default: true, help: "A fine layer of tiny white floaters."),
         ],
         tags: ["bubbles", "bokeh", "frutiger aero", "glossy", "water"],
         isAnimated: true)
