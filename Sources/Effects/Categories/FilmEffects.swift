@@ -74,7 +74,7 @@ enum FilmEffects {
             .slider("color", "Color Grain", 0...1, default: 0),
         ],
         tags: ["grain", "texture", "noise", "color"],
-        isAnimated: true)
+        isAnimated: true, animatedParam: "speed")   // speed 0 = static pattern, no idle redraw
 
     static let dust = EffectDescriptor(
         id: "film.dust", name: "Dust", category: .film,

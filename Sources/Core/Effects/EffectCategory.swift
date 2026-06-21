@@ -17,6 +17,7 @@ enum EffectCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
     case environment = "Environment"
     case artistic = "Artistic"
     case accessibility = "Accessibility"
+    case system = "System / Desktop"
     case custom = "Custom"
 
     var id: String { rawValue }
@@ -40,6 +41,7 @@ enum EffectCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
         case .environment: "cloud.rain"
         case .artistic: "paintbrush.pointed.fill"
         case .accessibility: "accessibility"
+        case .system: "macwindow.on.rectangle"
         case .custom: "wand.and.stars"
         }
     }
@@ -61,6 +63,7 @@ enum EffectCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
         case .environment: "Atmospheric weather and light."
         case .artistic: "Painterly, cel, ink, and pixel mediums."
         case .accessibility: "Vision assistance and comfort."
+        case .system: "Window transparency, layout, and desktop tint."
         case .custom: "Your imported and authored effects."
         }
     }

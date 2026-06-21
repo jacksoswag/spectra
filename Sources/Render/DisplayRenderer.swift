@@ -205,7 +205,7 @@ final class DisplayRenderer: NSObject {
     /// Whether any animated effect is present (drives idle-redraw decisions).
     var hasAnimatedEffect: Bool {
         chainLock.lock(); defer { chainLock.unlock() }
-        return chain.contains { $0.descriptor.isAnimated }
+        return chain.contains { $0.isEffectivelyAnimated }
     }
 
     /// Store the most recent captured frame for the render loop to consume. Called

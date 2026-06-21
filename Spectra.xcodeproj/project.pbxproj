@@ -35,6 +35,7 @@
 		2E5CB0946F4041D7614FCD51 /* BackgroundCursorHiding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 707F7AD0F21F69390C9441AF /* BackgroundCursorHiding.swift */; };
 		3199475CCC4964FBC7A7244F /* PresetLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDBB090921025DAE22A7F616 /* PresetLibrary.swift */; };
 		3288658004E64D3CBFBB45AB /* Sharpen.metal in Sources */ = {isa = PBXBuildFile; fileRef = 6BB93C809D9E5765D30D2C31 /* Sharpen.metal */; };
+		329E0B26C00C283FB841CAAD /* YabaiProvisioner.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB91ADEF357D8BAFAF7FD111 /* YabaiProvisioner.swift */; };
 		36CF66B79DBD3D145D76B144 /* EffectRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF4D9369958C37AC21AA0CB /* EffectRegistry.swift */; };
 		38001B83309F251A0BC093DB /* Cursor.metal in Sources */ = {isa = PBXBuildFile; fileRef = 7DBD875F8762D5C44A84C722 /* Cursor.metal */; };
 		38021AA0C97C6DBD8085FA37 /* GlitchEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D8B9CC618C4224518BEAB79 /* GlitchEffects.swift */; };
@@ -43,12 +44,14 @@
 		3BAC9621D3ADF4FC174C012B /* TexturePool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2929E4F9B23CBF4439A6FDAE /* TexturePool.swift */; };
 		3C8CCD84FA9DAF16B4373E54 /* ScreenRecordingPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = E93F3DF6B98AE1EFFDCE9E3F /* ScreenRecordingPermission.swift */; };
 		3F1F1A334003544A0ADE83C9 /* EffectParameter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 973FFCD8DE30DB32ACC851F6 /* EffectParameter.swift */; };
+		40D2CFC79A7DFE638EC541BD /* YabaiBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 591FED7CF5298568EAB87DDE /* YabaiBridge.swift */; };
 		4292E7433B0C5A8E4FCB82C5 /* SpectraControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43A35D4D4C72ADADEF5219D /* SpectraControls.swift */; };
 		43F82B444FCA12DD54F210AE /* PixelEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDF79120315546CEB5BB718A /* PixelEffects.swift */; };
 		479DFA6D3218055D36CBCBA0 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B1E1CBAB126E8BCD1F5E7D /* Log.swift */; };
 		48B37D61A0917474571210F4 /* ShaderCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A64AA12AC74EA837E419AED /* ShaderCompiler.swift */; };
 		4BBA38C65AEF2C312000A64F /* ParameterValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8564B920117D10A8A7CE5CC4 /* ParameterValue.swift */; };
 		523A253735DDC0470AF04F18 /* MetalContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 732223F3F6B52DC71C9E341E /* MetalContext.swift */; };
+		56644A5360FCB89B94256889 /* SystemEffectsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09A496972C07B7D6C25E65E5 /* SystemEffectsController.swift */; };
 		57D01FA6DBE8A7F8FF464016 /* DistortionEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78D63D70BBB38F991022033A /* DistortionEffects.swift */; };
 		593AEE58DA393AC4C9B897D8 /* ChainProfiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58B8CDE44B3645D4CCB05E1 /* ChainProfiler.swift */; };
 		5AB1FFC832734BD1A2402F2A /* Retro.metal in Sources */ = {isa = PBXBuildFile; fileRef = C40ED1AF624A83E5D6A8F77C /* Retro.metal */; };
@@ -74,6 +77,7 @@
 		849FEB119082A6C39D2051FC /* FrameStatistics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B4DCA670A8750CA04F0653F /* FrameStatistics.swift */; };
 		86011F3E4C0939FEAC6A553B /* Environment.metal in Sources */ = {isa = PBXBuildFile; fileRef = 6A76D684F5A019009ABBF45E /* Environment.metal */; };
 		89BCC7BA3E61618D6201F981 /* EffectDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92C725B9EA33AC2898E0DF0 /* EffectDescriptor.swift */; };
+		8BBCAB5FACEA8F94D9104758 /* SystemEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3FEC41EB2EFFF1C2F10C1A0 /* SystemEffects.swift */; };
 		8DE4B3B0A696C9F1B1A93CDD /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3CEF259EE4840FA7B66B9A2C /* AVFoundation.framework */; };
 		8E8E2D9D24A619E533A792D0 /* CustomShaderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91224D0EBFD5DA9725CF8FD4 /* CustomShaderStore.swift */; };
 		8FB41D7124FBE07E66B4189F /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1599C28A4CB638A35DFD0234 /* CoreVideo.framework */; };
@@ -82,6 +86,7 @@
 		97ECD73CE12EF1D0798C1BBC /* CoreImage.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EBFBD1C781EC838FB0D5985E /* CoreImage.framework */; };
 		9A89A66FC4D1C14A5C897848 /* EffectStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 271B67F2FF9EE9AF094F8D48 /* EffectStack.swift */; };
 		9BA5E955E9CB780D2D87A1A4 /* Pixel.metal in Sources */ = {isa = PBXBuildFile; fileRef = FC2FE9EBC04BAEA0286A5D40 /* Pixel.metal */; };
+		9CEB5167FDB6F6388A58D77B /* AdaptiveTintOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6C500EF733C59D562A1497 /* AdaptiveTintOverlay.swift */; };
 		9E273A4DF820E3ABD6555CB9 /* PerformanceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7DBEF059BCC82AF8433F942 /* PerformanceMonitor.swift */; };
 		A02E2C7938B9AEFAB32E08B8 /* RenderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71310B95BE29EE617DAE60A4 /* RenderEngine.swift */; };
 		A153D07B4F5A70C0C4F8360E /* Common.metal in Sources */ = {isa = PBXBuildFile; fileRef = CA99BBA6F1C42522CB2D3D49 /* Common.metal */; };
@@ -130,6 +135,7 @@
 
 /* Begin PBXFileReference section */
 		030AE55C885DC1656AC655B0 /* MenuPanelCaptureBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuPanelCaptureBridge.swift; sourceTree = "<group>"; };
+		09A496972C07B7D6C25E65E5 /* SystemEffectsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemEffectsController.swift; sourceTree = "<group>"; };
 		0B02355D489CEEC8B1E33227 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		0B2716CF750AE963AABA7407 /* RetroEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetroEffects.swift; sourceTree = "<group>"; };
 		0C8905E9E7E264AC0801F926 /* AppPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPaths.swift; sourceTree = "<group>"; };
@@ -171,6 +177,7 @@
 		4ADBE1AD82E0A544E2650447 /* VHSEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VHSEffects.swift; sourceTree = "<group>"; };
 		4BDC9CD95E551DDB421FCECF /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		58C186A1CC3D84789E8F833A /* FolderWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderWatcher.swift; sourceTree = "<group>"; };
+		591FED7CF5298568EAB87DDE /* YabaiBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YabaiBridge.swift; sourceTree = "<group>"; };
 		5D32F32D856C16AA31BD55BC /* ComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerView.swift; sourceTree = "<group>"; };
 		5D4F8C5B8F7D5E31D9CEC382 /* CustomShader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomShader.swift; sourceTree = "<group>"; };
 		5D8B9CC618C4224518BEAB79 /* GlitchEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlitchEffects.swift; sourceTree = "<group>"; };
@@ -209,6 +216,7 @@
 		B5E953304864E355F7B1B95E /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
 		B7C1CC55ABC14DE7432CD3AD /* CursorSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorSampler.swift; sourceTree = "<group>"; };
 		BA97C755B881F1C1865FFA3B /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
+		BB91ADEF357D8BAFAF7FD111 /* YabaiProvisioner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YabaiProvisioner.swift; sourceTree = "<group>"; };
 		BC2D1BBF5A9FB0AD1F80C64F /* ColorEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorEffects.swift; sourceTree = "<group>"; };
 		BC63F6F33294E002BB9C6000 /* SpectraEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectraEngine.swift; sourceTree = "<group>"; };
 		BDBB090921025DAE22A7F616 /* PresetLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetLibrary.swift; sourceTree = "<group>"; };
@@ -231,9 +239,11 @@
 		D96A444C4BCF7E82C5391CD1 /* EffectChainRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectChainRenderer.swift; sourceTree = "<group>"; };
 		DC655D6D48DB5D8D96889CEA /* BatteryProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryProvider.swift; sourceTree = "<group>"; };
 		DCEC28EC8D442B7FDDCB655E /* BuiltInEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInEffects.swift; sourceTree = "<group>"; };
+		E3FEC41EB2EFFF1C2F10C1A0 /* SystemEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemEffects.swift; sourceTree = "<group>"; };
 		E8244C8DE0CFFE861B820ABB /* OverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayWindow.swift; sourceTree = "<group>"; };
 		E93F3DF6B98AE1EFFDCE9E3F /* ScreenRecordingPermission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenRecordingPermission.swift; sourceTree = "<group>"; };
 		EBFBD1C781EC838FB0D5985E /* CoreImage.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreImage.framework; path = System/Library/Frameworks/CoreImage.framework; sourceTree = SDKROOT; };
+		EC6C500EF733C59D562A1497 /* AdaptiveTintOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveTintOverlay.swift; sourceTree = "<group>"; };
 		EF4D622D65A32835C6042C7E /* SpectraCommon.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SpectraCommon.h; sourceTree = "<group>"; };
 		F030FFDEF28370B2431C58C2 /* EffectCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectCategory.swift; sourceTree = "<group>"; };
 		F195518442119740C860C107 /* ShaderImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShaderImporter.swift; sourceTree = "<group>"; };
@@ -318,6 +328,14 @@
 			path = Presets;
 			sourceTree = "<group>";
 		};
+		17EB8206ED2BA49D563F76EC /* AdaptiveTint */ = {
+			isa = PBXGroup;
+			children = (
+				EC6C500EF733C59D562A1497 /* AdaptiveTintOverlay.swift */,
+			);
+			path = AdaptiveTint;
+			sourceTree = "<group>";
+		};
 		1BC9667F5817357F053EA6DE /* UI */ = {
 			isa = PBXGroup;
 			children = (
@@ -353,6 +371,7 @@
 				0B2716CF750AE963AABA7407 /* RetroEffects.swift */,
 				8F4ED85737153F6615CA3B3F /* SharpenEffects.swift */,
 				74FAE019D3B57B252A98BD53 /* StyleEffects.swift */,
+				E3FEC41EB2EFFF1C2F10C1A0 /* SystemEffects.swift */,
 				4ADBE1AD82E0A544E2650447 /* VHSEffects.swift */,
 			);
 			path = Categories;
@@ -394,6 +413,15 @@
 				FFC6A575DC6AD65716CA353D /* Theme.swift */,
 			);
 			path = Theme;
+			sourceTree = "<group>";
+		};
+		3EC013A49C48D43954479D82 /* Yabai */ = {
+			isa = PBXGroup;
+			children = (
+				591FED7CF5298568EAB87DDE /* YabaiBridge.swift */,
+				BB91ADEF357D8BAFAF7FD111 /* YabaiProvisioner.swift */,
+			);
+			path = Yabai;
 			sourceTree = "<group>";
 		};
 		528FDE7012ACD1CCB9C3C708 /* Effects */ = {
@@ -576,6 +604,7 @@
 				6BC92EEE63837CEFBE5505EE /* Render */,
 				65DCF197731B8D5AA120CA7B /* Shaders */,
 				35A8C99E0C6DEF0C59691BF3 /* Storage */,
+				C528F9006B17AB8487071BFE /* System */,
 				1BC9667F5817357F053EA6DE /* UI */,
 			);
 			path = Sources;
@@ -600,6 +629,16 @@
 				5D32F32D856C16AA31BD55BC /* ComposerView.swift */,
 			);
 			path = Composer;
+			sourceTree = "<group>";
+		};
+		C528F9006B17AB8487071BFE /* System */ = {
+			isa = PBXGroup;
+			children = (
+				17EB8206ED2BA49D563F76EC /* AdaptiveTint */,
+				3EC013A49C48D43954479D82 /* Yabai */,
+				09A496972C07B7D6C25E65E5 /* SystemEffectsController.swift */,
+			);
+			path = System;
 			sourceTree = "<group>";
 		};
 		C6CA336565E8625E4DBDCB41 /* Logging */ = {
@@ -737,6 +776,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9CEB5167FDB6F6388A58D77B /* AdaptiveTintOverlay.swift in Sources */,
 				C4E758A07F2439C61564BE99 /* AdditionalEffects.swift in Sources */,
 				AA8D122BEFB8BD1AFC2C09BA /* AppDelegate.swift in Sources */,
 				7D26A4DC1BA226566D4D1536 /* AppPaths.swift in Sources */,
@@ -836,6 +876,8 @@
 				AE5E893DD0F20A25FF8AFEEF /* Style.metal in Sources */,
 				1707D2F46B1455C50F740E27 /* StyleEffects.swift in Sources */,
 				E2D4896E67DB2C2771AFF062 /* SystemAccessibility.swift in Sources */,
+				8BBCAB5FACEA8F94D9104758 /* SystemEffects.swift in Sources */,
+				56644A5360FCB89B94256889 /* SystemEffectsController.swift in Sources */,
 				3BAC9621D3ADF4FC174C012B /* TexturePool.swift in Sources */,
 				18CF58EFD9BCA34F1133B7D2 /* Theme.swift in Sources */,
 				CD25EE57D7456813C07212CC /* ThumbnailRenderer.swift in Sources */,
@@ -844,6 +886,8 @@
 				E43B71DC98F6ABB1A872EA94 /* VHS.metal in Sources */,
 				7C610116A8F4474D6565C59D /* VHSEffects.swift in Sources */,
 				110C8D0442616A2008F87B5B /* WallpaperProvider.swift in Sources */,
+				40D2CFC79A7DFE638EC541BD /* YabaiBridge.swift in Sources */,
+				329E0B26C00C283FB841CAAD /* YabaiProvisioner.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

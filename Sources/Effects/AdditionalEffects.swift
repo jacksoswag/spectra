@@ -19,6 +19,7 @@ enum AdditionalEffects {
         all += GlitchEffects.all
         all += EnvironmentEffects.all
         all += StyleEffects.all
+        all += SystemEffects.all
         return all
     }
 }

@@ -28,8 +28,7 @@ Worlds live in a new category, `Artistic`, backed by `Sources/Effects/Categories
 | Pass | Role | Est. cost | Reuses |
 |---|---|---|---|
 | `style.flatten` | Edge-preserving bilateral smooth (full-res, single pass); removes micro-noise so later passes do not false-trigger | ~1 ms | new |
-| `style.painterly` | The legacy oil/painterly stroke: pre-smooth + anisotropic Kuwahara at half res, then a full-res bicubic resolve. The structure tensor is computed inline in the gather. Used by Studio Ghibli and Watercolor | 3 to 8 ms | Sobel kernel, `spectra_bicubic` |
-| `style.oil` | Colour-region cell painter (SLIC-style superpixels): a structure tensor plus two blurs build a flow field, a reduced-res cell pass assigns each pixel to a local colour-coherent cell and fills it flat with the cell size emergent from edge magnitude, then a full-res combine re-paints complex areas/text sharply (reusing the tapped tensor) and adds a canvas tooth. Used by Impressionism | 4 to 8 ms | Sobel kernel, tensor blur |
+| `style.oil` | Colour-region cell painter (SLIC-style superpixels): a structure tensor plus two blurs build a flow field, a reduced-res cell pass assigns each pixel to a local colour-coherent cell and fills it flat with the cell size emergent from edge magnitude, then a full-res combine re-paints complex areas/text sharply (reusing the tapped tensor) and adds a canvas tooth. The shared painterly engine for Impressionism, Watercolor (wet: pooling, bleed, pastel desaturation), and Studio Ghibli (warm, gentle ink) | 4 to 8 ms | Sobel kernel, tensor blur |
 | `style.quantize` | Posterize value to N bands, smoothstep ramps, per-band saturation; the flat cel look | <0.5 ms | new |
 | `style.ink` | Sobel contour lines: thickness, threshold, opacity, softness, color | 1 to 1.5 ms | Sobel kernel |
 | `style.halftone` | Ben-Day dot screen in shadows/mids; comic shading | <0.5 ms | new |
@@ -42,8 +41,8 @@ Worlds live in a new category, `Artistic`, backed by `Sources/Effects/Categories
 Contract notes:
 
 - Multi-pass via `EffectPass` entries; the ping-pong pool handles intermediates (`EffectChainRenderer`).
-- The renderer binds `texture(0)` (previous pass output) and `texture(1)` (the effect's original input), with aux LUTs at index 2+, a tapped earlier-pass output at index 9, and history at index 10. A pass can reuse an earlier pass's output via `EffectPass.tapPass` (the renderer keeps it alive instead of recycling it); `style.oil`'s combine uses this to read the smoothed structure tensor the two blur passes built, so the full-res stroke layer shares one stable flow field with the cell pass. The legacy `style.painterly` Kuwahara still computes its tensor inline.
-- `style.painterly` runs three passes: pre-smooth at scale 0.5, the Kuwahara gather at scale 0.5, then a full-res resolve that bicubic-upsamples the half-res paint and folds a little original luma detail back for legibility. `EffectPass.scale` is relative to the full chain resolution, so half-res passes share one grid. `style.flatten` is a single full-res pass.
+- The renderer binds `texture(0)` (previous pass output) and `texture(1)` (the effect's original input), with aux LUTs at index 2+, a tapped earlier-pass output at index 9, and history at index 10. A pass can reuse an earlier pass's output via `EffectPass.tapPass` (the renderer keeps it alive instead of recycling it); `style.oil`'s combine uses this to read the smoothed structure tensor the two blur passes built, so the full-res stroke layer shares one stable flow field with the cell pass.
+- `style.oil` runs five passes: a structure-tensor build plus two separable blurs (all at scale 0.5) to derive the flow field, a reduced-res cell pass whose scale is driven by the Render Scale parameter, then a full-res combine that upsamples, re-paints complex areas sharply, and taps the smoothed tensor. `EffectPass.scale` is relative to the full chain resolution, so reduced-res passes share one grid. `style.flatten` is a single full-res pass.
 - Worlds with motion (grain, atmosphere) set `isAnimated: true`. Purely spatial worlds set `isAnimated: false` so the Auto governor can throttle them.
 - Stability on motion comes from spatial design, not temporal feedback: quantize uses smoothstep band edges and ink uses a high soft threshold so the frame does not boil. The renderer's history texture is chain-level (the previous final frame), so clean per-effect ink/orientation damping would need a per-effect history slot; that is a later refinement, and no world depends on it today.
 - Each world's palette is a baked 3D LUT parameter, so color identity costs one lookup.
@@ -52,13 +51,11 @@ Contract notes:
 
 | World | Heavy passes | Est. GPU time | Tier |
 |---|---|---|---|
-| Pixel Art | mosaic | <1 ms | cheap |
-| Pencil Sketch | ink + hatch | ~2 ms | cheap |
-| Comic Book | ink + halftone | 3 to 4 ms | cheap |
-| 90's Anime | quantize + bold ink | 3 to 4 ms | cheap |
-| Watercolor | isotropic Kuwahara | 4 to 5 ms | medium |
-| Studio Ghibli | anisotropic Kuwahara + ink | 6 to 8 ms | heavy |
+| Pencil Sketch | `style.pencil` (paper + cross-hatch + contour) | ~2 ms | cheap |
+| Comic Book | posterize + halftone + bold ink | 3 to 5 ms | cheap |
+| Japanese Print | cel abstraction + ink + paper | 3 to 5 ms | medium |
 | Impressionism | colour-region cell painter (`style.oil`) | 4 to 8 ms | medium-heavy |
+| Watercolor | `style.oil` (wet) + paper | 4 to 8 ms | medium-heavy |
 
 Rules:
 
@@ -78,23 +75,23 @@ Rules:
 - **Signature:** flowing colour-region brush marks that follow the image, broken colour, a faint canvas tooth, legible text.
 - **Limits:** complex areas are reconstructed from tiny strokes, so at large minimum stroke sizes small text softens. Render scale trades sharpness for speed; complex areas are always sharpened at full res regardless.
 
-### Studio Ghibli
+### Comic Book
 
-- **Appeal:** huge, beloved, cozy. The warm hand-painted look maps onto the study and cozy-setup audience.
-- **Recipe (the feasibility-verified one):** domain-transform flatten, then anisotropic Kuwahara (radius 7, soft, half-res), then soft quantize (6 bands, smoothstep), then a warm Ghibli LUT (amber shadows, sage mids, sky-blue and straw highlights), then light XDoG ink (sigma 1.2, strong edges only, 65% opacity, history-blended).
-- **Cost:** 6 to 8 ms half-res.
-- **Signature:** soft painterly fields, warm nostalgic palette, gentle ink.
-- **Limits:** no foreground/background separation, so everything is equally painterly. Keep ink light so it does not read as comic.
+- **Appeal:** huge, instantly readable audience (comics, manga, pop art) that the painterly/woodblock/graphite presets do not capture. Chosen over a "Studio Ghibli" preset because the technique IS the medium here, so it actually looks authentic — whereas authentic hand-painted Ghibli gouache is not reproducible cheaply on arbitrary content (a real-time anisotropic Kuwahara was tried and dropped: too expensive at desktop res, or blocky when made cheap; revisit only behind a compute tile-cached Kuwahara).
+- **Recipe:** comic printing, in order. (1) `style.quantize` posterizes the colour into bold flat fills with crisp band edges and lifted saturation. (2) `style.halftone` lays a Ben-Day dot screen through the shadows and mids for the printed-shading texture. (3) `style.lineart` inks BOLD black key lines over the top (larger `lineScale` so it traces major shapes and ignores fine texture), kept off small text by the threshold. No paper.
+- **Cost:** 3 to 5 ms (posterize + halftone + the shared ink front-end).
+- **Signature:** bold black outlines, flat punchy colour, Ben-Day dots in the shading.
+- **Limits:** like every world it depends on the wallpaper — it sings on bold, high-contrast subjects and gets busy on fine foliage/mist. The bold ink is kept off small UI text by the lineart threshold; pushing the lines bolder trades against text legibility.
 
-### 90's Anime
+### Japanese Print
 
-Darker and harder-edged than Ghibli.
+Ukiyo-e woodblock.
 
-- **Appeal:** Akira, Ghost in the Shell, and OVA nostalgia. Moodier and grittier, with streamer and anime-fan pull.
-- **Recipe:** light flatten, then hard quantize (4 to 5 bands, crisp ramps), then bold dark ink (thicker XDoG, near-black, higher opacity, history-blended), then a moody grade LUT (desaturated mids, deep saturated shadows, slight teal or amber cast), then faint grain with an optional thin scanline for the cel-on-tape feel, then optional subtle chromatic aberration at the frame edge.
-- **Cost:** 3 to 4 ms, no Kuwahara.
-- **Signature:** flat hard cels, heavy dark linework, deep moody palette, faint analog texture.
-- **Limits:** harder ink shimmers more on small text than Ghibli's, so keep the ink threshold high. Cheaper and more stable than the painterly worlds.
+- **Appeal:** instantly recognizable Hokusai/Hiroshige flat-colour print look; strong thumbnail.
+- **Recipe:** `style.cel` as the abstraction + flat-banding + keyline front-end (its half-res abstraction passes dissolve text so the ink traces shapes, not glyphs), then washi `style.paper`, then the indigo-and-earth `Ukiyo-e` LUT.
+- **Cost:** 3 to 5 ms.
+- **Signature:** flat colour fields, bold black keylines, limited indigo/earth palette, visible washi paper.
+- **Limits:** very dense UI text still reads as ink-blocked where abstraction cannot fully dissolve it; keep band count low and abstraction high.
 
 ### Comic Book
 
@@ -119,8 +116,8 @@ Recommended addition.
 Recommended addition.
 
 - **Appeal:** soft, cozy, journal and study aesthetic. Wet and light where Van Gogh is thick oil, so the two do not overlap.
-- **Recipe:** wet flatten, then low-radius isotropic Kuwahara (soft, non-directional), then edge pigment-pooling (darken at edges in place of hard ink), then light quantize, then a cold-press paper texture (multiply), then a pale pastel LUT.
-- **Cost:** 4 to 5 ms.
+- **Recipe:** the shared `style.oil` cell painter set wet (high pigment pooling for dark wash edges, wet bleed, pastel desaturation, low broken colour), then a cold-press `style.paper` texture (multiply), then a pale pastel LUT.
+- **Cost:** 4 to 8 ms (shared oil-cell painter).
 - **Signature:** soft pigment bleed, visible paper grain, pastel palette.
 - **Limits:** low contrast on already-pale UI. Let the paper texture carry the identity.
 

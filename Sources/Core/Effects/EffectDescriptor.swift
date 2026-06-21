@@ -1,6 +1,17 @@
 import Foundation
 import simd
 
+/// Identifies a *system effect*'s runtime controller. A descriptor carrying a
+/// `controllerKind` performs a side effect when its stack row is effectively
+/// enabled (driving yabai window opacity/tiling, or managing the adaptive tint
+/// overlay) instead of running a Metal pass. The resolver drops these from the
+/// render chain; `SpectraEngine` reconciles them through `SystemEffectsController`.
+enum EffectControllerKind: String, Codable, Hashable, Sendable {
+    case windowTransparency
+    case windowLayout
+    case adaptiveTint
+}
+
 /// A single GPU pass within an effect.
 ///
 /// Most effects are one pass. Separable or iterative effects (e.g. Gaussian
@@ -60,6 +71,15 @@ struct EffectDescriptor: Identifiable, Hashable, Sendable {
     /// True if the effect samples the previous frame's processed output (bound at
     /// fragment texture 10), e.g. feedback trails, datamosh, frame hold.
     let needsHistory: Bool
+    /// When set, the effect only counts as animated (forcing idle redraws) while this
+    /// parameter reads > 0 — e.g. film.grain "speed" at 0 is a static pattern that should
+    /// not keep the chain re-rendering on an idle desktop.
+    let animatedParam: String?
+    /// When non-nil this is a *system effect*: it drives a side-effecting controller
+    /// (window transparency, tiling, the adaptive tint overlay) when effectively
+    /// enabled, and carries no GPU `passes`. The resolver excludes it from the render
+    /// chain; the engine reconciles it through `SystemEffectsController`.
+    let controllerKind: EffectControllerKind?
 
     init(
         id: String,
@@ -72,7 +92,9 @@ struct EffectDescriptor: Identifiable, Hashable, Sendable {
         tags: [String] = [],
         isCustom: Bool = false,
         isAnimated: Bool = false,
-        needsHistory: Bool = false
+        needsHistory: Bool = false,
+        animatedParam: String? = nil,
+        controllerKind: EffectControllerKind? = nil
     ) {
         self.id = id
         self.name = name
@@ -85,7 +107,12 @@ struct EffectDescriptor: Identifiable, Hashable, Sendable {
         self.isCustom = isCustom
         self.isAnimated = isAnimated
         self.needsHistory = needsHistory
+        self.animatedParam = animatedParam
+        self.controllerKind = controllerKind
     }
+
+    /// Whether this descriptor is a system effect (drives a controller, not a GPU pass).
+    var isSystemEffect: Bool { controllerKind != nil }
 
     /// Convenience for the common single-pass effect.
     init(
@@ -99,12 +126,14 @@ struct EffectDescriptor: Identifiable, Hashable, Sendable {
         tags: [String] = [],
         isCustom: Bool = false,
         isAnimated: Bool = false,
-        needsHistory: Bool = false
+        needsHistory: Bool = false,
+        animatedParam: String? = nil
     ) {
         self.init(
             id: id, name: name, category: category, subtitle: subtitle, icon: icon,
             parameters: parameters, passes: [EffectPass(function)],
-            tags: tags, isCustom: isCustom, isAnimated: isAnimated, needsHistory: needsHistory
+            tags: tags, isCustom: isCustom, isAnimated: isAnimated, needsHistory: needsHistory,
+            animatedParam: animatedParam
         )
     }
 

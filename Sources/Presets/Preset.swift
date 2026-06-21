@@ -49,6 +49,7 @@ struct Preset: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
     var name: String
     var category: PresetCategory
+    var icon: String?
     var summary: String
     var author: String
     var tags: [String]
@@ -60,6 +61,7 @@ struct Preset: Identifiable, Codable, Hashable, Sendable {
         id: UUID = UUID(),
         name: String,
         category: PresetCategory,
+        icon: String? = nil,
         summary: String = "",
         author: String = "Spectra",
         tags: [String] = [],
@@ -70,6 +72,7 @@ struct Preset: Identifiable, Codable, Hashable, Sendable {
         self.id = id
         self.name = name
         self.category = category
+        self.icon = icon
         self.summary = summary
         self.author = author
         self.tags = tags
@@ -77,4 +80,7 @@ struct Preset: Identifiable, Codable, Hashable, Sendable {
         self.isBuiltIn = isBuiltIn
         self.createdAt = createdAt
     }
+
+    /// The preset's own SF Symbol; falls back to the category icon when unset.
+    var displayIcon: String { icon ?? category.iconSystemName }
 }

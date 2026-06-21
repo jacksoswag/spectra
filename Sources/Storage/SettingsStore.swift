@@ -74,6 +74,10 @@ final class SettingsStore {
     /// output, fewer full-resolution read/writes). On by default; an escape hatch in
     /// case a fused result ever looks different from the separate passes.
     var fuseColorPasses: Bool { didSet { persist() } }
+    /// The menu-bar Glass toggle: window transparency + the adaptive desktop tint, driven
+    /// directly via `SystemEffectsController` (independent of the main effects switch and the
+    /// effect stack). Persisted so it stays where you left it.
+    var glassEnabled: Bool { didSet { persist() } }
     /// Global effect intensity (0…1), the master strength of the whole shader.
     /// 100% (the default) is the look the presets ship at; `SpectraEngine` maps this
     /// linearly to a per-effect strength multiplier (1.0 → 1.0×, 0 → 0×) applied at
@@ -119,6 +123,7 @@ final class SettingsStore {
         // fall back to the default below, rather than failing the whole decode.
         var coverMenuBarAndDock: Bool? = true
         var fuseColorPasses: Bool? = true
+        var glassEnabled: Bool? = false
         // Optional so files written before v5 decode to nil and adopt the 100%
         // default (which reproduces the presets' shipped look). Values from v5 are
         // remapped onto the new linear curve during migration.
@@ -167,6 +172,7 @@ final class SettingsStore {
         menuBarShowsPerformance = state.menuBarShowsPerformance
         coverMenuBarAndDock = state.coverMenuBarAndDock ?? true
         fuseColorPasses = state.fuseColorPasses ?? true
+        glassEnabled = state.glassEnabled ?? false
         intensity = Swift.min(1.0, Swift.max(0.0, state.intensity ?? 1.0))
         favoriteEffectIDs = Set(state.favoriteEffectIDs)
 
@@ -192,6 +198,7 @@ final class SettingsStore {
             reduceMotion: reduceMotion, menuBarShowsPerformance: menuBarShowsPerformance,
             coverMenuBarAndDock: coverMenuBarAndDock,
             fuseColorPasses: fuseColorPasses,
+            glassEnabled: glassEnabled,
             intensity: intensity,
             favoriteEffectIDs: favoriteEffectIDs.sorted())
         try? JSONStore.save(state, to: AppPaths.settingsFile)

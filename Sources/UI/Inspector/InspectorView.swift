@@ -16,8 +16,11 @@ struct InspectorView: View {
             if let instance = selection, let descriptor {
                 VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                     header(instance: instance, descriptor: descriptor)
+                    if descriptor.isSystemEffect { systemEffectNote(descriptor: descriptor) }
                     parameterSections(instance: instance, descriptor: descriptor)
-                    universalSection(instance: instance)
+                    // System effects drive a controller, not a GPU pass, so blend/strength
+                    // don't apply — hide the universal section for them.
+                    if !descriptor.isSystemEffect { universalSection(instance: instance) }
                 }
                 .padding(Theme.Spacing.lg)
             } else {
@@ -48,6 +51,58 @@ struct InspectorView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// Setup/availability note for a system effect. Adaptive tint needs nothing; the
+    /// yabai-backed rows show how to enable yabai when it isn't ready. Re-probes on
+    /// appear so starting yabai after launch clears the note live.
+    @ViewBuilder
+    private func systemEffectNote(descriptor: EffectDescriptor) -> some View {
+        let needsOpacity = descriptor.controllerKind == .windowTransparency
+        Group {
+            switch descriptor.controllerKind {
+            case .windowTransparency, .windowLayout: yabaiNote(needsOpacity: needsOpacity)
+            default: EmptyView()
+            }
+        }
+        .onAppear { engine.refreshSystemEffectsStatus(needsOpacity: needsOpacity) }
+    }
+
+    @ViewBuilder
+    private func yabaiNote(needsOpacity: Bool) -> some View {
+        switch engine.systemEffectsStatus {
+        case .opacityReady:
+            EmptyView()
+        case .unknown, .ready:
+            if needsOpacity {
+                noteBanner("info.circle", .secondary,
+                           "Window opacity loads yabai's scripting addition on first enable (one admin prompt). Tiling needs nothing extra.")
+            }
+        case .notInstalled:
+            noteBanner("info.circle", .secondary,
+                       "yabai isn't installed. Spectra installs it via Homebrew automatically when you enable this row.")
+        case .installing:
+            noteBanner("arrow.down.circle", .secondary, "Installing yabai via Homebrew…")
+        case .starting:
+            noteBanner("arrow.down.circle", .secondary, "Starting yabai…")
+        case .authorizing:
+            noteBanner("lock.shield", .secondary, "Approve the admin prompt to finish enabling window opacity.")
+        case .sipRequired:
+            noteBanner("exclamationmark.triangle.fill", .orange,
+                       "Window opacity needs System Integrity Protection partly disabled (a one-time step in Recovery, which no app can do for you). Tiling and the tint still work without it.")
+        case .failed(let message):
+            noteBanner("exclamationmark.triangle.fill", .orange, message)
+        }
+    }
+
+    private func noteBanner(_ icon: String, _ color: Color, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: Theme.Spacing.sm) {
+            Image(systemName: icon).foregroundStyle(color)
+            Text(text).font(.caption).foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(Theme.Spacing.sm)
+        .background(RoundedRectangle(cornerRadius: 8).fill(color.opacity(0.12)))
     }
 
     private func universalSection(instance: EffectInstance) -> some View {

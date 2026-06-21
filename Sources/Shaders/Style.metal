@@ -1,9 +1,9 @@
 // Style.metal
 //
 // Artistic stylization passes for the "world" presets (see docs/WORLDS.md):
-// edge-preserving smooth, cel quantize, ink contours, Ben-Day halftone, pixel
-// mosaic, cross-hatch, paper grain, impasto relief, and the half-res painterly
-// Kuwahara. Parameter slots match each descriptor's declaration order in
+// edge-preserving smooth, cel quantize, ink contours, Ben-Day halftone,
+// cross-hatch, paper grain, impasto relief, and the oil-cell painter. Parameter
+// slots match each descriptor's declaration order in
 // StyleEffects.swift (the binding contract). texture(0) is the pass source,
 // texture(1) the effect's original input, both bound by EffectChainRenderer.
 
@@ -165,6 +165,31 @@ fragment float4 fx_style_hatch(RasterizerData in [[stage_in]],
     float l = spectra_luma(c);
     float dark = 1.0 - l;
     float2 px = in.uv * u.resolution;
+
+    // Form-following: steer the hatch along local iso-contours (perpendicular to the luma
+    // gradient) so strokes wrap shapes instead of running at one fixed screen angle. A 3x3
+    // Sobel gives the gradient; the rotation is gated by gradient strength so flat areas keep
+    // the fixed angle (no orientation noise), and is blended as direction vectors so the
+    // pi-periodic hatch lines never flip 180 degrees.
+    float2 gt = u.texelSize * max(1.0, u.resolution.y * 0.0012);
+    float a00 = spectra_luma(spectra_tex(src, in.uv + float2(-gt.x, -gt.y)).rgb);
+    float a10 = spectra_luma(spectra_tex(src, in.uv + float2( 0.0, -gt.y)).rgb);
+    float a20 = spectra_luma(spectra_tex(src, in.uv + float2( gt.x, -gt.y)).rgb);
+    float a01 = spectra_luma(spectra_tex(src, in.uv + float2(-gt.x,  0.0)).rgb);
+    float a21 = spectra_luma(spectra_tex(src, in.uv + float2( gt.x,  0.0)).rgb);
+    float a02 = spectra_luma(spectra_tex(src, in.uv + float2(-gt.x,  gt.y)).rgb);
+    float a12 = spectra_luma(spectra_tex(src, in.uv + float2( 0.0,  gt.y)).rgb);
+    float a22 = spectra_luma(spectra_tex(src, in.uv + float2( gt.x,  gt.y)).rgb);
+    float sgx = (a20 + 2.0 * a21 + a22) - (a00 + 2.0 * a01 + a02);
+    float sgy = (a02 + 2.0 * a12 + a22) - (a00 + 2.0 * a10 + a20);
+    float gmag = sqrt(sgx * sgx + sgy * sgy);
+    float follow = smoothstep(0.06, 0.30, gmag);
+    float2 fixedDir = float2(cos(angle), sin(angle));
+    float2 formDir = (gmag > 1e-5) ? normalize(float2(-sgy, sgx)) : fixedDir;
+    if (dot(formDir, fixedDir) < 0.0) formDir = -formDir;
+    float2 dir = normalize(mix(fixedDir, formDir, follow));
+    angle = atan2(dir.y, dir.x);
+
     float hatch = 0.0;
     hatch = max(hatch, style_hatchLine(px, angle, spacing, dark) * step(0.25, dark));
     hatch = max(hatch, style_hatchLine(px, angle + 1.5708, spacing, dark) * step(0.5, dark));
@@ -177,19 +202,35 @@ fragment float4 fx_style_hatch(RasterizerData in [[stage_in]],
 // MARK: - Paper
 
 // Procedural paper/canvas grain multiplied through the image. params[0]=intensity,
-// [1]=grain scale, [2..4]=paper tint RGB (slot 5 = alpha, unused).
+// [1]=grain scale, [2..4]=paper tint RGB (slot 5 = alpha, unused), [6]=drift speed.
 fragment float4 fx_style_paper(RasterizerData in [[stage_in]],
                                texture2d<float> src [[texture(0)]],
                                texture2d<float> orig [[texture(1)]],
+                               texture2d<float> history [[texture(10)]],
                                constant SpectraUniforms &u [[buffer(0)]]) {
     float3 base = spectra_tex(orig, in.uv).rgb;
     float3 c = spectra_tex(src, in.uv).rgb;
     float intensity = clamp(u.params[0], 0.0, 1.0);
     float scale = max(0.5, u.params[1]);
     float3 tint = float3(u.params[2], u.params[3], u.params[4]);
+    float drift = clamp(u.params[6], 0.0, 1.0);
     float2 p = in.uv * u.resolution / 256.0 * scale * 8.0;
-    float fiber = spectra_fbm(p, 4);
-    float speck = spectra_valueNoise(p * 6.0);
+
+    float fiber, speck;
+    if (drift > 0.0) {
+        // Slowly crawl the grain, faster where the frame is moving. Local motion is the distance
+        // from the previous frame's output (history): the paper settles where the screen is still
+        // and shimmers where content moves. Two coherent drift fields (slow + fast) are mixed by
+        // the spatially smooth motion field, so the speed varies without per-pixel shear. Motion-led
+        // by design, so a static screen barely moves and needs no forced idle redraw.
+        float motion = smoothstep(0.015, 0.30, distance(c, spectra_tex(history, in.uv).rgb));
+        float2 d = float2(0.6, 0.8) * (u.time * drift * 0.25);
+        fiber = mix(spectra_fbm(p + d, 4), spectra_fbm(p + d * 5.0, 4), motion);
+        speck = spectra_valueNoise((p + d) * 6.0);
+    } else {
+        fiber = spectra_fbm(p, 4);
+        speck = spectra_valueNoise(p * 6.0);
+    }
     float grain = mix(fiber, speck, 0.35);
     float3 paper = tint * (0.85 + 0.3 * grain);
     float3 processed = mix(c, c * paper, intensity);
@@ -224,7 +265,7 @@ fragment float4 fx_style_relief(RasterizerData in [[stage_in]],
 
 // MARK: - Cel Shade (abstraction -> bold flat tones -> ink from abstracted edges)
 
-// Pass 0 (scale 0.5): strong edge-preserving abstraction. A 7x7 bilateral over the
+// Pass 0 (scale 0.7): strong edge-preserving abstraction. A 7x7 bilateral over the
 // downsampled source flattens interiors into coherent regions while keeping real
 // shape boundaries. Small text dissolves here, which is what keeps the ink pass
 // (below) from tracing every glyph. params[5] = abstraction. Raw intermediate.
@@ -270,18 +311,7 @@ fragment float4 fx_style_cel_combine(RasterizerData in [[stage_in]],
     float inkWidth = clamp(u.params[3], 0.5, 4.0);
     float smoothness = clamp(u.params[4], 0.0, 1.0);
 
-    // Flat cel bands: quantize luminance, snap brightness, keep hue.
-    float l = max(spectra_luma(absc), 1e-3);
-    float scaled = l * bands;
-    float lo = floor(scaled);
-    float w = clamp(smoothness * 0.16, 0.012, 0.3);   // thin AA band: crisp flat cels, not a gradient
-    float ql = (lo + smoothstep(0.5 - w, 0.5 + w, scaled - lo)) / bands;
-    float3 cel = absc * (ql / l);
-    float cl = spectra_luma(cel);
-    cel = clamp(mix(float3(cl), cel, 1.0 + saturation), 0.0, 1.0);
-
-    // Ink from the ABSTRACTED image's edges (text is already dissolved, so this
-    // traces only major shape boundaries). Sobel on the half-res abstracted luma.
+    // Sobel on the abstracted luma (drives the ink).
     float2 t = u.texelSize * inkWidth;
     float tl = spectra_luma(spectra_tex(src, in.uv + float2(-t.x, -t.y)).rgb);
     float tc = spectra_luma(spectra_tex(src, in.uv + float2( 0.0, -t.y)).rgb);
@@ -294,172 +324,30 @@ fragment float4 fx_style_cel_combine(RasterizerData in [[stage_in]],
     float gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
     float gy = (bl + 2.0 * bc + br) - (tl + 2.0 * tc + tr);
     float mag = sqrt(gx * gx + gy * gy);
-    float ink = smoothstep(0.15, 0.42, mag) * inkStrength;     // higher gate: only major contours, not every ripple
-    float3 processed = mix(cel, float3(0.0, 0.0, 0.0), ink);   // pure black line art
+
+    // Flat cel bands, a FIXED count (a per-pixel-varying band count read off the noisy gradient was
+    // the source of the speckle/noise). Quantize luminance, snap brightness, keep hue, with a soft
+    // transition; then a partial blend back toward the continuous abstracted colour takes the hard
+    // step-contours off the bands so smooth gradients (sky, ocean) don't read as harsh BANDING.
+    float l = max(spectra_luma(absc), 1e-3);
+    float scaled = l * bands;
+    float lo = floor(scaled);
+    // `smoothness` is the soft<->hard lever: at low values the bands are crisp/flat (woodblock
+    // print), at high values the transition widens AND the tone blends partway back toward the
+    // continuous abstracted colour, giving a soft painterly look (anime background). A small floor
+    // keeps even the hard end from boiling.
+    float w = clamp(0.05 + smoothness * 0.30, 0.04, 0.40);
+    float ql = (lo + smoothstep(0.5 - w, 0.5 + w, scaled - lo)) / bands;
+    float3 cel = absc * (ql / l);
+    cel = mix(cel, absc, clamp(0.08 + smoothness * 0.5, 0.0, 0.6));   // soften toward continuous
+    float cl = spectra_luma(cel);
+    cel = clamp(mix(float3(cl), cel, 1.0 + saturation), 0.0, 1.0);
+
+    // Ink from the abstracted edges (off when inkStrength = 0; style.lineart draws the lines).
+    float ink = smoothstep(0.15, 0.42, mag) * inkStrength;
+    float3 processed = mix(cel, float3(0.0, 0.0, 0.0), ink);
 
     return spectra_compositeRGBA(base, processed, u);
-}
-
-// MARK: - Comic / newsprint (texture-imposing: works on any content, even flat UI)
-
-// Reuses fx_style_cel_abstract for the two abstraction passes (params[5]=abstraction),
-// then prints the abstracted image as a halftone dot screen on paper with bold ink
-// outlines. Unlike the cel look, this IMPOSES a material, so a flat desktop still
-// reads as a comic page. All pixel-space sizes scale with resolution (params slots:
-// 0 bands, 1 saturation, 2 inkStrength, 3 inkWidth, 4 dotDensity, 5 abstraction, 6 paper).
-fragment float4 fx_style_comic_combine(RasterizerData in [[stage_in]],
-                                       texture2d<float> src [[texture(0)]],
-                                       texture2d<float> orig [[texture(1)]],
-                                       constant SpectraUniforms &u [[buffer(0)]]) {
-    float3 base = spectra_tex(orig, in.uv).rgb;
-    float3 absc = spectra_tex(src, in.uv).rgb;
-    float bands = max(2.0, floor(u.params[0] + 0.5));
-    float saturation = u.params[1];
-    float inkStrength = clamp(u.params[2], 0.0, 1.0);
-    float inkWidth = clamp(u.params[3], 0.5, 4.0);
-    float dotDensity = clamp(u.params[4], 0.0, 1.0);
-    float paper = clamp(u.params[6], 0.0, 1.0);
-    float unit = max(u.resolution.y / 1000.0, 0.5);   // resolution-relative feature scale
-
-    // Posterized flat ink color and a hard-quantized tone.
-    float3 hsv = spectra_rgb2hsv(absc);
-    float qv = floor(hsv.z * bands + 0.5) / bands;
-    float s = clamp(hsv.y * (1.0 + saturation), 0.0, 1.0);
-    float3 inkCol = spectra_hsv2rgb(float3(hsv.x, s, 1.0));
-
-    // Halftone: ink coverage grows where the image is dark.
-    float coverage = clamp(1.0 - qv, 0.0, 1.0);
-    float pitch = mix(13.0, 5.0, dotDensity) * unit;
-    float2 rot = spectra_rotate(in.uv * u.resolution, 0.4);
-    float2 cell = fract(rot / pitch) - 0.5;
-    float dist = length(cell) * 2.0;
-    float dotR = sqrt(coverage);
-    float dot = smoothstep(dotR + 0.14, dotR - 0.14, dist);
-
-    // Print the dots: ink color on paper (paper=1) or on the flat color (paper=0).
-    float3 paperTone = float3(0.95, 0.92, 0.85);
-    float grain = spectra_valueNoise(in.uv * u.resolution / (2.5 * unit));
-    paperTone *= (0.92 + 0.12 * grain);
-    float3 inkShade = inkCol * 0.5;
-    float3 printed = mix(paperTone, inkShade, dot);
-    float3 flat = mix(inkCol, inkShade, dot);
-    float3 comicColor = mix(flat, printed, paper);
-
-    // Bold black outlines from the abstracted edges (resolution-relative width).
-    float2 t = (mix(1.2, 3.5, (inkWidth - 0.5) / 3.5) * unit) * u.texelSize;
-    float tl = spectra_luma(spectra_tex(src, in.uv + float2(-t.x, -t.y)).rgb);
-    float tc = spectra_luma(spectra_tex(src, in.uv + float2( 0.0, -t.y)).rgb);
-    float tr = spectra_luma(spectra_tex(src, in.uv + float2( t.x, -t.y)).rgb);
-    float ml = spectra_luma(spectra_tex(src, in.uv + float2(-t.x,  0.0)).rgb);
-    float mr = spectra_luma(spectra_tex(src, in.uv + float2( t.x,  0.0)).rgb);
-    float bl = spectra_luma(spectra_tex(src, in.uv + float2(-t.x,  t.y)).rgb);
-    float bc = spectra_luma(spectra_tex(src, in.uv + float2( 0.0,  t.y)).rgb);
-    float br = spectra_luma(spectra_tex(src, in.uv + float2( t.x,  t.y)).rgb);
-    float gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
-    float gy = (bl + 2.0 * bc + br) - (tl + 2.0 * tc + tr);
-    float mag = sqrt(gx * gx + gy * gy);
-    float ink = smoothstep(0.12, 0.36, mag) * inkStrength;
-    comicColor = mix(comicColor, float3(0.05, 0.04, 0.04), ink);
-
-    return spectra_compositeRGBA(base, comicColor, u);
-}
-
-// MARK: - SLIC superpixel painterly (faithful color, adaptive imposingness)
-
-// Screen-space SLIC: each fragment finds the nearest superpixel among the 3x3 grid
-// of cell centers (distance = color + spatial), then soft-blends the best and
-// second-best so boundaries are painterly, not gridded. It samples REAL scene colors
-// (so hues stay faithful), an evolving procedural warp gives organic stroke edges,
-// and the cell size is in pixels so strokes scale with resolution. Imposingness is
-// dialed DOWN where local contrast is high (text, dense UI) so they stay readable.
-// Adapted from a depth-based Unity painterly shader to a pure fragment pass.
-inline float2 slic_warp(float2 p, float t) {
-    float a = spectra_simplex(p + float2(0.0, t * 0.30));
-    float b = spectra_simplex(p + float2(t * 0.27, 11.7));
-    return float2(a, b);
-}
-inline float3 slic_posterize(float3 c, float steps) {
-    float n = max(1.0, steps);
-    return floor(c * n) / n;
-}
-
-fragment float4 fx_style_slic(RasterizerData in [[stage_in]],
-                              texture2d<float> src [[texture(0)]],
-                              texture2d<float> orig [[texture(1)]],
-                              constant SpectraUniforms &u [[buffer(0)]]) {
-    float3 og = spectra_tex(orig, in.uv).rgb;
-    float2 res = u.resolution;
-    float2 texel = u.texelSize;
-    float2 px = in.uv * res;
-
-    float cellPx     = max(4.0, u.params[0]);
-    float colorWeight= max(0.0, u.params[1]);
-    float posterize  = u.params[2];
-    float sceneBlend = clamp(u.params[3], 0.0, 1.0);
-    float warpPx     = u.params[4];
-    float noiseScale = max(0.01, u.params[5]);
-    float noiseSpeed = u.params[6];
-    float hueJitter  = clamp(u.params[7], 0.0, 1.0);
-    float adapt      = clamp(u.params[8], 0.0, 1.0);
-
-    // Evolving warp (organic stroke edges), expressed in pixels then converted to uv.
-    float2 warp = slic_warp(in.uv * noiseScale * 6.0, u.time * noiseSpeed) * (warpPx * texel);
-
-    float3 baseCol = slic_posterize(spectra_tex(src, in.uv + warp).rgb, posterize);
-
-    float2 baseCell = floor(px / cellPx);
-    float bestD = 1e20, secondD = 1e20;
-    float3 bestCol = baseCol, secondCol = baseCol;
-    float2 bestCell = baseCell;
-    for (int y = -1; y <= 1; y++) {
-        for (int x = -1; x <= 1; x++) {
-            float2 cellID = baseCell + float2(float(x), float(y));
-            float2 centerPx = (cellID + 0.5) * cellPx;
-            float3 c = slic_posterize(spectra_tex(src, centerPx * texel + warp).rgb, posterize);
-            float dc = length(c - baseCol);
-            float ds = length(centerPx - px) / cellPx;
-            float d = dc * colorWeight + ds;
-            if (d < bestD) { secondD = bestD; secondCol = bestCol; bestD = d; bestCol = c; bestCell = cellID; }
-            else if (d < secondD) { secondD = d; secondCol = c; }
-        }
-    }
-    // Soft ownership: blend 50/50 at a tie and ramp to the winner as the gap grows.
-    // Centering on 0.5 (rather than picking second at a tie) keeps boundary pixels
-    // from popping between two colors frame-to-frame (the "shattering").
-    float gap = secondD - bestD;
-    float wsoft = 0.5 + 0.5 * clamp(gap / 0.30, 0.0, 1.0);
-    float3 slicCol = mix(secondCol, bestCol, wsoft);
-
-    // Per-cell static hue jitter (painterly variation).
-    if (hueJitter > 0.0) {
-        float h = (spectra_hash21(bestCell) - 0.5) * hueJitter;
-        float3 hsv = spectra_rgb2hsv(slicCol);
-        hsv.x = fract(hsv.x + h);
-        slicCol = spectra_hsv2rgb(hsv);
-    }
-
-    // Band-pass imposition by local detail (luma stddev over ~cell scale):
-    //  - DEAD-FLAT areas get no SLIC, so they show the smooth original instead of the
-    //    square cell grid (the "square pixels" artifact).
-    //  - MID-detail (photos, gradients, texture) gets the full painterly strokes.
-    //  - TEXT/dense UI backs off (controlled by `adapt`) so it stays readable.
-    float2 d2 = texel * (cellPx * 0.35);
-    float lc = spectra_luma(og);
-    float l0 = spectra_luma(spectra_tex(orig, in.uv + float2( d2.x, 0.0)).rgb);
-    float l1 = spectra_luma(spectra_tex(orig, in.uv + float2(-d2.x, 0.0)).rgb);
-    float l2 = spectra_luma(spectra_tex(orig, in.uv + float2(0.0,  d2.y)).rgb);
-    float l3 = spectra_luma(spectra_tex(orig, in.uv + float2(0.0, -d2.y)).rgb);
-    float mean = (lc + l0 + l1 + l2 + l3) * 0.2;
-    float varr = ((lc - mean) * (lc - mean) + (l0 - mean) * (l0 - mean)
-                + (l1 - mean) * (l1 - mean) + (l2 - mean) * (l2 - mean)
-                + (l3 - mean) * (l3 - mean)) * 0.2;
-    float complexity = sqrt(varr);
-    float flatGate = smoothstep(0.012, 0.05, complexity);                        // off in flat -> no grid
-    float textGate = mix(1.0, 1.0 - smoothstep(0.20, 0.38, complexity), adapt);  // off in text -> readable
-    float impose = flatGate * textGate;
-
-    float3 outc = mix(og, slicCol, sceneBlend * impose);
-    return spectra_compositeRGBA(og, outc, u);
 }
 
 // MARK: - Oil paint (colour-region cells on a smoothed structure tensor)
@@ -623,35 +511,78 @@ inline OilCell oil_cell_at(texture2d<float> orig, sampler s, float2 qpx, float2 
 //  - broken-colour jitter, scaled by `painterly` so flat/low-contrast areas keep true colour;
 //  - a seam that ramps up at real colour boundaries (faint baseline scaled by `painterly`);
 //  - the edge smoother, anti-aliasing the boundary via the best/second `gap`.
-inline float3 oil_finish(OilCell c, float painterly, float colorVar, float smoothAmt) {
+inline float3 oil_finish(OilCell c, float painterly, float smoothAmt,
+                         float pooling, float pigmentDesat, float vanGogh) {
     float3 col = c.col;
-    // Local colour variety: how different this stroke is from its runner-up neighbour. It is ~0
-    // in a flat region — INCLUDING one that merely sits next to a hard edge, where the blurred-
-    // tensor edginess is high but every neighbouring cell is the same colour — and rises with
-    // genuine texture and at real region edges. It gates all three painterly treatments below so
-    // they fire on photos/foliage but NOT in the flat margin a high-contrast feature casts around
-    // itself. Uses data already in OilCell (col, second): no extra texture taps.
+    // Local colour variety: how different this stroke is from its runner-up neighbour. It is ~0 in
+    // a flat region — INCLUDING one that merely sits next to a hard edge, where the blurred-tensor
+    // edginess is high but every neighbouring cell is the same colour — and rises with genuine
+    // texture and at real region edges. It gates the painterly treatments below (divisionism,
+    // pastel pull, seam) so they fire on photos/foliage but NOT in the flat margin a high-contrast
+    // feature casts around itself. Uses data already in OilCell (col, second): no extra taps.
     float contrast = distance(c.col, c.second);
-    // Broken-colour jitter, gated by colour variety (texGate) ON TOP OF edginess (painterly).
-    // edginess alone is high in the whole band a blurred hard edge throws into the surrounding
-    // flat area, which is exactly where the jitter read as a speckled margin; texGate is ~0 there.
     float texGate = smoothstep(0.03, 0.12, contrast);
-    float effVar = colorVar * painterly * texGate;
-    if (effVar > 0.0) {
-        float jh = spectra_hash21(c.id + 3.1) - 0.5;
-        float js = spectra_hash21(c.id + 5.9) - 0.5;
-        float3 hsv = spectra_rgb2hsv(col);
-        hsv.x = fract(hsv.x + jh * 0.05 * effVar);
-        hsv.y = clamp(hsv.y * (1.0 + js * 0.30 * effVar), 0.0, 1.0);
-        hsv.z = clamp(hsv.z * (1.0 + jh * 0.26 * effVar), 0.0, 1.0);
-        col = spectra_hsv2rgb(hsv);
+    // Van Gogh divisionism. Split each stroke into a saturated warm/cool variant whose per-cell
+    // offset is ZERO-MEAN across neighbours, so a patch of strokes optically mixes back to the
+    // TRUE colour (the eye, and the reduced-res cell averaging, low-pass them) while each
+    // individual mark is vivid and hue-shifted — the broken-colour shimmer. The push is applied
+    // to the zero-luma CHROMA component only, with luma re-added, so value composes exactly and
+    // only colour vibrates. Gated by `painterly` so flat UI gets none, by texGate so it is
+    // strongest where there is genuine colour variety, and tapered near pure black/white so text
+    // and white fills are never tinted (protects legibility and bounds the clamp bias).
+    if (vanGogh > 0.0 && painterly > 0.0) {
+        float L = spectra_luma(col);
+        // Perceived saturation ~ chroma / brightness, so a fixed absolute chroma offset reads as a
+        // rainbow on dark pixels (e.g. a transparent window's wallpaper tint) yet is invisible on
+        // bright ones. Scale the push with luma so the broken-colour SATURATION is even across the
+        // tonal range: dark areas get a proportionally smaller offset, mids and lights stay full
+        // (lights are then bounded by the gamut fit below). lumaScale is a function of the base
+        // colour, so it is uniform across a same-colour patch and the offset stays zero-mean — the
+        // patch still composes the true colour.
+        float lumaScale = smoothstep(0.0, 0.45, L);
+        float rho = vanGogh * painterly * (0.5 + 0.5 * texGate) * lumaScale;
+        if (rho > 0.0) {
+            float3 chroma = col - L;
+            // Two zero-mean per-cell selectors from the cell id hash: one warm<->cool, one a
+            // magenta<->green scatter for hue variety. The axes are projected onto the
+            // luma-NEUTRAL plane (dot with the Rec.709 luma weights is 0), so the push moves
+            // chroma only, not brightness, and value composes exactly. E[selector] = 0, so
+            // E[offset] = 0: the neighbourhood average returns the TRUE colour while each stroke
+            // is a saturated, hue-shifted variant (|chroma + offset| averaged > |chroma|).
+            float t1 = spectra_hash21(c.id + 12.7) - 0.5;
+            float t2 = spectra_hash21(c.id + 27.3) - 0.5;
+            const float3 warmCool = float3( 0.575, -0.033, -0.658);   // orange <-> blue, luma-neutral
+            const float3 scatter  = float3( 0.592, -0.309,  0.114);   // magenta <-> green, luma-neutral
+            float3 off = (t1 * warmCool + t2 * scatter) * (1.3 * rho);
+            // Keep the offset inside the RGB gamut so it NEVER clips. Clipping is the only thing
+            // that would bias the average off the true colour (a near-white/near-saturated stroke
+            // would clamp on one side but not the other). Scale the offset by the tightest
+            // per-channel margin, bounded by the worst-case offset `amp` (a function of the base
+            // colour + rho, so the scale is uniform across a same-colour patch and stays
+            // zero-mean -> still composes the true colour). This also fades the effect smoothly on
+            // already-saturated, black, and white pixels, so text and flat UI keep true colour
+            // with no separate luma taper.
+            float3 amp = float3(0.759, 0.222, 0.502) * rho;   // max |off| per channel at this rho
+            float3 margin = min(col, 1.0 - col);
+            float fit = min(1.0, min(margin.x / (amp.x + 1e-4),
+                            min(margin.y / (amp.y + 1e-4), margin.z / (amp.z + 1e-4))));
+            col = clamp(L + chroma + off * fit, 0.0, 1.0);
+        }
+    }
+    // Pastel pull: desaturate toward luma, gated by the same colour-variety term (texGate)
+    // as the jitter so flat/low-contrast UI keeps true colour. 0 = identity.
+    if (pigmentDesat > 0.0) {
+        col = mix(col, float3(spectra_luma(col)), pigmentDesat * texGate);
     }
     // Seam is a BAND-PASS on contrast: it defines strokes at moderate boundaries (texture,
     // foliage) but fades back out past ~0.25 so hard UI edges get NO dark outline. Scaled by
     // `painterly`, so flat/low-contrast areas still get none.
     float seam = (1.0 - smoothstep(0.0, 0.28, c.gap)) * painterly
                * smoothstep(0.02, 0.12, contrast) * (1.0 - smoothstep(0.25, 0.48, contrast));
-    col *= (1.0 - 0.09 * seam);
+    // Pigment Pooling amplifies the boundary darkening (watercolor pigment settling at
+    // wash edges); pooling = 0 keeps the original 0.09 coefficient (identity). Van Gogh deepens
+    // the same seam so adjacent strokes read as discrete raised marks (impasto separation).
+    col *= (1.0 - 0.09 * mix(1.0, 3.2, pooling) * (1.0 + vanGogh) * seam);
     if (smoothAmt > 0.0) {
         float wEdge = 0.04 + 0.18 * smoothAmt;
         // Anti-alias only boundaries between SIMILAR colours. Blending toward the runner-up
@@ -700,15 +631,18 @@ fragment float4 fx_style_oil_cells(RasterizerData in [[stage_in]],
     float2 texel = u.texelSize;
     float2 px = in.uv * res;
 
-    // Slots: 0 strokeRange.lo, 1 strokeRange.hi, 2 colorVar, 3 temporal, 4 canvas,
-    // 5 renderScale, 6 detail, 7 amount, 8 flow, 9 warp, 10 edgeSmooth.
+    // Slots: 0 strokeRange.lo, 1 strokeRange.hi, 2 temporal, 3 canvas, 4 renderScale,
+    // 5 detail, 6 amount, 7 flow, 8 warp, 9 edgeSmooth, 10 pooling,
+    // 11 wetBleed (combine only), 12 pigmentDesat, 13 vanGogh.
     float rangeLo   = clamp(u.params[0], 0.0, 1.0);
     float rangeHi   = clamp(u.params[1], 0.0, 1.0);
-    float colorVar  = clamp(u.params[2], 0.0, 1.0);
-    float detail    = clamp(u.params[6], 0.0, 1.0);
-    float flowAmt   = clamp(u.params[8], 0.0, 1.0);
-    float warpAmt   = clamp(u.params[9], 0.0, 1.0);
-    float smoothAmt = clamp(u.params[10], 0.0, 1.0);
+    float detail    = clamp(u.params[5], 0.0, 1.0);
+    float flowAmt   = clamp(u.params[7], 0.0, 1.0);
+    float warpAmt   = clamp(u.params[8], 0.0, 1.0);
+    float smoothAmt = clamp(u.params[9], 0.0, 1.0);
+    float pooling      = clamp(u.params[10], 0.0, 1.0);
+    float pigmentDesat = clamp(u.params[12], 0.0, 1.0);
+    float vanGogh      = clamp(u.params[13], 0.0, 1.0);
 
     // Flow + anisotropy + edge magnitude from the smoothed structure tensor.
     float3 T = src.sample(s, in.uv).rgb;
@@ -737,8 +671,10 @@ fragment float4 fx_style_oil_cells(RasterizerData in [[stage_in]],
     // sharply in complex areas/text.
     float finePx   = max(3.0, res.y * max(0.006, mix(0.0025, 0.055, min(rangeLo, rangeHi))));
 
-    // Stretch the spatial metric ALONG the flow so cells become oriented brush marks.
-    float stretch = 1.0 + flowAmt * aniso * 2.6;
+    // Stretch the spatial metric ALONG the flow so cells become oriented brush marks. Van Gogh
+    // elongates them further (longer directional strokes that follow the forms). Flat areas have
+    // ~0 anisotropy, so they stay round and rely on the divisionist colour, not fake direction.
+    float stretch = 1.0 + flowAmt * aniso * (2.6 + vanGogh * 3.5);
     float3 pcol = orig.sample(s, in.uv).rgb;
 
     // Colour weight per level: low on the coarse level so flat areas form big merged strokes;
@@ -754,6 +690,16 @@ fragment float4 fx_style_oil_cells(RasterizerData in [[stage_in]],
     float2 npx = px / max(u.passScale, 0.01);
     float2 wn = float2(spectra_valueNoise(npx * 0.06) - 0.5, spectra_valueNoise(npx * 0.06 + 19.3) - 0.5);
 
+    // SHAPE noise for flat regions: where there is little structural flow, cells default to
+    // square Voronoi blocks. Add a lower-frequency organic warp whose strength RAMPS UP as the
+    // stroke gets "square" (low anisotropy), so flat areas flow into wavy painterly shapes
+    // instead of blocks. Directional/textured areas (high aniso) are untouched — they already
+    // flow via the stretch. Uniform UI is unaffected (warping a flat colour region is a no-op).
+    float squareness = 1.0 - smoothstep(0.04, 0.30, aniso);
+    float2 flowy = float2(spectra_valueNoise(npx * 0.011 + 4.7) - 0.5,
+                          spectra_valueNoise(npx * 0.011 + 27.1) - 0.5);
+    wn += flowy * (1.8 * squareness);
+
     // Coarse level gets the region-coherence correction (correctAmt=1): it is the level
     // that paints big flat fills, so it is where a sub-pitch block's interior bleeds the
     // surrounding colour. The fine level gets 0 — its small strokes already hug colour
@@ -765,8 +711,8 @@ fragment float4 fx_style_oil_cells(RasterizerData in [[stage_in]],
 
     // Per-stroke finish (broken colour + seam + edge smoother), applied per level via the
     // shared helper so the cell pass and the full-res detail layer behave identically.
-    float3 colC = oil_finish(cC, painterly, colorVar, smoothAmt);
-    float3 colF = oil_finish(cF, painterly, colorVar, smoothAmt);
+    float3 colC = oil_finish(cC, painterly, smoothAmt, pooling, pigmentDesat, vanGogh);
+    float3 colF = oil_finish(cF, painterly, smoothAmt, pooling, pigmentDesat, vanGogh);
 
     // Blend coarse -> fine by the emergent edge level. Crack-free: both levels are consistent
     // global grids, so only the blend weight varies across the image.
@@ -785,9 +731,9 @@ fragment float4 fx_style_oil_combine(RasterizerData in [[stage_in]],
                                      texture2d<float> history [[texture(10)]],
                                      constant SpectraUniforms &u [[buffer(0)]]) {
     float3 og = spectra_tex(orig, in.uv).rgb;
-    float amount = clamp(u.params[7], 0.0, 1.0);
-    float temporal = clamp(u.params[3], 0.0, 0.95);
-    float canvas = clamp(u.params[4], 0.0, 1.0);
+    float amount = clamp(u.params[6], 0.0, 1.0);
+    float temporal = clamp(u.params[2], 0.0, 0.95);
+    float canvas = clamp(u.params[3], 0.0, 1.0);
 
     float3 painted = spectra_tex(src, in.uv).rgb;
     float2 px = in.uv * u.resolution;
@@ -796,11 +742,13 @@ fragment float4 fx_style_oil_combine(RasterizerData in [[stage_in]],
     // reduced scale, so its fine strokes are upsampled and blur in complex areas. Here, at FULL
     // resolution, where complexity is high, RE-PAINT the SAME fine-level strokes at full res and
     // blend them over the upsampled base. Identical stroke logic (oil_cell_at + oil_finish, same
-    // colour weight, size, flow, warp, jitter, seam, edge-smoother), just sharper, so complex
-    // areas obey every param exactly like the rest of the image — NOT a separate path.
-    float detail    = clamp(u.params[6], 0.0, 1.0);
-    float colorVar  = clamp(u.params[2], 0.0, 1.0);
-    float smoothAmt = clamp(u.params[10], 0.0, 1.0);
+    // colour weight, size, flow, warp, seam, edge-smoother), just sharper, so complex areas obey
+    // every param exactly like the rest of the image — NOT a separate path.
+    float detail    = clamp(u.params[5], 0.0, 1.0);
+    float smoothAmt = clamp(u.params[9], 0.0, 1.0);
+    float pooling      = clamp(u.params[10], 0.0, 1.0);
+    float pigmentDesat = clamp(u.params[12], 0.0, 1.0);
+    float vanGogh      = clamp(u.params[13], 0.0, 1.0);
     {
         constexpr sampler s2(address::clamp_to_edge, filter::linear);
         // Reuse the SMOOTHED structure tensor (pass 2, tapped at texture(9)) for flow + edginess
@@ -819,9 +767,9 @@ fragment float4 fx_style_oil_combine(RasterizerData in [[stage_in]],
             float2 flow, grad; float aniso;
             oil_flow_from_tensor(E, G, F, flow, grad, aniso);
             float rangeLo = clamp(u.params[0], 0.0, 1.0);
-            float flowAmt = clamp(u.params[8], 0.0, 1.0);
-            float warpAmt = clamp(u.params[9], 0.0, 1.0);
-            float stretch = 1.0 + flowAmt * aniso * 2.6;
+            float flowAmt = clamp(u.params[7], 0.0, 1.0);
+            float warpAmt = clamp(u.params[8], 0.0, 1.0);
+            float stretch = 1.0 + flowAmt * aniso * (2.6 + vanGogh * 3.5);
             // Full-res strokes at the MIN size (the range's lower handle), so complex areas/text
             // are rendered from the user's smallest strokes, sharply. Same stroke logic as the
             // cell pass; the user's min size controls text tightness directly (no separate tighten).
@@ -833,9 +781,21 @@ fragment float4 fx_style_oil_combine(RasterizerData in [[stage_in]],
             float2 wn = float2(spectra_valueNoise(px * 0.06) - 0.5, spectra_valueNoise(px * 0.06 + 19.3) - 0.5);
             OilCell cd = oil_cell_at(orig, s2, px + wn * (warpAmt * finePx * 0.7), u.texelSize,
                                      finePx, og, flow, grad, stretch, fineCW, 0.45, 0.0);
-            float3 fineCol = oil_finish(cd, painterly, colorVar, smoothAmt);
+            float3 fineCol = oil_finish(cd, painterly, smoothAmt, pooling, pigmentDesat, vanGogh);
             painted = mix(painted, fineCol, wFull);
         }
+    }
+
+    // Wet bleed: a small feather of the painted layer for watercolor diffusion. Guarded so
+    // 0 is identity (no extra taps); a tiny ±0.75-texel box, NOT a second full blur pass.
+    float wetBleed = clamp(u.params[11], 0.0, 1.0);
+    if (wetBleed > 0.001) {
+        float2 fb = u.texelSize * 0.75;
+        float3 bleed = spectra_tex(src, in.uv + float2( fb.x, 0.0)).rgb
+                     + spectra_tex(src, in.uv + float2(-fb.x, 0.0)).rgb
+                     + spectra_tex(src, in.uv + float2(0.0,  fb.y)).rgb
+                     + spectra_tex(src, in.uv + float2(0.0, -fb.y)).rgb;
+        painted = mix(painted, bleed * 0.25, wetBleed * 0.6);
     }
 
     // Canvas tooth: real linen, not a perfect computer grid. The over/under weave is
@@ -861,143 +821,238 @@ fragment float4 fx_style_oil_combine(RasterizerData in [[stage_in]],
 
     float3 outc = mix(og, painted, amount);
 
-    // Temporal damping for live/animated content (stops boiling).
-    float3 hist = spectra_tex(history, in.uv).rgb;
-    outc = mix(outc, hist, temporal);
+    // --- Temporal smoothing (neighbourhood-clamped accumulation, TAA-style) ---
+    // A flat exponential blend toward the previous frame (the old path) trades smoothing against
+    // ghosting: enough to settle the painterly "boil" (capture noise + cells flickering at their
+    // boundaries) also smears anything that moves. Instead, RECTIFY the history against the local
+    // colour range of the current frame, then accumulate hard where it is valid and snap to the
+    // current frame where it is not — so static content stops boiling without trailing motion. No
+    // motion vectors required; the clamp distance is the motion signal.
+    if (temporal > 0.0) {
+        float3 hist = spectra_tex(history, in.uv).rgb;
+        // Colour AABB of the CURRENT painted frame from a 5-tap neighbourhood of the cells layer
+        // (cells-space, so it excludes the canvas tooth; the slack below absorbs that). The
+        // previous frame belongs here only if it sits inside this range.
+        // `src` (the cells layer) is rendered at the Render Scale (slot 4), so step the
+        // neighbourhood by one CELLS texel, not one full-res texel — otherwise at low Render Scale
+        // every tap lands in the same texel, the colour box collapses to a sliver, and the history
+        // is over-clamped (which would reintroduce the boil this is meant to remove). The scale is
+        // resolved exactly as EffectChainRenderer does for this pass.
+        float cellsScale = (u.params[4] > 0.01) ? clamp(u.params[4], 0.1, 1.0) : 0.6;
+        float2 ts = u.texelSize / cellsScale;
+        float3 nC = spectra_tex(src, in.uv).rgb;
+        float3 nL = spectra_tex(src, in.uv + float2(-ts.x, 0.0)).rgb;
+        float3 nR = spectra_tex(src, in.uv + float2( ts.x, 0.0)).rgb;
+        float3 nU = spectra_tex(src, in.uv + float2(0.0, -ts.y)).rgb;
+        float3 nD = spectra_tex(src, in.uv + float2(0.0,  ts.y)).rgb;
+        float3 mn = min(nC, min(min(nL, nR), min(nU, nD)));
+        float3 mx = max(nC, max(max(nL, nR), max(nU, nD)));
+        // The box is in cells-space (pure painted colour), but the history lives in the final
+        // mix(og, painted, amount) space, so map the box through the same blend before clamping. At
+        // amount = 1 (every built-in oil world) this is a no-op; at lower amounts it stops the clamp
+        // dragging the history toward the unblended cell colours.
+        mn = mix(og, mn, amount);
+        mx = mix(og, mx, amount);
+        // Widen the box so genuine broken-colour variation is damped over time, not frozen solid,
+        // and so the canvas tooth / full-res strokes baked into the history are not over-clipped.
+        float3 slack = (mx - mn) * 0.25 + 0.02;
+        float3 histClamped = clamp(hist, mn - slack, mx + slack);
+        // How far the history had to be pulled back into range is the motion / disocclusion
+        // signal: ~0 for in-range jitter (boil) -> accumulate; large where content moved -> snap.
+        float motion = smoothstep(0.05, 0.22, length(hist - histClamped));
+        // `temporal` sets the static-content smoothing target. The clamp makes a strong value
+        // ghost-free, so drive it harder than the raw slider (still 0 at slider 0), then back it
+        // off on motion so moving content stays crisp.
+        float wStatic = min(0.9, temporal * 1.7);
+        outc = mix(outc, histClamped, wStatic * (1.0 - motion));
+    }
 
     return spectra_compositeRGBA(og, outc, u);
 }
 
-// MARK: - Painterly (half-res Kuwahara; used by the Studio Ghibli and Watercolor worlds)
+// MARK: - Line art (full-res relative XDoG, the shared ink/contour front-end)
 
-// Pass 0 (scale 0.5): edge-preserving smooth + downsample. Raw intermediate.
-fragment float4 fx_style_painterly_pre(RasterizerData in [[stage_in]],
-                                       texture2d<float> src [[texture(0)]],
-                                       texture2d<float> orig [[texture(1)]],
-                                       constant SpectraUniforms &u [[buffer(0)]]) {
-    float3 center = spectra_tex(src, in.uv).rgb;
-    float2 t = u.texelSize;
-    float rangeSigma = 0.18;
-    float invR2 = 1.0 / (2.0 * rangeSigma * rangeSigma);
-    float3 sum = float3(0.0);
-    float wsum = 0.0;
-    for (int j = -2; j <= 2; j++) {
-        for (int i = -2; i <= 2; i++) {
-            float2 off = float2(float(i), float(j));
-            float3 s = spectra_tex(src, in.uv + off * t).rgb;
-            float spatial = exp(-dot(off, off) * 0.3);
-            float3 d = s - center;
-            float range = exp(-dot(d, d) * invR2);
-            float w = spatial * range;
-            sum += s * w;
-            wsum += w;
-        }
+// A CRISP, STABLE line extractor shared by the contour looks (Pencil, Ghibli). A FULL-RES isotropic
+// Difference-of-Gaussians of luma, normalised by the local mean luma (Weber-relative contrast) and
+// soft-thresholded, so dark low-contrast detail (a shadowed hillside) inks like lit detail instead
+// of washing out, while smooth gradients stay clean. Temporal damping holds the lines still. Three
+// passes: blur H, blur V + relative DoG, then composite + temporal.
+
+// Horizontal half of the separable blur, carrying TWO scales of centre+surround Gaussian at once,
+// packed (fineC, fineS, coarseC, coarseS), so the dog pass can union a fine and a coarse DoG. A
+// single scale only "sees" edges at one size; two scales catch fine texture AND broad contours, so
+// far more of a complex image draws. tex0 = the effect input.
+fragment float4 fx_lineart_blurH(RasterizerData in [[stage_in]],
+                                 texture2d<float> src [[texture(0)]],
+                                 texture2d<float> orig [[texture(1)]],
+                                 constant SpectraUniforms &u [[buffer(0)]]) {
+    constexpr sampler s(address::clamp_to_edge, filter::linear);
+    float lineScale = clamp(u.params[0], 0.5, 4.0);
+    float base = lineScale * max(1.0, u.resolution.y * 0.0006);
+    float sC1 = base,       sS1 = sC1 * 1.6;         // fine scale (centre, surround)
+    float sC2 = base * 2.0, sS2 = sC2 * 1.6;         // coarse scale (2x)
+    float t1c = 2.0*sC1*sC1, t1s = 2.0*sS1*sS1, t2c = 2.0*sC2*sC2, t2s = 2.0*sS2*sS2;
+    const int N = 8;
+    float stride = (2.5 * sS2) / float(N);           // sized to the widest sigma, samples all four
+    float2 step = u.direction * u.texelSize;
+    float c1=0, s1=0, c2=0, s2=0, w1c=0, w1s=0, w2c=0, w2s=0;
+    for (int i = -N; i <= N; i++) {
+        float d = float(i) * stride;
+        float lum = spectra_luma(src.sample(s, in.uv + step * d).rgb);
+        float g1c=exp(-d*d/t1c), g1s=exp(-d*d/t1s), g2c=exp(-d*d/t2c), g2s=exp(-d*d/t2s);
+        c1 += lum*g1c; w1c += g1c; s1 += lum*g1s; w1s += g1s;
+        c2 += lum*g2c; w2c += g2c; s2 += lum*g2s; w2s += g2s;
     }
-    return float4(sum / max(wsum, 1e-4), 1.0);
+    return float4(c1/w1c, s1/w1s, c2/w2c, s2/w2s);
 }
 
-// Pass 1 (scale 0.5): generalized anisotropic Kuwahara. A 3×3 Sobel builds the
-// local structure tensor; the sampling disk is elongated along the edge and split
-// into 8 angular sectors; the low-variance sectors dominate the result.
-// params[0]=radius, [1]=anisotropy, [2]=sharpness. Raw intermediate.
-fragment float4 fx_style_painterly_kuwahara(RasterizerData in [[stage_in]],
-                                            texture2d<float> src [[texture(0)]],
-                                            texture2d<float> orig [[texture(1)]],
-                                            constant SpectraUniforms &u [[buffer(0)]]) {
-    float radius = clamp(u.params[0], 1.0, 8.0);
-    float anisoAmt = clamp(u.params[1], 0.0, 1.0);
-    float sharpness = clamp(u.params[2], 0.0, 1.0);
-    float2 t = u.texelSize;
-
-    // Structure tensor from a 3×3 Sobel on luma.
-    float lum[9];
-    int k = 0;
-    for (int j = -1; j <= 1; j++) {
-        for (int i = -1; i <= 1; i++) {
-            lum[k++] = spectra_luma(spectra_tex(src, in.uv + float2(float(i), float(j)) * t).rgb);
-        }
+// Vertical half of the blur, completing both 2D Gaussians at both scales, then a relative DoG per
+// scale, unioned. tex0 = the H-blurred (fineC, fineS, coarseC, coarseS) quad. Output = ink in .r.
+fragment float4 fx_lineart_dog(RasterizerData in [[stage_in]],
+                               texture2d<float> src [[texture(0)]],
+                               texture2d<float> orig [[texture(1)]],
+                               constant SpectraUniforms &u [[buffer(0)]]) {
+    constexpr sampler s(address::clamp_to_edge, filter::linear);
+    float lineScale = clamp(u.params[0], 0.5, 4.0);
+    float base = lineScale * max(1.0, u.resolution.y * 0.0006);
+    float sC1 = base,       sS1 = sC1 * 1.6;
+    float sC2 = base * 2.0, sS2 = sC2 * 1.6;
+    float t1c = 2.0*sC1*sC1, t1s = 2.0*sS1*sS1, t2c = 2.0*sC2*sC2, t2s = 2.0*sS2*sS2;
+    const int N = 8;
+    float stride = (2.5 * sS2) / float(N);
+    float2 step = u.direction * u.texelSize;
+    float a1=0, b1=0, a2=0, b2=0, w1c=0, w1s=0, w2c=0, w2s=0;
+    for (int i = -N; i <= N; i++) {
+        float d = float(i) * stride;
+        float4 hb = src.sample(s, in.uv + step * d);   // (fineC, fineS, coarseC, coarseS), H-blurred
+        float g1c=exp(-d*d/t1c), g1s=exp(-d*d/t1s), g2c=exp(-d*d/t2c), g2s=exp(-d*d/t2s);
+        a1 += hb.r*g1c; w1c += g1c; b1 += hb.g*g1s; w1s += g1s;
+        a2 += hb.b*g2c; w2c += g2c; b2 += hb.a*g2s; w2s += g2s;
     }
-    float gx = (lum[2] + 2.0 * lum[5] + lum[8]) - (lum[0] + 2.0 * lum[3] + lum[6]);
-    float gy = (lum[6] + 2.0 * lum[7] + lum[8]) - (lum[0] + 2.0 * lum[1] + lum[2]);
-    float gx2 = gx * gx, gy2 = gy * gy, gxy = gx * gy;
-    float trace = gx2 + gy2;
-    float disc = sqrt(max(trace * trace * 0.25 - (gx2 * gy2 - gxy * gxy), 0.0));
-    float lambda1 = trace * 0.5 + disc;
-    float lambda2 = trace * 0.5 - disc;
-    // Major eigenvector (gradient direction). Both closed forms degenerate to the
-    // zero vector on one axis (e1 on horizontal edges, e2 on vertical edges), so
-    // pick the better-conditioned one; a zero vector would normalise to NaN and
-    // corrupt every sample for the pixel. Horizontal/vertical edges are everywhere.
-    float2 e1 = float2(lambda1 - gy2, gxy);
-    float2 e2 = float2(gxy, lambda1 - gx2);
-    float2 raw = (dot(e1, e1) >= dot(e2, e2)) ? e1 : e2;
-    float2 grad = (dot(raw, raw) > 1e-12) ? normalize(raw) : float2(1.0, 0.0);
-    float2 edgeDir = float2(-grad.y, grad.x);   // perpendicular to gradient = along the edge
-    float anisotropy = (lambda1 + lambda2 > 1e-5) ? (lambda1 - lambda2) / (lambda1 + lambda2) : 0.0;
-    float2 major = edgeDir;   // elongate strokes along the edge
-    float2 minor = grad;      // and compress across it
-    float majorR = radius * mix(1.0, 1.0 + 3.0 * anisotropy, anisoAmt);
-    float minorR = radius / mix(1.0, 1.0 + anisotropy, anisoAmt);
+    a1/=w1c; b1/=w1s; a2/=w2c; b2/=w2s;
+    float tau = 0.99;
 
-    float3 mean[8];
-    float3 mom[8];
-    float wsum8[8];
-    for (int s = 0; s < 8; s++) { mean[s] = float3(0.0); mom[s] = float3(0.0); wsum8[s] = 0.0; }
+    // Weber-relative contrast per scale: normalise each DoG by its local mean luma, so dark
+    // low-contrast detail (a shadowed hillside) inks like lit detail while smooth gradients (sky)
+    // stay clean. The floor stops near-black areas amplifying into noise.
+    float rel1 = (a1 - tau*b1) / max(b1, 0.04);     // fine: foliage, small structure
+    float rel2 = (a2 - tau*b2) / max(b2, 0.04);     // coarse: ridges, broad contours
 
-    int R = int(ceil(radius));
-    float invR = 1.0 / max(radius, 1.0);
-    for (int j = -R; j <= R; j++) {
-        for (int i = -R; i <= R; i++) {
-            float2 o = float2(float(i), float(j));
-            float r2 = dot(o, o);
-            if (r2 > radius * radius) continue;
-            float ang = atan2(o.y, o.x) + 3.14159265;
-            int sec = int(ang / 6.2831853 * 8.0) & 7;
-            // Warp the screen-space offset into the oriented ellipse: project onto the
-            // major/minor axes, scale each, then rebuild in screen space. (Scaling
-            // o.x/o.y directly would only elongate along the screen axes, breaking the
-            // "stroke follows the edge" property for non-axis-aligned edges.)
-            float oa = dot(o, major);
-            float ob = dot(o, minor);
-            float2 pos = major * (oa * (majorR * invR)) + minor * (ob * (minorR * invR));
-            float3 col = spectra_tex(src, in.uv + pos * t).rgb;
-            float wg = exp(-r2 * invR * invR * 1.5);
-            mean[sec] += col * wg;
-            mom[sec] += col * col * wg;
-            wsum8[sec] += wg;
-        }
-    }
-
-    float q = mix(2.0, 8.0, sharpness);
-    float3 result = float3(0.0);
-    float totalW = 0.0;
-    for (int s = 0; s < 8; s++) {
-        if (wsum8[s] < 1e-4) continue;
-        float3 m = mean[s] / wsum8[s];
-        float3 var = abs(mom[s] / wsum8[s] - m * m);
-        float sigma = var.x + var.y + var.z;
-        float w = 1.0 / (1.0 + pow(sigma * 64.0, q * 0.5));
-        result += m * w;
-        totalW += w;
-    }
-    float3 painted = (totalW > 1e-4) ? result / totalW : spectra_tex(src, in.uv).rgb;
-    return float4(painted, 1.0);
+    // eps is NEGATIVE (flats sit near 0, edges go negative); ink where rel < eps. Higher Threshold =
+    // more-negative eps = only stronger contours; phi is the ink hardness.
+    float threshold = clamp(u.params[2], 0.0, 1.0);
+    float sharpness = clamp(u.params[3], 0.0, 1.0);
+    float phi = mix(4.0, 40.0, sharpness);
+    float eps = mix(-0.04, -0.30, threshold);
+    float ink1 = clamp(1.0 - ((rel1 >= eps) ? 1.0 : 1.0 + tanh(phi * (rel1 - eps))), 0.0, 1.0);
+    float ink2 = clamp(1.0 - ((rel2 >= eps) ? 1.0 : 1.0 + tanh(phi * (rel2 - eps))), 0.0, 1.0);
+    float ink = max(ink1, ink2);                    // union of scales: a line wherever EITHER fires
+    return float4(ink, 0.0, 0.0, 1.0);
 }
 
-// Pass 2 (scale 1.0): bicubic upsample of the half-res paint, with a little
-// original high-frequency luma folded back for legibility. params[3]=detail.
-fragment float4 fx_style_painterly_resolve(RasterizerData in [[stage_in]],
-                                           texture2d<float> src [[texture(0)]],
-                                           texture2d<float> orig [[texture(1)]],
-                                           constant SpectraUniforms &u [[buffer(0)]]) {
+// Composite + temporal. tex0 = ink mask, tex1 = the input, tex10 = the previous output.
+fragment float4 fx_lineart_compose(RasterizerData in [[stage_in]],
+                                   texture2d<float> src [[texture(0)]],
+                                   texture2d<float> orig [[texture(1)]],
+                                   texture2d<float> history [[texture(10)]],
+                                   constant SpectraUniforms &u [[buffer(0)]]) {
+    constexpr sampler s(address::clamp_to_edge, filter::linear);
+    float ink = src.sample(s, in.uv).r;
+
+    float3 input = spectra_tex(orig, in.uv).rgb;
+    float strength = clamp(u.params[1], 0.0, 1.0);
+    float paper = clamp(u.params[5], 0.0, 1.0);
+    float3 inkColor = float3(u.params[6], u.params[7], u.params[8]);
+    float inkAlpha = clamp(u.params[9], 0.0, 1.0);   // honour the ink colour's alpha (was dropped)
+    float3 paperTint = float3(u.params[10], u.params[11], u.params[12]);
+    float3 bg = mix(input, paperTint, paper);
+    float3 outc = mix(bg, inkColor, ink * strength * inkAlpha);
+
+    // Temporal damping: on a live desktop, capture noise + sub-threshold flips make lines crawl.
+    // Blend toward the previous frame where the result is unchanged, release on motion. The gate
+    // threshold is set HIGH so small frame-to-frame flicker (the cel's band boundaries boiling on
+    // capture noise) reads as static and is damped, while a genuine large change (real motion) still
+    // releases the damp so moving content does not ghost. This is the main "stabilise" lever for the
+    // cel-based looks, since the lineart is the last effect and its history is the chain's own output.
+    float temporal = clamp(u.params[4], 0.0, 0.95);
+    if (temporal > 0.0) {
+        float3 hist = spectra_tex(history, in.uv).rgb;
+        float motion = smoothstep(0.12, 0.38, distance(outc, hist));
+        outc = mix(outc, hist, temporal * (1.0 - motion));
+    }
+    return spectra_compositeRGBA(input, outc, u);
+}
+
+// MARK: - Pencil sketch (paper + cross-hatch tone + contour ink)
+
+// A real graphite drawing rather than a desaturated overlay: the base is paper white, TONE
+// is built only from form-following cross-hatching (more/denser strokes where the image is
+// darker), and CONTOUR lines come from a Sobel on luma. The source never shows through as
+// grey. params[0]=hatch spacing, [1]=shading, [2]=contour, [3]=paper grain, [4..6]=paper RGB.
+fragment float4 fx_style_pencil(RasterizerData in [[stage_in]],
+                                texture2d<float> src [[texture(0)]],
+                                texture2d<float> orig [[texture(1)]],
+                                constant SpectraUniforms &u [[buffer(0)]]) {
     float3 base = spectra_tex(orig, in.uv).rgb;
-    // Use the real source dimensions for the bicubic taps rather than assuming the
-    // upstream passes ran at exactly half resolution.
-    float2 srcSize = float2(float(src.get_width()), float(src.get_height()));
-    float3 painted = spectra_bicubic(src, in.uv, srcSize).rgb;
-    float detail = clamp(u.params[3], 0.0, 1.0);
-    float hf = spectra_luma(base) - spectra_luma(painted);
-    painted += hf * detail;
-    float3 processed = clamp(painted, 0.0, 1.0);
+    float3 c = spectra_tex(src, in.uv).rgb;
+    float spacingP = clamp(u.params[0], 2.0, 10.0);
+    float tone = clamp(u.params[1], 0.0, 1.0);
+    float contourAmt = clamp(u.params[2], 0.0, 1.0);
+    float grainAmt = clamp(u.params[3], 0.0, 1.0);
+    float3 paperTint = float3(u.params[4], u.params[5], u.params[6]);
+
+    float2 px = in.uv * u.resolution;
+    float L = spectra_luma(c);
+    float dark = clamp(1.0 - L, 0.0, 1.0);
+
+    // Resolution-relative hatch spacing.
+    float sp = max(2.5, spacingP * u.resolution.y / 900.0);
+
+    // Sobel on luma: drives both the contour lines and the hatch orientation.
+    float2 gt = u.texelSize * max(1.0, u.resolution.y * 0.0014);
+    float b00 = spectra_luma(spectra_tex(src, in.uv + float2(-gt.x, -gt.y)).rgb);
+    float b10 = spectra_luma(spectra_tex(src, in.uv + float2( 0.0, -gt.y)).rgb);
+    float b20 = spectra_luma(spectra_tex(src, in.uv + float2( gt.x, -gt.y)).rgb);
+    float b01 = spectra_luma(spectra_tex(src, in.uv + float2(-gt.x,  0.0)).rgb);
+    float b21 = spectra_luma(spectra_tex(src, in.uv + float2( gt.x,  0.0)).rgb);
+    float b02 = spectra_luma(spectra_tex(src, in.uv + float2(-gt.x,  gt.y)).rgb);
+    float b12 = spectra_luma(spectra_tex(src, in.uv + float2( 0.0,  gt.y)).rgb);
+    float b22 = spectra_luma(spectra_tex(src, in.uv + float2( gt.x,  gt.y)).rgb);
+    float gx = (b20 + 2.0 * b21 + b22) - (b00 + 2.0 * b01 + b02);
+    float gy = (b02 + 2.0 * b12 + b22) - (b00 + 2.0 * b10 + b20);
+    float gmag = sqrt(gx * gx + gy * gy);
+
+    // Form-following hatch orientation: run strokes along the iso-contour, blended toward a
+    // fixed diagonal in flat areas (vector blend so the pi-periodic lines never flip).
+    float baseAng = 0.6108;   // ~35 degrees
+    float follow = smoothstep(0.05, 0.25, gmag);
+    float2 fd = float2(cos(baseAng), sin(baseAng));
+    float2 cd = (gmag > 1e-5) ? normalize(float2(-gy, gx)) : fd;
+    if (dot(cd, fd) < 0.0) cd = -cd;
+    float2 hd = normalize(mix(fd, cd, follow));
+    float ang = atan2(hd.y, hd.x);
+
+    // Cross-hatch build-up: each layer engages as the area darkens, so light areas get a few
+    // strokes and shadows get dense crossing strokes. Line width also grows with darkness.
+    float h = 0.0;
+    h = max(h, style_hatchLine(px, ang,          sp,        dark) * smoothstep(0.12, 0.30, dark));
+    h = max(h, style_hatchLine(px, ang + 1.5708, sp,        dark) * smoothstep(0.34, 0.52, dark));
+    h = max(h, style_hatchLine(px, ang + 0.7854, sp * 0.82, dark) * smoothstep(0.56, 0.72, dark));
+    h = max(h, style_hatchLine(px, ang - 0.7854, sp * 0.70, dark) * smoothstep(0.74, 0.92, dark));
+    h *= tone;
+
+    // Contour graphite line where edges are.
+    float contour = smoothstep(0.10, 0.34, gmag) * contourAmt;
+
+    // Warm paper with a subtle tooth.
+    float grain = spectra_valueNoise(px / max(2.0, 0.0026 * u.resolution.y)) - 0.5;
+    float3 paper = paperTint * (1.0 + grain * 0.06 * (0.4 + grainAmt));
+
+    // Compose: paper, darkened by hatch (mid-grey graphite) and contour (darker graphite).
+    float graphiteAmt = clamp(max(h, contour), 0.0, 1.0);
+    float3 graphite = mix(float3(0.32, 0.31, 0.33), float3(0.11, 0.11, 0.13), contour);
+    float3 processed = clamp(mix(paper, graphite, graphiteAmt), 0.0, 1.0);
+
     return spectra_compositeRGBA(base, processed, u);
 }
+

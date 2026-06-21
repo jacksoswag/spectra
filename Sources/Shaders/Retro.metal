@@ -159,19 +159,23 @@ fragment float4 fx_crt_crtAdvanced(RasterizerData in [[stage_in]],
     // Bloom: sample a small neighborhood, keep bright energy. The neighbour taps use
     // the feather-free sampler (the edge feather is imperceptible on a bloom tap but
     // costs four smoothsteps each); the centre image keeps the feathered sampler above.
-    float3 glow = float3(0.0);
-    float2 px = u.texelSize * 2.0;
-    glow += fx_crt_sampleTubeHard(src, wuv + float2(px.x, 0.0));
-    glow += fx_crt_sampleTubeHard(src, wuv - float2(px.x, 0.0));
-    glow += fx_crt_sampleTubeHard(src, wuv + float2(0.0, px.y));
-    glow += fx_crt_sampleTubeHard(src, wuv - float2(0.0, px.y));
-    glow *= 0.25;
-    float3 bright = max(glow - 0.5, 0.0) * 2.0;
-    c += bright * bloom;
+    // Skip the four-tap gather entirely when bloom is off. CRT Display now leans on
+    // phosphorGlow's wider blur for glow, so this inline full-res bloom is set to 0.
+    if (bloom > 0.0) {
+        float3 glow = float3(0.0);
+        float2 px = u.texelSize * 2.0;
+        glow += fx_crt_sampleTubeHard(src, wuv + float2(px.x, 0.0));
+        glow += fx_crt_sampleTubeHard(src, wuv - float2(px.x, 0.0));
+        glow += fx_crt_sampleTubeHard(src, wuv + float2(0.0, px.y));
+        glow += fx_crt_sampleTubeHard(src, wuv - float2(0.0, px.y));
+        glow *= 0.25;
+        float3 bright = max(glow - 0.5, 0.0) * 2.0;
+        c += bright * bloom;
+    }
 
     c *= fx_crt_scanline(wuv.y, u.resolution.y * 0.5, scanStrength);
 
-    float3 mask = fx_crt_shadowMask(in.uv * u.resolution, 3.0);
+    float3 mask = fx_crt_shadowMask(wuv * u.resolution, 3.0);   // warped coords so the triad rides the curved image
     c *= mix(float3(1.0), mask, maskStrength);
 
     float r2 = dot(cc, cc);
