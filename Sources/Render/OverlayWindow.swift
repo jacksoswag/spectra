@@ -183,6 +183,14 @@ final class OverlayWindow: NSWindow {
         level = covers ? Self.aboveMenuBarLevel : Self.belowMenuBarLevel
     }
 
+    /// Make the overlay visible to external screen capture (`.readOnly`) or hidden
+    /// from it (`.none`, the default). Spectra's own capture excludes the overlay by
+    /// whole-app exclusion, not `sharingType`, so this never feeds back into the
+    /// pipeline (the adaptive-tint overlay uses `.readOnly` for the same reason).
+    func setVisibleToScreenshots(_ visible: Bool) {
+        sharingType = visible ? .readOnly : .none
+    }
+
     /// Reliably carry this single-Space overlay onto the now-active Space. Ordering a
     /// `.transient` window front from another Space can leave it on the *outgoing*
     /// Space (the "shader only works on one Space" symptom). Briefly joining all

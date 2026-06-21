@@ -30,6 +30,7 @@ final class RenderEngine {
     /// Whether overlays should sit above the menu bar/Dock (covering them). Applied
     /// to every overlay, and to overlays created later via `activate`.
     private var coversMenuBarAndDock = false
+    private var overlaysVisibleToScreenshots = false
     private var spaceObserver: NSObjectProtocol?
     /// While a Space transition (Mission Control swipe) is still settling we must NOT
     /// carry the overlay: `carryToActiveSpace` toggles `.canJoinAllSpaces` and force-
@@ -291,6 +292,7 @@ final class RenderEngine {
             displayID: display.id, frame: display.frame, scale: display.scale, device: context.device)
         overlay.setEDR(enabled: display.supportsEDR)
         overlay.setCoversMenuBarAndDock(coversMenuBarAndDock)
+        overlay.setVisibleToScreenshots(overlaysVisibleToScreenshots)
         let renderer = DisplayRenderer(
             displayID: display.id, overlay: overlay, context: context, shaders: shaders,
             cursorSampler: cursorSampler)
@@ -322,6 +324,13 @@ final class RenderEngine {
         // stay visible). Skip the per-overlay level change so it can't fight the elevation.
         guard !Self.alwaysElevateOverlay else { return }
         for overlay in overlays.values { overlay.setCoversMenuBarAndDock(covers) }
+    }
+
+    /// Show/hide every overlay from external screen capture. Stored so a display
+    /// activated later picks up the same choice.
+    func setOverlaysVisibleToScreenshots(_ visible: Bool) {
+        overlaysVisibleToScreenshots = visible
+        for overlay in overlays.values { overlay.setVisibleToScreenshots(visible) }
     }
 
     /// Push the global intensity multiplier to every active renderer. Stored so a

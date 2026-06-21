@@ -17,9 +17,10 @@ final class GlobalHotKey {
     private let onFire: () -> Void
 
     /// `keyCode` is a Carbon virtual key code (e.g. `kVK_ANSI_S`); `modifiers` is a
-    /// Carbon modifier mask (e.g. `cmdKey | optionKey | controlKey`). Returns nil if
-    /// the OS refuses the registration (e.g. the chord is already taken).
-    init?(keyCode: UInt32, modifiers: UInt32, onFire: @escaping () -> Void) {
+    /// Carbon modifier mask (e.g. `cmdKey | optionKey | controlKey`). `id` distinguishes
+    /// this app's hotkeys from each other (each registration needs a unique id). Returns
+    /// nil if the OS refuses the registration (e.g. the chord is already taken).
+    init?(keyCode: UInt32, modifiers: UInt32, id: UInt32 = 1, onFire: @escaping () -> Void) {
         self.onFire = onFire
 
         var eventType = EventTypeSpec(
@@ -39,7 +40,7 @@ final class GlobalHotKey {
         guard installStatus == noErr else { return nil }
 
         // 'SPKY' — a fourCC signature distinguishing this app's hotkeys.
-        let hotKeyID = EventHotKeyID(signature: OSType(0x53504B59), id: 1)
+        let hotKeyID = EventHotKeyID(signature: OSType(0x53504B59), id: id)
         let registerStatus = RegisterEventHotKey(
             keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
         guard registerStatus == noErr, hotKeyRef != nil else {
@@ -65,4 +66,18 @@ final class GlobalHotKey {
 
     /// Human-readable label for the panic chord, for UI hints.
     static let panicSwitchLabel = "⌃⌥⌘S"
+
+    /// ⌥⌘P — a global pause/unpause (Start/Stop) chord. Works from any app, unlike the
+    /// in-app ⌘⇧E toggle. Uses a distinct hotkey `id` so it doesn't collide with the
+    /// panic switch's registration.
+    static func toggle(onFire: @escaping () -> Void) -> GlobalHotKey? {
+        GlobalHotKey(
+            keyCode: UInt32(kVK_ANSI_P),
+            modifiers: UInt32(optionKey | cmdKey),
+            id: 2,
+            onFire: onFire)
+    }
+
+    /// Human-readable label for the pause/unpause chord, for UI hints.
+    static let toggleLabel = "⌥⌘P"
 }

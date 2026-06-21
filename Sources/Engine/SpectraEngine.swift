@@ -123,6 +123,7 @@ final class SpectraEngine {
     /// Process-wide panic switch. When the overlay covers the menu bar/Dock the
     /// status item is hidden, so this is the guaranteed way to turn it off.
     @ObservationIgnored private var globalPanicHotKey: GlobalHotKey?
+    @ObservationIgnored private var globalToggleHotKey: GlobalHotKey?
 
     /// Global color grading via the scanout transfer LUT. A display whose chain is
     /// made up ENTIRELY of per-channel color effects is rendered here — above the
@@ -166,6 +167,16 @@ final class SpectraEngine {
 
     /// Surfaced to the UI when Spectra auto-disables a faulting custom effect.
     private(set) var lastRecoveryMessage: String?
+
+    /// The most relevant transient status for the UI banner: a launch/capture
+    /// failure takes priority over an auto-recovery notice.
+    var statusMessage: String? { startupError ?? lastRecoveryMessage }
+
+    /// Dismiss the status banner (clears both the launch error and the recovery notice).
+    func dismissStatusMessage() {
+        startupError = nil
+        lastRecoveryMessage = nil
+    }
 
     /// Name of the preset last applied per display, cleared once that display's
     /// stack is edited by hand. Each display tracks its own preset.
@@ -287,13 +298,16 @@ final class SpectraEngine {
         permissionAuthorized = displayManager.permissionAuthorized
         displays = displayManager.displays
 
-        loadState()
+        let wasEnabled = loadState()
         if selectedDisplayID == nil || displays.first(where: { $0.id == selectedDisplayID }) == nil {
             selectedDisplayID = displayManager.mainDisplay?.id
         }
         displayManager.onChange = { [weak self] in self?.handleDisplaysChanged() }
 
-        if settings.startEnabledOnLaunch && permissionAuthorized {
+        // Restore the last master on/off state (quit-with-effects-on returns enabled),
+        // or honour the always-start-enabled preference. Either way only auto-starts
+        // when Screen Recording is already granted.
+        if (settings.startEnabledOnLaunch || wasEnabled) && permissionAuthorized {
             isEnabled = true
         }
         autoScale = settings.renderScale   // governor starts from the saved quality if Auto is on
@@ -307,6 +321,7 @@ final class SpectraEngine {
         startRefreshTimer()
         startFolderWatch()
         registerGlobalPanicHotKey()
+        registerGlobalToggleHotKey()
         // A Dock-icon reopen raises the Studio above the overlay (it's a SwiftUI
         // singleton window that reopening surfaces without re-registering).
         NotificationCenter.default.addObserver(
@@ -330,10 +345,23 @@ final class SpectraEngine {
         }
     }
 
+    /// Register ⌥⌘P as a global pause/unpause chord, so effects can be toggled without
+    /// Spectra being frontmost. Unlike the panic switch it toggles both ways.
+    private func registerGlobalToggleHotKey() {
+        guard globalToggleHotKey == nil else { return }
+        globalToggleHotKey = GlobalHotKey.toggle { [weak self] in
+            MainActor.assumeIsolated { self?.toggleEnabled() }
+        }
+        if globalToggleHotKey == nil {
+            Log.render.error("Could not register the global pause hotkey (\(GlobalHotKey.toggleLabel, privacy: .public)); the chord may be taken.")
+        }
+    }
+
     func shutdown() {
         refreshTimer?.invalidate()
         folderWatcher?.stop()
         globalPanicHotKey = nil   // unregisters the Carbon hotkey
+        globalToggleHotKey = nil  // unregisters the Carbon hotkey
         displayGrade.clearAll()   // restore every display's colour profile (scanout LUT)
         systemEffects.shutdown()  // restore window opacity/tiling synchronously + remove the tint
         cursorEnforcer.setHidden(false)   // restores the cursor + removes the motion monitor
@@ -554,6 +582,13 @@ final class SpectraEngine {
     func setCoverMenuBarAndDock(_ on: Bool) {
         settings.coverMenuBarAndDock = on
         renderEngine.setCoversMenuBarAndDock(on)
+    }
+
+    /// Toggle whether the overlay is visible to external screen capture (the system
+    /// Screenshot UI / recorders). Off by default; flips every overlay's `sharingType`.
+    func setShowInScreenshots(_ on: Bool) {
+        settings.showInScreenshots = on
+        renderEngine.setOverlaysVisibleToScreenshots(on)
     }
 
     /// Re-probe yabai status read-only (the inspector calls this when a yabai-backed system
@@ -1012,6 +1047,7 @@ final class SpectraEngine {
         }
 
         renderEngine.setCoversMenuBarAndDock(settings.coverMenuBarAndDock)
+        renderEngine.setOverlaysVisibleToScreenshots(settings.showInScreenshots)
         renderEngine.setIntensityScale(Self.intensityScale(forSetting: settings.intensity))
         // Authoritative cursor pass: now that every renderer is (de)activated and every
         // chain rebuilt, push the effective custom-cursor state (setting OR warp
@@ -1051,8 +1087,10 @@ final class SpectraEngine {
             let exceptions = await controlWindowSCWindows()
             do {
                 try await session.start(scDisplay: scDisplay, excluding: apps, excepting: exceptions)
+                startupError = nil   // a display started cleanly; clear any prior failure banner
             } catch {
                 Log.capture.error("Failed to start capture for \(display.id): \(error.localizedDescription)")
+                startupError = "Couldn't start screen capture. \(error.localizedDescription)"
             }
         }
     }
@@ -1377,8 +1415,11 @@ final class SpectraEngine {
         try? JSONStore.save(state, to: AppPaths.stateFile)
     }
 
-    private func loadState() {
-        guard let state = JSONStore.load(PersistedState.self, from: AppPaths.stateFile) else { return }
+    /// Returns the persisted master on/off state so the caller can restore it on launch
+    /// (false when there is no saved state yet).
+    @discardableResult
+    private func loadState() -> Bool {
+        guard let state = JSONStore.load(PersistedState.self, from: AppPaths.stateFile) else { return false }
         if let raw = state.selectedDisplayID { selectedDisplayID = raw }
         for (key, chain) in state.chains {
             guard let id = UInt32(key) else { continue }
@@ -1388,5 +1429,6 @@ final class SpectraEngine {
         for (key, name) in state.activePresets ?? [:] {
             if let id = UInt32(key) { activePresetByDisplay[id] = name }
         }
+        return state.masterEnabled
     }
 }
