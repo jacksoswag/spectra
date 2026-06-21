@@ -1,9 +1,14 @@
 # Spectra website
 
 The marketing site for Spectra. A static, zero-dependency page (vanilla HTML, CSS,
-and JS) whose hero is a **live WebGL shader playground**: real fragment shaders that
-mirror the app's effects, running on a mock macOS desktop (or the visitor's camera).
-Because the app's overlay can't be screen-captured, the site itself is the demo.
+and JS). Its entire background is a **live WebGL renderer**: a mock macOS desktop
+re-shaded through all 16 of the app's real preset worlds, auto-cycling "best first"
+with a prism-dispersion transition between each. Content rides on frosted glass so the
+shading shows through. Because the app's overlay can't be screen-captured, the page
+itself is the demo — it is literally a desktop being shaded in real time.
+
+All copy (world names, descriptions, the 169-effect / 14-category counts, the free
+tier) is lifted from the Swift source so the site can't drift from the app.
 
 ## Preview
 
@@ -28,13 +33,15 @@ the domain is live.
 
 ## Structure
 
-- `index.html` — markup and sections (hero, effects, worlds, how-it-works, pricing, FAQ).
-- `css/style.css` — the brand system and all components.
-- `js/demo.js` — the WebGL playground: a mock-desktop scene drawn to a texture, then
-  post-processed by effect shaders (CRT, VHS, glitch, oil, dream, Game Boy, comic).
-  Exposes `window.Spectra` for the controls.
-- `js/site.js` — builds the effect chips and category grid, wires the controls, the
-  before/after wipe, the camera toggle, the auto-cycle, and scroll reveals.
+- `index.html` — markup and sections (hero + now-playing HUD + world deck, worlds,
+  effects, how-it-works, pricing, FAQ).
+- `css/style.css` — the brand system, the glass panels, the HUD, and the world deck.
+- `js/demo.js` — the renderer: a mock macOS desktop drawn to a texture, 16 fragment
+  shaders faithful to `Sources/Presets/BuiltInPresets.swift`, and a two-FBO composite
+  that does the prism-dispersion sweep between worlds. Exposes `window.Spectra`
+  (`transitionTo`, `setAmount`, `current`, `busy`).
+- `js/site.js` — the 16-world data (verbatim copy), the deck, the now-playing HUD, the
+  auto-cycle, the 14-category grid, and scroll reveals.
 - `assets/` — `logo.svg`, `favicon.svg`, `icon.svg` (app-icon art), `og.svg` (social card).
 
 ## Brand
