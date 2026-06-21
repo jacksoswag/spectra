@@ -57,6 +57,14 @@ final class DisplayGrade {
         }
     }
 
+    /// Reset every display to its ColorSync profile defaults at launch, clearing any
+    /// scanout LUT a prior crash left installed. The captured originals live only in
+    /// memory, so a crash (or force-quit) that skipped `clearAll` would otherwise strand
+    /// the display graded until logout. Called once on launch, before any new grade.
+    func clearStaleGradeAtLaunch() {
+        CGDisplayRestoreColorSyncSettings()
+    }
+
     /// Restore every graded display. Called on disable/teardown.
     func clearAll() {
         let ids = Array(applied.keys)
