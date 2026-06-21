@@ -605,6 +605,15 @@ final class SpectraEngine {
         renderEngine.setOverlaysVisibleToScreenshots(on)
     }
 
+    /// Reset every setting to its shipped default and re-apply it to the running
+    /// pipeline (the Settings "Reset to Defaults" action). Effects, presets, and the
+    /// master on/off state are left untouched.
+    func resetSettingsToDefaults() {
+        settings.resetToDefaults()
+        updatePipelines()           // re-applies render scale, cover-menu-bar, screenshot sharing, intensity
+        reconcileSystemEffects()    // re-applies Glass to the reset value
+    }
+
     /// Re-probe yabai status read-only (the inspector calls this when a yabai-backed system
     /// effect is shown, so install / SIP / ready state updates live without side effects).
     func refreshSystemEffectsStatus(needsOpacity: Bool) {

@@ -68,6 +68,10 @@ struct XYPad: View {
                 })
         }
         .frame(height: 120)
+        .accessibilityElement()
+        .accessibilityLabel("Position pad")
+        .accessibilityValue("X \(Int((point.x * 100).rounded())) percent, Y \(Int((point.y * 100).rounded())) percent")
+        .accessibilityHint("Drag to set the X and Y position")
     }
 }
 
@@ -223,6 +227,10 @@ struct RangeSliderField: View {
                 .frame(height: 20)
             }
             .frame(height: 20)
+            .accessibilityElement()
+            .accessibilityLabel("\(title) range")
+            .accessibilityValue(String(format: "%.2f to %.2f", low, high))
+            .accessibilityHint("Drag the low and high handles to set the range")
         }
     }
 
@@ -265,6 +273,10 @@ struct CurveEditor: View {
             .onTapGesture { addPoint(at: $0, size: size, doubleTap: false) }
         }
         .frame(height: 150)
+        .accessibilityElement()
+        .accessibilityLabel("Tone curve")
+        .accessibilityValue("\(points.count) points")
+        .accessibilityHint("Drag a handle to shape the curve; tap to add a point, double-tap a point to remove it")
         .overlay(alignment: .bottomTrailing) {
             Button("Reset") { points = [CurvePoint(x: 0, y: 0), CurvePoint(x: 1, y: 1)] }
                 .buttonStyle(.borderless).font(.caption2).padding(4)
@@ -362,11 +374,14 @@ struct GradientEditor: View {
                         get: { Color(simd: stop.color) },
                         set: { stops[index].color = $0.simd4 }), supportsOpacity: true)
                         .labelsHidden().frame(width: 36)
+                        .accessibilityLabel("Stop \(index + 1) colour")
                     Slider(value: Binding(
                         get: { stops[index].position },
                         set: { stops[index].position = $0 }), in: 0...1)
+                        .accessibilityLabel("Stop \(index + 1) position")
                     Button { stops.remove(at: index) } label: { Image(systemName: "minus.circle") }
                         .buttonStyle(.borderless).disabled(stops.count <= 2)
+                        .accessibilityLabel("Remove stop \(index + 1)")
                 }
             }
             Button { stops.append(GradientStop(position: 0.5, color: SIMD4(0.5, 0.5, 0.5, 1))) } label: {

@@ -84,6 +84,9 @@ final class SettingsStore {
     /// it never feeds back into Spectra's own capture. Spectra's pipeline excludes the
     /// overlay by whole-app exclusion, not `sharingType`, so this is feedback-safe.
     var showInScreenshots: Bool { didSet { persist() } }
+    /// Whether the first-run welcome has been shown. Set once and never reset by
+    /// "Reset to Defaults" (it tracks a one-time event, not a preference).
+    var hasSeenWelcome: Bool { didSet { persist() } }
     /// Global effect intensity (0…1), the master strength of the whole shader.
     /// 100% (the default) is the look the presets ship at; `SpectraEngine` maps this
     /// linearly to a per-effect strength multiplier (1.0 → 1.0×, 0 → 0×) applied at
@@ -131,6 +134,7 @@ final class SettingsStore {
         var fuseColorPasses: Bool? = true
         var glassEnabled: Bool? = false
         var showInScreenshots: Bool? = false
+        var hasSeenWelcome: Bool? = false
         // Optional so files written before v5 decode to nil and adopt the 100%
         // default (which reproduces the presets' shipped look). Values from v5 are
         // remapped onto the new linear curve during migration.
@@ -181,10 +185,34 @@ final class SettingsStore {
         fuseColorPasses = state.fuseColorPasses ?? true
         glassEnabled = state.glassEnabled ?? false
         showInScreenshots = state.showInScreenshots ?? false
+        hasSeenWelcome = state.hasSeenWelcome ?? false
         intensity = Swift.min(1.0, Swift.max(0.0, state.intensity ?? 1.0))
         favoriteEffectIDs = Set(state.favoriteEffectIDs)
 
         if migrated { persist() }   // write the migrated values back once
+    }
+
+    /// Restore every setting to its shipped default (the Settings "Reset to Defaults"
+    /// action). Favourites are preserved — they're user content, not a preference.
+    /// Persists once at the end rather than on each field's didSet.
+    func resetToDefaults() {
+        isLoading = true
+        let d = State()
+        startEnabledOnLaunch = d.startEnabledOnLaunch
+        renderScale = d.renderScale ?? 1.0
+        autoQuality = d.autoQuality ?? true
+        showCursorInCapture = d.showCursorInCapture
+        customCursor = d.customCursor
+        frameRatePolicy = d.frameRatePolicy
+        reduceMotion = d.reduceMotion
+        menuBarShowsPerformance = d.menuBarShowsPerformance
+        coverMenuBarAndDock = d.coverMenuBarAndDock ?? true
+        fuseColorPasses = d.fuseColorPasses ?? true
+        glassEnabled = d.glassEnabled ?? false
+        showInScreenshots = d.showInScreenshots ?? false
+        intensity = d.intensity ?? 1.0
+        isLoading = false
+        persist()
     }
 
     func isFavorite(_ id: String) -> Bool { favoriteEffectIDs.contains(id) }
@@ -208,6 +236,7 @@ final class SettingsStore {
             fuseColorPasses: fuseColorPasses,
             glassEnabled: glassEnabled,
             showInScreenshots: showInScreenshots,
+            hasSeenWelcome: hasSeenWelcome,
             intensity: intensity,
             favoriteEffectIDs: favoriteEffectIDs.sorted())
         try? JSONStore.save(state, to: AppPaths.settingsFile)

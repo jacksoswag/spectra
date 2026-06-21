@@ -14,6 +14,7 @@ struct EffectStackView: View {
     @State private var renamingInstance: UUID?
     @State private var renamingGroup: UUID?
     @State private var renameText = ""
+    @State private var showingClearConfirm = false
 
     /// One visible line in the stack: a group header or an effect row. Collapsed
     /// groups contribute only their header.
@@ -153,23 +154,29 @@ struct EffectStackView: View {
     private var footer: some View {
         HStack(spacing: Theme.Spacing.sm) {
             Button { showingLibrary = true } label: { Image(systemName: "plus") }
-                .help("Add effect")
+                .help("Add effect").accessibilityLabel("Add effect")
             Button { if let id = stack.selection { stack.duplicate(id) } } label: { Image(systemName: "plus.square.on.square") }
-                .help("Duplicate").disabled(stack.selection == nil)
+                .help("Duplicate").accessibilityLabel("Duplicate effect").disabled(stack.selection == nil)
             Button { stack.removeSelected() } label: { Image(systemName: "trash") }
-                .help("Remove").disabled(stack.selection == nil)
+                .help("Remove").accessibilityLabel("Remove effect").disabled(stack.selection == nil)
             Spacer()
             if let onSavePreset {
                 Button { onSavePreset() } label: { Image(systemName: "square.and.arrow.down") }
-                    .help("Save as preset").disabled(stack.effects.isEmpty)
+                    .help("Save as preset").accessibilityLabel("Save as preset").disabled(stack.effects.isEmpty)
             }
             Button { groupSelected() } label: { Image(systemName: "rectangle.3.group") }
-                .help("Group selected effect").disabled(stack.selection == nil)
-            Button { stack.clear() } label: { Image(systemName: "xmark.bin") }
-                .help("Clear all").disabled(stack.effects.isEmpty)
+                .help("Group selected effect").accessibilityLabel("Group selected effect").disabled(stack.selection == nil)
+            Button { showingClearConfirm = true } label: { Image(systemName: "xmark.bin") }
+                .help("Clear all").accessibilityLabel("Clear all effects").disabled(stack.effects.isEmpty)
         }
         .buttonStyle(.borderless)
         .padding(Theme.Spacing.sm)
+        .confirmationDialog("Clear all effects?", isPresented: $showingClearConfirm, titleVisibility: .visible) {
+            Button("Clear All", role: .destructive) { stack.clear() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes every effect from this display's stack. It can't be undone.")
+        }
     }
 
     @ViewBuilder
@@ -260,9 +267,13 @@ private struct EffectStackRow: View {
                 Text(instance.name ?? descriptor?.name ?? instance.descriptorID)
                     .font(.callout.weight(.medium))
                     .opacity(instance.isEnabled ? 1 : 0.5)
-                Slider(value: ParameterBinding.strength(stack, instance.id), in: 0...1)
-                    .controlSize(.mini)
-                    .disabled(!instance.isEnabled)
+                // Strength lives once, in the inspector's Universal section (with
+                // opacity and blend), rather than being duplicated on every row.
+                if let descriptor {
+                    Text(descriptor.category.displayName)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .opacity(instance.isEnabled ? 1 : 0.5)
+                }
             }
 
             Button { stack.toggleEnabled(instance.id) } label: {

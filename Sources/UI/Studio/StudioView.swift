@@ -55,6 +55,11 @@ struct StudioView: View {
         .alert(item: $notice) { notice in
             Alert(title: Text(notice.title), message: Text(notice.message), dismissButton: .default(Text("OK")))
         }
+        .sheet(isPresented: Binding(
+            get: { !engine.settings.hasSeenWelcome },
+            set: { if !$0 { engine.settings.hasSeenWelcome = true } })) {
+            WelcomeView(engine: engine) { engine.settings.hasSeenWelcome = true }
+        }
     }
 
     // MARK: - Workspace
