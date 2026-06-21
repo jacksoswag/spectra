@@ -78,6 +78,12 @@ final class SettingsStore {
     /// directly via `SystemEffectsController` (independent of the main effects switch and the
     /// effect stack). Persisted so it stays where you left it.
     var glassEnabled: Bool { didSet { persist() } }
+    /// Make the overlay visible to external screen capture (system Screenshot UI /
+    /// `screencapture`, third-party recorders) by flipping its `sharingType` from
+    /// `.none` to `.readOnly`. Off by default — the overlay normally hides itself so
+    /// it never feeds back into Spectra's own capture. Spectra's pipeline excludes the
+    /// overlay by whole-app exclusion, not `sharingType`, so this is feedback-safe.
+    var showInScreenshots: Bool { didSet { persist() } }
     /// Global effect intensity (0…1), the master strength of the whole shader.
     /// 100% (the default) is the look the presets ship at; `SpectraEngine` maps this
     /// linearly to a per-effect strength multiplier (1.0 → 1.0×, 0 → 0×) applied at
@@ -124,6 +130,7 @@ final class SettingsStore {
         var coverMenuBarAndDock: Bool? = true
         var fuseColorPasses: Bool? = true
         var glassEnabled: Bool? = false
+        var showInScreenshots: Bool? = false
         // Optional so files written before v5 decode to nil and adopt the 100%
         // default (which reproduces the presets' shipped look). Values from v5 are
         // remapped onto the new linear curve during migration.
@@ -173,6 +180,7 @@ final class SettingsStore {
         coverMenuBarAndDock = state.coverMenuBarAndDock ?? true
         fuseColorPasses = state.fuseColorPasses ?? true
         glassEnabled = state.glassEnabled ?? false
+        showInScreenshots = state.showInScreenshots ?? false
         intensity = Swift.min(1.0, Swift.max(0.0, state.intensity ?? 1.0))
         favoriteEffectIDs = Set(state.favoriteEffectIDs)
 
@@ -199,6 +207,7 @@ final class SettingsStore {
             coverMenuBarAndDock: coverMenuBarAndDock,
             fuseColorPasses: fuseColorPasses,
             glassEnabled: glassEnabled,
+            showInScreenshots: showInScreenshots,
             intensity: intensity,
             favoriteEffectIDs: favoriteEffectIDs.sorted())
         try? JSONStore.save(state, to: AppPaths.settingsFile)

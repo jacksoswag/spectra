@@ -64,6 +64,9 @@ struct StudioView: View {
             if !engine.permissionAuthorized {
                 PermissionBanner(engine: engine)
             }
+            if let message = engine.statusMessage {
+                StatusBanner(message: message) { engine.dismissStatusMessage() }
+            }
             HSplitView {
                 PerformanceView(engine: engine)
                     .frame(minWidth: 240, idealWidth: 300, maxWidth: 420)
@@ -168,6 +171,14 @@ struct StudioView: View {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
+            Toggle(isOn: Binding(
+                get: { engine.settings.showInScreenshots },
+                set: { engine.setShowInScreenshots($0) })) {
+                Label("Show in Screenshots", systemImage: "camera.viewfinder")
+            }
+            .toggleStyle(.button)
+            .help("Make the overlay visible to screenshots and screen recordings (off by default, so the overlay normally hides itself from capture)")
+
             Button {
                 openWindow(id: "settings")
                 NSApp.activate(ignoringOtherApps: true)
