@@ -47,6 +47,7 @@
 		40D2CFC79A7DFE638EC541BD /* YabaiBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 591FED7CF5298568EAB87DDE /* YabaiBridge.swift */; };
 		4292E7433B0C5A8E4FCB82C5 /* SpectraControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43A35D4D4C72ADADEF5219D /* SpectraControls.swift */; };
 		43F82B444FCA12DD54F210AE /* PixelEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDF79120315546CEB5BB718A /* PixelEffects.swift */; };
+		453D450D00941E7A46EA615E /* SIPRequiredView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4AC6B829571151C7012055 /* SIPRequiredView.swift */; };
 		479DFA6D3218055D36CBCBA0 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B1E1CBAB126E8BCD1F5E7D /* Log.swift */; };
 		48B37D61A0917474571210F4 /* ShaderCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A64AA12AC74EA837E419AED /* ShaderCompiler.swift */; };
 		4BBA38C65AEF2C312000A64F /* ParameterValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8564B920117D10A8A7CE5CC4 /* ParameterValue.swift */; };
@@ -212,6 +213,7 @@
 		BA97C755B881F1C1865FFA3B /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		BB91ADEF357D8BAFAF7FD111 /* YabaiProvisioner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YabaiProvisioner.swift; sourceTree = "<group>"; };
 		BC2D1BBF5A9FB0AD1F80C64F /* ColorEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorEffects.swift; sourceTree = "<group>"; };
+		BC4AC6B829571151C7012055 /* SIPRequiredView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SIPRequiredView.swift; sourceTree = "<group>"; };
 		BC63F6F33294E002BB9C6000 /* SpectraEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectraEngine.swift; sourceTree = "<group>"; };
 		BDBB090921025DAE22A7F616 /* PresetLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetLibrary.swift; sourceTree = "<group>"; };
 		BE5C95868CF85D90BD003E4C /* ThumbnailRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailRenderer.swift; sourceTree = "<group>"; };
@@ -544,6 +546,7 @@
 			isa = PBXGroup;
 			children = (
 				8965610CA83B8A5FA3C25FA5 /* SettingsView.swift */,
+				BC4AC6B829571151C7012055 /* SIPRequiredView.swift */,
 				74760410DA657D639893C0C1 /* SystemAccessibility.swift */,
 			);
 			path = Settings;
@@ -845,6 +848,7 @@
 				059BF3C7C360D57DAF99F06D /* ResolvedEffect.swift in Sources */,
 				5AB1FFC832734BD1A2402F2A /* Retro.metal in Sources */,
 				8378CBD17526F35D61D6EB3E /* RetroEffects.swift in Sources */,
+				453D450D00941E7A46EA615E /* SIPRequiredView.swift in Sources */,
 				3C8CCD84FA9DAF16B4373E54 /* ScreenRecordingPermission.swift in Sources */,
 				5EDE0C826491F884E6543EAC /* SettingsStore.swift in Sources */,
 				A41D363637E48C87EF13C973 /* SettingsView.swift in Sources */,

@@ -143,6 +143,15 @@ final class SpectraEngine {
     /// system-effect rows can reflect install / admin-prompt / SIP / ready state.
     private(set) var systemEffectsStatus: YabaiProvisioner.Status = .unknown
 
+    /// Set when the user enables Glass while SIP is on (window transparency needs SIP
+    /// partly disabled). The app observes this to present the one-time SIP education
+    /// window. There is deliberately no standalone "disable SIP" button: SIP-off
+    /// unlocks exactly one feature, so it is surfaced only on the Glass-enable action.
+    private(set) var sipGuideRequested = false
+    /// True between a user Glass-enable and the SIP status settling, so a later
+    /// `.sipRequired` transition still routes to the guide (the status is async).
+    @ObservationIgnored private var pendingGlassSIPCheck = false
+
     /// Effects whose transfer is per-channel separable — exactly reproducible by a
     /// scanout LUT (verified against their `colorproc_*` math). Cross-channel ops
     /// (saturation, vibrance, highlights/shadows/whites/blacks, temperature/tint's
@@ -316,7 +325,10 @@ final class SpectraEngine {
         // path and surface yabai availability to the inspector. `updatePipelines` below
         // reconciles the actual state, so these hooks must be set first.
         systemEffects.onCaptureExceptionsChanged = { [weak self] in self?.refreshCaptureExceptions() }
-        systemEffects.onStatusChanged = { [weak self] status in self?.systemEffectsStatus = status }
+        systemEffects.onStatusChanged = { [weak self] status in
+            self?.systemEffectsStatus = status
+            self?.maybeRequestSIPGuide()
+        }
         systemEffects.refreshStatus(needsOpacity: true)
         updatePipelines()
         startRefreshTimer()
@@ -928,8 +940,29 @@ final class SpectraEngine {
     /// (no preset, and no need to Start the main effects pipeline).
     func setGlassEnabled(_ on: Bool) {
         settings.glassEnabled = on
+        // Arm the SIP check on enable; disarm (and dismiss any open guide) on disable.
+        pendingGlassSIPCheck = on
+        if !on { sipGuideRequested = false }
         reconcileSystemEffects()
+        // The status may already be known (probed at launch); also re-probe so a fresh
+        // .sipRequired routes to the guide via maybeRequestSIPGuide.
+        if on {
+            maybeRequestSIPGuide()
+            refreshSystemEffectsStatus(needsOpacity: true)
+        }
     }
+
+    /// Present the one-time SIP education window when the user has just enabled Glass
+    /// and window transparency is blocked by SIP. Called both inline (status already
+    /// known) and from the async status callback.
+    private func maybeRequestSIPGuide() {
+        guard pendingGlassSIPCheck, settings.glassEnabled, systemEffectsStatus == .sipRequired else { return }
+        pendingGlassSIPCheck = false
+        sipGuideRequested = true
+    }
+
+    /// Dismiss the SIP education window (the app calls this when the window closes).
+    func dismissSIPGuide() { sipGuideRequested = false }
 
     /// The desired aggregate system-effect state. Two sources, deduplicated (first wins):
     /// per-effect rows in a display's stack (only while the main pipeline is enabled), and
