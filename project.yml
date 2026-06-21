@@ -45,6 +45,9 @@ targets:
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/../Frameworks"
+      configs:
+        Debug:
+          ENABLE_TESTABILITY: YES   # so SpectraTests can @testable import Spectra
     dependencies:
       - sdk: ScreenCaptureKit.framework
       - sdk: Metal.framework
@@ -54,3 +57,19 @@ targets:
       - sdk: IOSurface.framework
       - sdk: IOKit.framework
       - sdk: UniformTypeIdentifiers.framework
+    scheme:
+      testTargets:
+        - SpectraTests
+
+  SpectraTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Spectra
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.spectra.SpectraTests
+        GENERATE_INFOPLIST_FILE: YES

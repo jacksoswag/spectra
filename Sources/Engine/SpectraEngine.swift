@@ -262,6 +262,9 @@ final class SpectraEngine {
     func bootstrap() async {
         guard !didBootstrap else { return }
         didBootstrap = true
+        // Under unit tests the host app still launches; don't start capture, timers,
+        // hotkeys, or the overlay (the tests exercise logic, not the live pipeline).
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         // Let the cursor enforcer tell the overlay (rendered cursor) apart from the menu
         // bar / dropdowns above it, so the real cursor shows over the latter only.
         cursorEnforcer.isOverlayWindow = { [weak self] number in
