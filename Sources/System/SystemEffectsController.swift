@@ -203,11 +203,6 @@ final class SystemEffectsController {
         lastState = state
     }
 
-    /// Restore everything to the user's prior state (master disable).
-    func deactivateAll() {
-        apply(.inactive, displayIDs: lastDisplayIDs)
-    }
-
     /// Quit-time teardown: remove the tint windows and synchronously restore yabai so
     /// the process can exit without leaving windows dimmed or tiled.
     func shutdown() {

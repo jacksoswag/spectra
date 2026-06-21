@@ -293,6 +293,7 @@ final class SpectraEngine {
             MainActor.assumeIsolated { self?.registerControlWindow(panel) }
         }
         AppPaths.ensureDirectories()
+        displayGrade.clearStaleGradeAtLaunch()   // reset any scanout LUT a prior crash left installed
         permissionAuthorized = ScreenRecordingPermission.isAuthorized
         await displayManager.refresh()
         permissionAuthorized = displayManager.permissionAuthorized
@@ -1133,7 +1134,20 @@ final class SpectraEngine {
 
     private func handleSessionStopped(_ displayID: CGDirectDisplayID, _ error: Error?) {
         sessions[displayID] = nil
-        updatePipelines()
+        // A stop *with an error* can mean Screen Recording was revoked mid-session.
+        // Re-check the grant before blindly restarting: if it's gone, reflect it (the
+        // permission banner reappears) and tear the pipeline down so the overlay can't
+        // freeze on its last frame while the OS keeps refusing a fresh stream.
+        guard error != nil else { updatePipelines(); return }
+        Task {
+            await displayManager.refresh()
+            permissionAuthorized = displayManager.permissionAuthorized
+            displays = displayManager.displays
+            if !permissionAuthorized {
+                startupError = "Screen Recording access was turned off. Re-enable it in System Settings to keep rendering effects."
+            }
+            updatePipelines()
+        }
     }
 
     /// Snapshot each capturing display's frame count and arm the post-Space-switch stall check
