@@ -24,6 +24,7 @@
 		1D9701B87D6FFEC6911F4A61 /* BuiltInEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCEC28EC8D442B7FDDCB655E /* BuiltInEffects.swift */; };
 		1E6BC3CF0275317AA917B128 /* GlobalHotKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD11513CF174C44FA8C3183E /* GlobalHotKey.swift */; };
 		20012AFD8F4CAE5A45E4B527 /* JSONStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C658D820143DA1065FEF55 /* JSONStore.swift */; };
+		21494A746A7256A7997F1B7D /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92F2280CF5D5ACC8AF652932 /* WelcomeView.swift */; };
 		2396C00DDBD0222961607FE5 /* CustomShader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4F8C5B8F7D5E31D9CEC382 /* CustomShader.swift */; };
 		25103B756D23B703F069D720 /* SpectraEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC63F6F33294E002BB9C6000 /* SpectraEngine.swift */; };
 		2591C3A092E32F8A2841EF10 /* RenderLinkThread.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B55EDF95A9E0FE27E2BDC08 /* RenderLinkThread.swift */; };
@@ -110,6 +111,7 @@
 		C1CCE83E95CEE8D1A167A08B /* Color.metal in Sources */ = {isa = PBXBuildFile; fileRef = 46D34C8BB77E4DEE4C9BF55E /* Color.metal */; };
 		C2F6CD02DBC7132E5104A332 /* BlendMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 979FD8BFDA7C07A176C39D7D /* BlendMode.swift */; };
 		C380F876074B2C0989BA3F48 /* ScreenCaptureKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F996F9E36913F16D70E2AC47 /* ScreenCaptureKit.framework */; };
+		C9CBCECE74AC1B4368740E3B /* ProblemReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00D93DBE140CA6763251801 /* ProblemReporter.swift */; };
 		CD25EE57D7456813C07212CC /* ThumbnailRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5C95868CF85D90BD003E4C /* ThumbnailRenderer.swift */; };
 		CF8583F23FA2DEC4ACAFA07B /* Blur.metal in Sources */ = {isa = PBXBuildFile; fileRef = BF49DA9EE9C0422C435C14EA /* Blur.metal */; };
 		D091DC66C2FFFED2D1F4E6CA /* DisplayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4292DB343E7D8D7AC275487D /* DisplayManager.swift */; };
@@ -202,6 +204,7 @@
 		8965610CA83B8A5FA3C25FA5 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		8F4ED85737153F6615CA3B3F /* SharpenEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharpenEffects.swift; sourceTree = "<group>"; };
 		91224D0EBFD5DA9725CF8FD4 /* CustomShaderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomShaderStore.swift; sourceTree = "<group>"; };
+		92F2280CF5D5ACC8AF652932 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		973FFCD8DE30DB32ACC851F6 /* EffectParameter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectParameter.swift; sourceTree = "<group>"; };
 		979FD8BFDA7C07A176C39D7D /* BlendMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlendMode.swift; sourceTree = "<group>"; };
 		9B599C505A4A41CD5468AFF6 /* FilmEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEffects.swift; sourceTree = "<group>"; };
@@ -225,6 +228,7 @@
 		CC336088AC8C1AD9CF71C06B /* ChainResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainResolver.swift; sourceTree = "<group>"; };
 		CCE7C77AC48E873B4C0E594E /* DisplayInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayInfo.swift; sourceTree = "<group>"; };
 		CDF79120315546CEB5BB718A /* PixelEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelEffects.swift; sourceTree = "<group>"; };
+		D00D93DBE140CA6763251801 /* ProblemReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProblemReporter.swift; sourceTree = "<group>"; };
 		D43A35D4D4C72ADADEF5219D /* SpectraControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectraControls.swift; sourceTree = "<group>"; };
 		D4B1E1CBAB126E8BCD1F5E7D /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
 		D5448D22C6CDC1A20A2251C2 /* InspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorView.swift; sourceTree = "<group>"; };
@@ -300,6 +304,7 @@
 				3EE4739A60C8C74EDE08569D /* PermissionBanner.swift */,
 				5C69F43F148411D4310B1480 /* StatusBanner.swift */,
 				7963027A306F993F410EC56C /* StudioView.swift */,
+				92F2280CF5D5ACC8AF652932 /* WelcomeView.swift */,
 			);
 			path = Studio;
 			sourceTree = "<group>";
@@ -516,6 +521,7 @@
 				5E48F1BA38D24C7E3D4B5551 /* CursorVisibilityEnforcer.swift */,
 				FD11513CF174C44FA8C3183E /* GlobalHotKey.swift */,
 				030AE55C885DC1656AC655B0 /* MenuPanelCaptureBridge.swift */,
+				D00D93DBE140CA6763251801 /* ProblemReporter.swift */,
 				2E0EE0CC7FBD431E341147C2 /* ShaderTestHarness.swift */,
 				2E19C828A239A7CE1415F420 /* SpectraApp.swift */,
 			);
@@ -843,6 +849,7 @@
 				BCD2EA552E60A611AE88C181 /* Preset.swift in Sources */,
 				3199475CCC4964FBC7A7244F /* PresetLibrary.swift in Sources */,
 				1C544D2E2A06848D236BF80C /* PreviewView.swift in Sources */,
+				C9CBCECE74AC1B4368740E3B /* ProblemReporter.swift in Sources */,
 				A02E2C7938B9AEFAB32E08B8 /* RenderEngine.swift in Sources */,
 				2591C3A092E32F8A2841EF10 /* RenderLinkThread.swift in Sources */,
 				059BF3C7C360D57DAF99F06D /* ResolvedEffect.swift in Sources */,
@@ -878,6 +885,7 @@
 				E43B71DC98F6ABB1A872EA94 /* VHS.metal in Sources */,
 				7C610116A8F4474D6565C59D /* VHSEffects.swift in Sources */,
 				110C8D0442616A2008F87B5B /* WallpaperProvider.swift in Sources */,
+				21494A746A7256A7997F1B7D /* WelcomeView.swift in Sources */,
 				40D2CFC79A7DFE638EC541BD /* YabaiBridge.swift in Sources */,
 				329E0B26C00C283FB841CAAD /* YabaiProvisioner.swift in Sources */,
 			);

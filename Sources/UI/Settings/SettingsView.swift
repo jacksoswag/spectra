@@ -16,6 +16,7 @@ private struct SettingsForm: View {
     let engine: SpectraEngine
     @Bindable var settings: SettingsStore
     @State private var a11y = SystemAccessibility()
+    @State private var showingResetConfirm = false
 
     var body: some View {
         Form {
@@ -114,6 +115,9 @@ private struct SettingsForm: View {
                 }
                 Button("Open System Settings…") { ScreenRecordingPermission.openSystemSettings() }
                 Button("Re-check & Refresh Displays") { Task { await engine.refreshDisplays() } }
+                Label("Captured frames are processed on-device only. Spectra never records, saves, or uploads your screen.",
+                      systemImage: "lock.fill")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Displays") {
@@ -151,9 +155,17 @@ private struct SettingsForm: View {
                 LabeledContent("Custom Shaders", value: "\(engine.customShaders.shaders.count)")
                 Text("A desktop-wide GPU visual effects engine for macOS.")
                     .font(.caption).foregroundStyle(.secondary)
+                Button("Report a Problem…") { ProblemReporter.report() }
+                Button("Reset to Defaults", role: .destructive) { showingResetConfirm = true }
             }
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+        .confirmationDialog("Reset all settings to defaults?", isPresented: $showingResetConfirm, titleVisibility: .visible) {
+            Button("Reset to Defaults", role: .destructive) { engine.resetSettingsToDefaults() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This restores every Spectra setting to its shipped default. Your effects, presets, and favourites are kept.")
+        }
     }
 }

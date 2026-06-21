@@ -20,6 +20,7 @@ struct ComposerView: View {
     @State private var editingID: String?
     @State private var showingAddStage = false
     @State private var status: String?
+    @State private var showingCloseConfirm = false
 
     init(engine: SpectraEngine, existing: ComposedEffect? = nil, fork: Bool = false, onClose: @escaping () -> Void) {
         self.engine = engine
@@ -87,11 +88,20 @@ struct ComposerView: View {
             Text(editingID == nil ? "New Effect" : "Edit Effect").font(.title2.bold())
             if let status { Text(status).font(.caption).foregroundStyle(.secondary) }
             Spacer()
-            Button("Close") { onClose() }.keyboardShortcut(.cancelAction)
-            Button { save() } label: { Label("Save", systemImage: "square.and.arrow.down") }
+            Button("Close") {
+                if stack.effects.isEmpty { onClose() } else { showingCloseConfirm = true }
+            }
+            .keyboardShortcut(.cancelAction)
+            .confirmationDialog("Discard this effect?", isPresented: $showingCloseConfirm, titleVisibility: .visible) {
+                Button("Discard & Close", role: .destructive) { onClose() }
+                Button("Keep Editing", role: .cancel) {}
+            } message: {
+                Text("Closing without saving will lose the effect you're building.")
+            }
+            Button { Task { await save() } } label: { Label("Save", systemImage: "square.and.arrow.down") }
                 .buttonStyle(.borderedProminent)
                 .disabled(!canSave)
-            Button("Save & Add") { if save() { addToStackAndClose() } }
+            Button("Save & Add") { Task { if await save() { addToStackAndClose() } } }
                 .disabled(!canSave)
         }
         .padding(Theme.Spacing.md)
@@ -231,7 +241,7 @@ struct ComposerView: View {
     // MARK: Save
 
     @discardableResult
-    private func save() -> Bool {
+    private func save() async -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, !stack.effects.isEmpty else { return false }
 
@@ -250,8 +260,8 @@ struct ComposerView: View {
             .filter { !$0.isEmpty } + ["composed"]
 
         let id = editingID ?? "composed.\(UUID().uuidString.prefix(8))"
-        // Resolve the working chain for the thumbnail before saving.
-        let thumbnail = engine.thumbnailRenderer.renderBase64PNG(chain: engine.resolve(stack.chain()))
+        // Render the thumbnail off the main thread so a composer save doesn't hitch.
+        let thumbnail = await engine.thumbnailRenderer.renderBase64PNGAsync(chain: engine.resolve(stack.chain()))
 
         let effect = ComposedEffect(
             id: id, name: trimmed, subtitle: subtitle, category: category,

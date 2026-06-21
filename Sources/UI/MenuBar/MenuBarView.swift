@@ -17,10 +17,11 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            Button(engine.isEnabled ? "Pause Spectra" : "Unpause Spectra") {
+            Button(engine.isEnabled ? "Stop Spectra" : "Start Spectra") {
                 engine.toggleEnabled()
             }
             .controlSize(.large)
+            .help("Toggle effects on or off (\(GlobalHotKey.toggleLabel) from anywhere)")
 
             Divider()
 
@@ -51,6 +52,14 @@ struct MenuBarView: View {
                     .toggleStyle(.switch)
                     .controlSize(.small)
                     .fixedSize()
+            }
+            HStack {
+                Button("Settings…") {
+                    openWindow(id: "settings")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                Spacer()
+                Button("Report a Problem…") { ProblemReporter.report() }
             }
             Button("Quit Spectra") { NSApp.terminate(nil) }
         }
