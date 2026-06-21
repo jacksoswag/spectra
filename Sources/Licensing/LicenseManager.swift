@@ -4,7 +4,6 @@ import Observation
 /// On-disk license record. Plain JSON (no HWID, no obfuscation) — at this price,
 /// plain license keys are the right tradeoff (see the ship plan's piracy note).
 struct LicenseRecord: Codable, Equatable, Sendable {
-    var trialStart: Date? = nil
     var licenseKey: String? = nil
     /// Last SUCCESSFUL online validation, for the offline-grace window.
     var lastValidated: Date? = nil
@@ -12,10 +11,11 @@ struct LicenseRecord: Codable, Equatable, Sendable {
     var lastValidationOK: Bool = false
 }
 
-/// The self-contained licensing layer: a 14-day no-account full trial, offline
-/// validation with a grace window so a server outage never bricks a paid copy, and
-/// a clean interface the app gates on. The concrete backend is selected by
-/// `LicenseConfig.backend` and stubbed until Phase 2, so call sites never change.
+/// The self-contained licensing layer: a permanent gated free tier (cinematic presets
+/// only) plus license activation with an offline grace window so a validation-server
+/// outage never drops a paid copy back to the free tier. The concrete backend is
+/// selected by `LicenseConfig.backend` and stubbed until Phase 2, so call sites never
+/// change.
 @MainActor
 @Observable
 final class LicenseManager {
@@ -33,38 +33,23 @@ final class LicenseManager {
          backend: LicenseBackend = LicenseConfig.backend.makeBackend()) {
         self.now = now
         self.backend = backend
-        var loaded = JSONStore.load(LicenseRecord.self, from: AppPaths.licenseFile) ?? LicenseRecord()
-        // Start the trial clock on the first ever launch.
-        if loaded.trialStart == nil, loaded.licenseKey == nil {
-            loaded.trialStart = now()
-            try? JSONStore.save(loaded, to: AppPaths.licenseFile)
-        }
+        let loaded = JSONStore.load(LicenseRecord.self, from: AppPaths.licenseFile) ?? LicenseRecord()
         self.record = loaded
         self.status = Self.derive(record: loaded, now: now())
     }
 
-    var isEntitled: Bool { status.isEntitled }
+    var isLicensed: Bool { status.isLicensed }
     var licenseKey: String? { record.licenseKey }
-    var trialDaysRemaining: Int {
-        if case let .trial(days) = status { return days }
-        return 0
-    }
 
     /// Pure status derivation from a record + a clock. Kept static, nonisolated, and
-    /// side-effect free so it is trivially unit-testable (trial countdown, expiry, grace).
+    /// side-effect free so it is trivially unit-testable (free vs licensed, grace).
     nonisolated static func derive(record: LicenseRecord, now: Date) -> LicenseStatus {
-        if let key = record.licenseKey, !key.isEmpty {
-            guard record.lastValidationOK else { return .unlicensed }
-            if let last = record.lastValidated {
-                let graceEnd = last.addingTimeInterval(Double(LicenseConfig.offlineGraceDays) * 86_400)
-                if now > graceEnd { return .licensedUnverified }   // entitled, but flag re-verify
-            }
-            return .licensed
+        guard let key = record.licenseKey, !key.isEmpty, record.lastValidationOK else { return .free }
+        if let last = record.lastValidated {
+            let graceEnd = last.addingTimeInterval(Double(LicenseConfig.offlineGraceDays) * 86_400)
+            if now > graceEnd { return .licensedUnverified }   // unlocked, but flag re-verify
         }
-        let start = record.trialStart ?? now
-        let daysUsed = Int(now.timeIntervalSince(start) / 86_400)
-        let remaining = LicenseConfig.trialDays - daysUsed
-        return remaining > 0 ? .trial(daysRemaining: remaining) : .trialExpired
+        return .licensed
     }
 
     /// Recompute `status` from the record and clock (no network).

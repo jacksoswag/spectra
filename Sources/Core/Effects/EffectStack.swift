@@ -24,6 +24,19 @@ final class EffectStack {
     @ObservationIgnored
     var onChange: ((EffectChain) -> Void)?
 
+    /// Editing gate. When `editGate` returns false, user edits (add/remove/reorder/
+    /// duplicate/clear, parameter and enable changes, grouping) are blocked and
+    /// `onEditBlocked` is called so the UI can present the paywall. `load` (applying a
+    /// preset) and cosmetic expand/collapse bypass it. nil = always editable.
+    @ObservationIgnored var editGate: (() -> Bool)?
+    @ObservationIgnored var onEditBlocked: (() -> Void)?
+
+    private func canEdit() -> Bool {
+        if editGate?() ?? true { return true }
+        onEditBlocked?()
+        return false
+    }
+
     init(chain: EffectChain = EffectChain()) {
         self.effects = chain.effects
         self.groups = chain.groups
@@ -60,6 +73,7 @@ final class EffectStack {
     @discardableResult
     func add(_ descriptor: EffectDescriptor, at index: Int? = nil) -> EffectInstance {
         let instance = EffectInstance(descriptor: descriptor)
+        guard canEdit() else { return instance }   // paywall; not inserted
         let insertIndex = index ?? effects.count
         effects.insert(instance, at: min(max(insertIndex, 0), effects.count))
         selection = instance.id
@@ -68,6 +82,7 @@ final class EffectStack {
     }
 
     func remove(_ id: UUID) {
+        guard canEdit() else { return }
         effects.removeAll { $0.id == id }
         if selection == id { selection = effects.first?.id }
         didMutate()
@@ -78,13 +93,14 @@ final class EffectStack {
     }
 
     func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        guard canEdit() else { return }
         effects.move(fromOffsets: source, toOffset: destination)
         normalizeGroupContiguity()
         didMutate()
     }
 
     func move(id: UUID, toIndex destination: Int) {
-        guard let from = index(of: id) else { return }
+        guard canEdit(), let from = index(of: id) else { return }
         let instance = effects.remove(at: from)
         let clamped = min(max(destination, 0), effects.count)
         effects.insert(instance, at: clamped)
@@ -93,7 +109,7 @@ final class EffectStack {
 
     @discardableResult
     func duplicate(_ id: UUID) -> EffectInstance? {
-        guard let idx = index(of: id) else { return nil }
+        guard canEdit(), let idx = index(of: id) else { return nil }
         var copy = effects[idx]
         copy.id = UUID()
         copy.seed = Float.random(in: 0..<1)
@@ -104,6 +120,7 @@ final class EffectStack {
     }
 
     func clear() {
+        guard canEdit() else { return }
         effects.removeAll()
         groups.removeAll()
         selection = nil
@@ -113,7 +130,7 @@ final class EffectStack {
     // MARK: - Per-instance edits
 
     func update(_ id: UUID, _ mutate: (inout EffectInstance) -> Void) {
-        guard let idx = index(of: id) else { return }
+        guard canEdit(), let idx = index(of: id) else { return }
         mutate(&effects[idx])
         didMutate()
     }
@@ -131,7 +148,11 @@ final class EffectStack {
     }
 
     func setExpanded(_ expanded: Bool, on instanceID: UUID) {
-        update(instanceID) { $0.isExpanded = expanded }
+        // Cosmetic (inspector disclosure) — bypass the edit gate so the free tier can
+        // still expand/collapse rows.
+        guard let idx = index(of: instanceID) else { return }
+        effects[idx].isExpanded = expanded
+        didMutate()
     }
 
     /// Rename an instance. An empty/whitespace name clears back to the descriptor name.
@@ -142,7 +163,7 @@ final class EffectStack {
 
     /// Move an instance into a group (or out, with nil), keeping groups contiguous.
     func setGroup(_ groupID: UUID?, for instanceID: UUID) {
-        guard let idx = index(of: instanceID) else { return }
+        guard canEdit(), let idx = index(of: instanceID) else { return }
         effects[idx].groupID = groupID
         normalizeGroupContiguity()
         didMutate()
@@ -160,6 +181,7 @@ final class EffectStack {
     @discardableResult
     func createGroup(named name: String, members: [UUID]) -> EffectGroup {
         let group = EffectGroup(name: name)
+        guard canEdit() else { return group }   // paywall; not added
         groups.append(group)
         for memberID in members {
             if let idx = index(of: memberID) { effects[idx].groupID = group.id }
@@ -170,6 +192,7 @@ final class EffectStack {
     }
 
     func ungroup(_ groupID: UUID) {
+        guard canEdit() else { return }
         for idx in effects.indices where effects[idx].groupID == groupID {
             effects[idx].groupID = nil
         }
@@ -178,13 +201,13 @@ final class EffectStack {
     }
 
     func renameGroup(_ groupID: UUID, to name: String) {
-        guard let idx = groups.firstIndex(where: { $0.id == groupID }) else { return }
+        guard canEdit(), let idx = groups.firstIndex(where: { $0.id == groupID }) else { return }
         groups[idx].name = name
         didMutate()
     }
 
     func setGroupEnabled(_ enabled: Bool, groupID: UUID) {
-        guard let idx = groups.firstIndex(where: { $0.id == groupID }) else { return }
+        guard canEdit(), let idx = groups.firstIndex(where: { $0.id == groupID }) else { return }
         groups[idx].isEnabled = enabled
         didMutate()
     }

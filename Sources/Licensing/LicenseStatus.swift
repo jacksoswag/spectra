@@ -1,34 +1,30 @@
 import Foundation
 
-/// The public licensing state the UI reads and the engine gates on. Computed from
-/// the persisted record and the clock; never set directly.
+/// The licensing tier the UI reads and the app gates on. Computed from the
+/// persisted record and the clock; never set directly.
+///
+/// There is no time-limited trial. The free tier is permanent and gated: it can
+/// apply the cinematic presets (with the global intensity and quality controls) but
+/// not edit, build, or reach the rest of the library. A license unlocks everything.
 enum LicenseStatus: Equatable, Sendable {
-    /// In the free trial, with whole days left (>= 1).
-    case trial(daysRemaining: Int)
-    /// Trial elapsed and no valid license entered.
-    case trialExpired
-    /// A valid license is active.
+    /// Gated free tier: cinematic presets only, no editing.
+    case free
+    /// A valid license is active: full access.
     case licensed
     /// Licensed, but the validation server couldn't be reached to re-verify within
-    /// the grace window. Still fully entitled; the UI nudges to reconnect.
+    /// the grace window. Still fully unlocked; the UI nudges to reconnect. A server
+    /// outage never drops a paid copy back to the free tier.
     case licensedUnverified
-    /// A key was entered but found invalid (e.g. refunded/revoked), with no trial left.
-    case unlicensed
 
-    /// Whether full features are unlocked. A server outage never flips this off
-    /// (that is the whole point of the offline grace).
-    var isEntitled: Bool {
+    /// Whether the paid features (editing, the full library, the composer, the
+    /// non-cinematic presets, Glass) are unlocked.
+    var isLicensed: Bool {
         switch self {
-        case .trial, .licensed, .licensedUnverified: true
-        case .trialExpired, .unlicensed: false
+        case .licensed, .licensedUnverified: true
+        case .free: false
         }
     }
 
-    /// Whether to show a buy/enter-key call to action.
-    var wantsPurchasePrompt: Bool {
-        switch self {
-        case .trial, .trialExpired, .unlicensed: true
-        case .licensed, .licensedUnverified: false
-        }
-    }
+    /// Whether to show an upgrade / buy call to action.
+    var wantsUpgradePrompt: Bool { !isLicensed }
 }

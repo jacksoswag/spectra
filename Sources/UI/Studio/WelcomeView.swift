@@ -21,6 +21,7 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 row("play.circle", "Press Start (or ⌥⌘P from anywhere) to turn effects on.")
                 row("square.stack.3d.up", "Pick a preset or stack effects in the library.")
+                row("sparkles", "Free tier includes the cinematic presets; unlock the full library, editing, and Glass anytime.")
                 row("lock.fill", "Captured frames are processed on-device only — never recorded or uploaded.")
             }
             .padding(Theme.Spacing.md)

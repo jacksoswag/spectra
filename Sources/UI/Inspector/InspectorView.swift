@@ -17,10 +17,15 @@ struct InspectorView: View {
                 VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                     header(instance: instance, descriptor: descriptor)
                     if descriptor.isSystemEffect { systemEffectNote(descriptor: descriptor) }
-                    parameterSections(instance: instance, descriptor: descriptor)
-                    // System effects drive a controller, not a GPU pass, so blend/strength
-                    // don't apply — hide the universal section for them.
-                    if !descriptor.isSystemEffect { universalSection(instance: instance) }
+                    Group {
+                        parameterSections(instance: instance, descriptor: descriptor)
+                        // System effects drive a controller, not a GPU pass, so blend/strength
+                        // don't apply — hide the universal section for them.
+                        if !descriptor.isSystemEffect { universalSection(instance: instance) }
+                    }
+                    // Free tier: parameters are read-only (only the global intensity and
+                    // quality controls are adjustable). Editing is a licensed feature.
+                    .disabled(!engine.canEdit)
                 }
                 .padding(Theme.Spacing.lg)
             } else {
