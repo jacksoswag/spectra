@@ -5,9 +5,8 @@ import AppKit
 /// so the user can attach it (a `mailto:` URL can't carry attachments). No network
 /// call, no account, no bundled crash-reporting SDK.
 enum ProblemReporter {
-    /// Support inbox. TODO(Phase 2): finalise with the real support address once the
-    /// domain/landing/support setup is decided.
-    static let supportEmail = "support@spectra.app"
+    /// Support inbox.
+    static let supportEmail = "jacksoswag@proton.me"
 
     static func report() {
         revealLatestCrashReport()
