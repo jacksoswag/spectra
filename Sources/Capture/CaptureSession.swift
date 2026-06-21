@@ -44,6 +44,16 @@ final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
     /// Invoked on the main actor if the stream stops unexpectedly.
     var stopHandler: ((Error?) -> Void)?
 
+    private let frameTimeLock = NSLock()
+    private var _lastFrameTime: Double = 0
+    /// Monotonic `CACurrentMediaTime()` of the last COMPLETE frame this stream
+    /// delivered (0 before the first frame). Stamped continuously on the capture
+    /// queue and read from the main-actor heartbeat to detect a stream that has
+    /// silently stopped delivering frames (a Space-swipe stall: no `didStopWithError`).
+    var lastFrameTime: Double {
+        frameTimeLock.lock(); defer { frameTimeLock.unlock() }; return _lastFrameTime
+    }
+
     init(displayID: CGDirectDisplayID, pixelWidth: Int, pixelHeight: Int, fps: Int,
          showsCursor: Bool, context: MetalContext) {
         self.displayID = displayID
@@ -154,6 +164,7 @@ final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
         guard frameIsComplete(sampleBuffer) else { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         guard let frame = makeFrame(from: pixelBuffer) else { return }
+        frameTimeLock.lock(); _lastFrameTime = frame.hostTime; frameTimeLock.unlock()
         frameHandler?(frame)
     }
 
