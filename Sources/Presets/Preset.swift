@@ -1,19 +1,15 @@
 import Foundation
 
-/// Curated grouping for the preset browser. These are the spec's ten shipped
-/// categories; `.user` is the operational home for chains the user saves.
+/// Curated grouping for the preset browser. Only the categories the shipped
+/// built-ins actually populate are kept; `.experimental` is retained as the
+/// tolerant-decode landing spot, and `.user` is the operational home for chains
+/// the user saves. `PresetLibrary` only surfaces categories with presets present.
 enum PresetCategory: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
     case cinematic = "Cinematic"
     case retro = "Retro"
     case artistic = "Artistic"
-    case film = "Film"
-    case gaming = "Gaming"
-    case sciFi = "Sci-Fi"
-    case accessibility = "Accessibility"
-    case analog = "Analog"
-    case experimental = "Experimental"
-    case horror = "Horror"
     case utility = "Utility"
+    case experimental = "Experimental"
     case user = "My Presets"
 
     var id: String { rawValue }
@@ -24,20 +20,14 @@ enum PresetCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
         case .cinematic: "film.stack"
         case .retro: "tv.fill"
         case .artistic: "paintbrush.pointed.fill"
-        case .film: "film.fill"
         case .utility: "eye"
-        case .gaming: "gamecontroller.fill"
-        case .sciFi: "sparkles.tv.fill"
-        case .accessibility: "accessibility.fill"
-        case .analog: "antenna.radiowaves.left.and.right"
         case .experimental: "atom"
-        case .horror: "theatermasks.fill"
         case .user: "person.fill"
         }
     }
 
     /// Tolerant decode: presets authored against a removed category (e.g. an old
-    /// "Dream" or "Cyberpunk") still load, landing in Experimental.
+    /// "Horror", "Gaming", or "Sci-Fi") still load, landing in Experimental.
     init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
         self = PresetCategory(rawValue: raw) ?? .experimental

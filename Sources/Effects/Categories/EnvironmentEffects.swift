@@ -48,7 +48,7 @@ enum EnvironmentEffects {
         isAnimated: true)
 
     static let dust = EffectDescriptor(
-        id: "environment.dust", name: "Dust", category: .environment,
+        id: "environment.dust", name: "Dust Motes", category: .environment,
         subtitle: "Floating illuminated motes drifting in air.", icon: "sparkles",
         function: "fx_env_dust",
         parameters: [
