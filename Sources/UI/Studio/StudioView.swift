@@ -188,7 +188,9 @@ struct StudioView: View {
                 Label("Show in Screenshots", systemImage: "camera.viewfinder")
             }
             .toggleStyle(.button)
-            .help("Make the overlay visible to screenshots and screen recordings (off by default, so the overlay normally hides itself from capture)")
+            .help(engine.settings.showInScreenshots
+                  ? "Effects appear in screenshots and screen recordings. Turn off to hide the overlay from capture."
+                  : "Effects are hidden from screenshots and screen recordings. Turn on to include them.")
 
             Button {
                 openWindow(id: "settings")
@@ -306,6 +308,13 @@ private struct SaveChainAsPresetSheet: View {
     @State private var summary = ""
     @State private var tagsText = ""
     @State private var category: PresetCategory = .user
+    /// nil = use the category's icon (the generic default).
+    @State private var icon: String?
+
+    private static let iconChoices = [
+        "sparkles", "paintpalette", "camera.filters", "film", "tv", "wand.and.stars",
+        "moon.stars", "sun.max", "leaf", "flame", "bolt", "drop", "cube", "circle.hexagongrid",
+    ]
 
     /// Custom, comma-separated tags. Each becomes a filter chip in the preset list.
     private var parsedTags: [String] {
@@ -318,9 +327,20 @@ private struct SaveChainAsPresetSheet: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
             Text("Create Preset").font(.title2.bold())
             TextField("Name", text: $name).textFieldStyle(.roundedBorder)
-            TextField("Description", text: $summary).textFieldStyle(.roundedBorder)
+            TextField("Description (optional)", text: $summary).textFieldStyle(.roundedBorder)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Icon (optional)").font(.caption).foregroundStyle(.secondary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Theme.Spacing.sm) {
+                        iconButton(nil)
+                        ForEach(Self.iconChoices, id: \.self) { iconButton($0) }
+                    }
+                }
+            }
+
             VStack(alignment: .leading, spacing: 2) {
-                TextField("Tags (comma-separated)", text: $tagsText).textFieldStyle(.roundedBorder)
+                TextField("Tags (comma-separated, optional)", text: $tagsText).textFieldStyle(.roundedBorder)
                 Text("Your tags become filter chips in the preset list on the left.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -332,7 +352,7 @@ private struct SaveChainAsPresetSheet: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save") {
                     engine.saveCurrentAsPreset(name: name, category: category,
-                                               summary: summary, tags: parsedTags)
+                                               summary: summary, icon: icon, tags: parsedTags)
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
@@ -341,5 +361,19 @@ private struct SaveChainAsPresetSheet: View {
         }
         .padding(Theme.Spacing.lg)
         .frame(width: 400)
+    }
+
+    private func iconButton(_ symbol: String?) -> some View {
+        let isSelected = icon == symbol
+        return Button { icon = symbol } label: {
+            Image(systemName: symbol ?? category.iconSystemName)
+                .frame(width: 30, height: 30)
+                .background(isSelected ? Theme.accent.opacity(0.25) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: Theme.Radius.sm))
+                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                    .strokeBorder(isSelected ? Theme.accent : Color.secondary.opacity(0.3)))
+        }
+        .buttonStyle(.plain)
+        .help(symbol == nil ? "Default (category icon)" : symbol!)
     }
 }

@@ -80,9 +80,9 @@ final class SettingsStore {
     var glassEnabled: Bool { didSet { persist() } }
     /// Make the overlay visible to external screen capture (system Screenshot UI /
     /// `screencapture`, third-party recorders) by flipping its `sharingType` from
-    /// `.none` to `.readOnly`. Off by default — the overlay normally hides itself so
-    /// it never feeds back into Spectra's own capture. Spectra's pipeline excludes the
-    /// overlay by whole-app exclusion, not `sharingType`, so this is feedback-safe.
+    /// `.none` to `.readOnly`. On by default so screenshots and recordings include the
+    /// effect. Spectra's own capture excludes the overlay by whole-app exclusion, not
+    /// `sharingType`, so this is always feedback-safe regardless of the value.
     var showInScreenshots: Bool { didSet { persist() } }
     /// Whether the first-run welcome has been shown. Set once and never reset by
     /// "Reset to Defaults" (it tracks a one-time event, not a preference).
@@ -133,7 +133,7 @@ final class SettingsStore {
         var coverMenuBarAndDock: Bool? = true
         var fuseColorPasses: Bool? = true
         var glassEnabled: Bool? = false
-        var showInScreenshots: Bool? = false
+        var showInScreenshots: Bool? = true
         var hasSeenWelcome: Bool? = false
         // Optional so files written before v5 decode to nil and adopt the 100%
         // default (which reproduces the presets' shipped look). Values from v5 are
@@ -184,7 +184,7 @@ final class SettingsStore {
         coverMenuBarAndDock = state.coverMenuBarAndDock ?? true
         fuseColorPasses = state.fuseColorPasses ?? true
         glassEnabled = state.glassEnabled ?? false
-        showInScreenshots = state.showInScreenshots ?? false
+        showInScreenshots = state.showInScreenshots ?? true
         hasSeenWelcome = state.hasSeenWelcome ?? false
         intensity = Swift.min(1.0, Swift.max(0.0, state.intensity ?? 1.0))
         favoriteEffectIDs = Set(state.favoriteEffectIDs)

@@ -62,9 +62,9 @@ final class PresetLibrary {
 
     @discardableResult
     func save(name: String, chain: EffectChain, category: PresetCategory = .user,
-              summary: String = "", tags: [String] = []) -> Preset {
-        let preset = Preset(name: name, category: category, summary: summary, author: "You",
-                            tags: tags, chain: chain, isBuiltIn: false, createdAt: Date())
+              summary: String = "", icon: String? = nil, tags: [String] = []) -> Preset {
+        let preset = Preset(name: name, category: category, icon: icon, summary: summary,
+                            author: "You", tags: tags, chain: chain, isBuiltIn: false, createdAt: Date())
         user.append(preset)
         persist(preset)
         return preset

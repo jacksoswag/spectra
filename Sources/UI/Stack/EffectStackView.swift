@@ -160,9 +160,15 @@ struct EffectStackView: View {
             Button { stack.removeSelected() } label: { Image(systemName: "trash") }
                 .help("Remove").accessibilityLabel("Remove effect").disabled(stack.selection == nil)
             Spacer()
+            if let editable = engine.editablePresetForSelectedDisplay {
+                Button { engine.updatePreset(editable) } label: { Image(systemName: "square.and.pencil") }
+                    .help("Update the “\(editable.name)” preset with this stack")
+                    .accessibilityLabel("Update \(editable.name) preset")
+                    .disabled(stack.effects.isEmpty)
+            }
             if let onSavePreset {
                 Button { onSavePreset() } label: { Image(systemName: "square.and.arrow.down") }
-                    .help("Save as preset").accessibilityLabel("Save as preset").disabled(stack.effects.isEmpty)
+                    .help("Create a new preset from this stack").accessibilityLabel("Create preset").disabled(stack.effects.isEmpty)
             }
             Button { groupSelected() } label: { Image(systemName: "rectangle.3.group") }
                 .help("Group selected effect").accessibilityLabel("Group selected effect").disabled(stack.selection == nil)
