@@ -10,8 +10,9 @@ body { font-family: Inter, system-ui, sans-serif; color: var(--text); -webkit-fo
 
 #stage, #actors { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
 #stage { z-index: 0; }
-#actors { z-index: 1; pointer-events: none; }
-body.no-gl #stage, body.no-gl #actors { display: none; }
+#fighters { position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+#actors { z-index: 2; pointer-events: none; }
+body.no-gl #stage, body.no-gl #actors, body.no-gl #fighters { display: none; }
 .gl-fallback { display: none; }
 body.no-gl .gl-fallback { display: grid; place-items: center; position: fixed; inset: 0; z-index: 5; padding: 2rem; text-align: center; color: var(--muted); }
 

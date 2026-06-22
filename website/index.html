@@ -18,6 +18,7 @@
 </head>
 <body>
   <canvas id="stage" aria-hidden="true"></canvas>
+  <div id="fighters" aria-hidden="true"></div>
   <canvas id="actors" aria-hidden="true"></canvas>
   <div class="gl-fallback">Your browser blocked WebGL, so the live loop can’t run here — it looks even better on the real desktop.</div>
 
@@ -41,11 +42,13 @@
     <span>Apple Silicon · macOS 15+</span>
   </footer>
 
+  <script src="https://unpkg.com/@rive-app/canvas@2"></script>
   <script src="js/shaders.js"></script>
   <script src="js/rig.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/scenes.js"></script>
   <script src="js/story.js"></script>
+  <script src="js/character.js"></script>
   <script src="js/cinematic.js"></script>
 </body>
 </html>

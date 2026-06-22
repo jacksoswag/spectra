@@ -45,15 +45,17 @@
 
   const defWorld = (w) => ({ x: 0, y: 0, s: 1, rot: 0, flip: 1, ...w });
 
-  // A character drives off a keyframe list. sample(localT 0..1) -> { world, pose }.
+  // A character drives off a keyframe list. sample(localT 0..1) -> { world, pose, action }.
+  // `pose` is the interpolated skeleton (canvas backend); `action` is the discrete pose
+  // name of the active keyframe (Rive backend maps it to a state-machine state).
   function character(keys) {
-    const ks = keys.map(k => ({ t: k.t, world: defWorld(k.world), pose: resolve(k.pose) }));
+    const ks = keys.map(k => ({ t: k.t, world: defWorld(k.world), pose: resolve(k.pose), name: typeof k.pose === 'string' ? k.pose : 'idle' }));
     return {
       keys: ks,
       sample(localT) {
-        if (localT <= ks[0].t) return { world: ks[0].world, pose: ks[0].pose };
+        if (localT <= ks[0].t) return { world: ks[0].world, pose: ks[0].pose, action: ks[0].name };
         const last = ks[ks.length - 1];
-        if (localT >= last.t) return { world: last.world, pose: last.pose };
+        if (localT >= last.t) return { world: last.world, pose: last.pose, action: last.name };
         let i = 0; while (i < ks.length - 1 && ks[i + 1].t < localT) i++;
         const a = ks[i], b = ks[i + 1];
         const raw = (localT - a.t) / (b.t - a.t);
@@ -63,7 +65,7 @@
           s: lerp(a.world.s, b.world.s, e), rot: lerp(a.world.rot, b.world.rot, e),
           flip: e < 0.5 ? a.world.flip : b.world.flip,
         };
-        return { world, pose: lerpPose(a.pose, b.pose, e) };
+        return { world, pose: lerpPose(a.pose, b.pose, e), action: a.name };
       },
     };
   }

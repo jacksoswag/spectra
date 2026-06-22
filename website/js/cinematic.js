@@ -80,6 +80,7 @@
   const actors = document.getElementById('actors');
   if (!stage || !actors) return;
   if (!Engine.init(stage)) { document.body.classList.add('no-gl'); return; }
+  Characters.init(document.getElementById('fighters'));   // upgrades to the Rive rig if assets/fighters.riv loads
   const actx = actors.getContext('2d');
   const scene = document.createElement('canvas'); scene.width = 1600; scene.height = 1000;
   const sctx = scene.getContext('2d');
@@ -131,11 +132,18 @@
     actx.setTransform(1, 0, 0, 1, 0, 0); actx.clearRect(0, 0, w, h);
     actx.setTransform(sc, 0, 0, sc, ox, oy);
 
+    // Rive rig (own layer, CSS-px space) when available; else the director draws the canvas rig.
+    const csc = Math.max(innerWidth / VW, innerHeight / VH);
+    const cssView = { sc: csc, ox: (innerWidth - VW * csc) / 2, oy: (innerHeight - VH * csc) / 2 };
+    Characters.apply('magenta', mg, cssView); Characters.apply('cyan', cy, cssView);
+
     if (sh.props?.blinds) drawBlinds(actx);
     if (sh.props?.wall) drawWall(actx, sh.props.wall, lt);
 
-    Rig.drawFigure(actx, mg.world, mg.pose, '#ff3df0', { glow: true });
-    Rig.drawFigure(actx, cy.world, cy.pose, '#2fd9ff', { glow: true });
+    if (Characters.mode !== 'rive') {
+      Rig.drawFigure(actx, mg.world, mg.pose, '#ff3df0', { glow: true });
+      Rig.drawFigure(actx, cy.world, cy.pose, '#2fd9ff', { glow: true });
+    }
 
     const flash = Engine.busy() ? Math.max(0, 1 - (clock - sh.startT) / 0.55) : 0;
     drawOrb(actx, ovx, ovy, clock * 2.2, flash, S.SIGNATURE[sh.preset] || [1, 1, 1]);
