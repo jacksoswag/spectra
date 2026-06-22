@@ -4,187 +4,48 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Spectra — your whole desktop, shaded</title>
-  <meta name="description" content="Real-time GPU shader effects across your entire Mac. 16 preset worlds, 169 effects, build your own — running on a click-through overlay over everything. One-time $9.99." />
-
+  <meta name="description" content="A looping fight over a prism that re-shades the whole desktop. 16 worlds, 169 real-time GPU effects across your Mac. One-time $9.99." />
   <meta property="og:title" content="Spectra — your whole desktop, shaded" />
-  <meta property="og:description" content="16 worlds, 169 real GPU effects, running live on your whole Mac desktop. This whole page is being shaded in real time — come see." />
+  <meta property="og:description" content="Two fighters, one prism, sixteen worlds. The whole desktop re-shades in real time — watch the loop." />
   <meta property="og:type" content="website" />
   <meta property="og:image" content="assets/og.svg" />
   <meta name="twitter:card" content="summary_large_image" />
-
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/cinematic.css" />
 </head>
 <body>
-  <!-- THE LIVING DESKTOP: one renderer behind the whole page, shading live -->
   <canvas id="stage" aria-hidden="true"></canvas>
-  <div class="stage-scrim" aria-hidden="true"></div>
-  <div class="gl-fallback">Your browser blocked WebGL, so the live render can’t run here — it looks even better on the real desktop.</div>
+  <canvas id="actors" aria-hidden="true"></canvas>
+  <div class="gl-fallback">Your browser blocked WebGL, so the live loop can’t run here — it looks even better on the real desktop.</div>
 
-  <header class="nav">
-    <a class="brand" href="#top" aria-label="Spectra home"><img src="assets/logo.svg" alt="Spectra" width="132" height="28" /></a>
-    <nav class="nav-links">
-      <a href="#worlds">Worlds</a>
-      <a href="#effects">Effects</a>
-      <a href="#how">How</a>
-      <a href="#pricing">Pricing</a>
-      <a href="#faq">FAQ</a>
-    </nav>
-    <a class="btn btn-primary nav-cta" href="#pricing">Get Spectra</a>
-  </header>
+  <!-- overlay UI -->
+  <a class="brand" href="#" aria-label="Spectra"><img src="assets/logo.svg" alt="Spectra" width="124" height="26" /></a>
+  <a class="cta" href="#get">Get Spectra · <b>$9.99</b></a>
 
-  <!-- HERO -->
-  <section id="top" class="hero">
-    <div class="hero-copy">
-      <div class="eyebrow"><span class="dot"></span> This page is being shaded live — that’s the real renderer</div>
-      <h1>Your whole desktop,<br /><span class="grad">shaded in real time.</span></h1>
-      <p class="lede">Spectra runs a Metal pipeline over every pixel of your Mac. 16 preset worlds, 169 stackable effects, a click-through overlay over everything. The background you’re looking at is the engine, cycling through all 16 worlds right now.</p>
-      <div class="hero-cta">
-        <a class="btn btn-primary" href="#pricing">Get Spectra — $9.99</a>
-        <a class="btn btn-ghost" href="#worlds">See the 16 worlds ↓</a>
-      </div>
-      <div class="trust">One-time. No subscription. 4 worlds free.</div>
+  <div class="lower">
+    <div id="fact" class="fact">Spectra</div>
+    <p id="subtitle" role="status" aria-live="polite">A prism appears on the desktop…</p>
+    <div class="controls">
+      <button id="playPause" type="button" aria-label="Pause">⏸</button>
+      <button id="speed" type="button" aria-label="Playback speed">1×</button>
+      <div id="scrub" class="scrub" aria-label="Scene timeline"></div>
     </div>
-
-    <!-- NOW PLAYING -->
-    <div id="hud" class="hud" role="status" aria-live="polite">
-      <div class="hud-top">
-        <span class="hud-live"><span class="dot"></span> Live · shading this page</span>
-        <div class="hud-ctrl">
-          <button id="prev" type="button" aria-label="Previous world">‹</button>
-          <button id="play" type="button" aria-label="Pause auto-cycle">II</button>
-          <button id="next" type="button" aria-label="Next world">›</button>
-        </div>
-      </div>
-      <div class="hud-main">
-        <span class="hud-glyph">🎨</span>
-        <div class="hud-info">
-          <div class="hud-line"><span class="hud-name">Painting</span><span class="hud-cat cat-artistic">Artistic</span><span class="hud-tier full">Full</span></div>
-          <p class="hud-desc">Impressionist oil brushwork with broken colour and a luminous watercolour wash.</p>
-        </div>
-      </div>
-      <div class="hud-bar"><span id="hudbar"></span></div>
-      <label class="hud-amt">Intensity <input id="amount" type="range" min="0" max="100" value="90" /></label>
-    </div>
-
-    <!-- WORLD DECK -->
-    <div class="deck-wrap">
-      <div id="deck" class="deck" role="tablist" aria-label="The 16 worlds"></div>
-    </div>
-  </section>
-
-  <!-- MARQUEE -->
-  <div class="marquee" aria-hidden="true">
-    <div class="marquee-track">
-      <span>16 worlds</span><span>✦</span><span>169 effects</span><span>✦</span><span>build your own</span><span>✦</span><span>multi-monitor</span><span>✦</span><span>so real it can’t be screen-captured</span><span>✦</span><span>Apple Silicon</span><span>✦</span>
-      <span>16 worlds</span><span>✦</span><span>169 effects</span><span>✦</span><span>build your own</span><span>✦</span><span>multi-monitor</span><span>✦</span><span>so real it can’t be screen-captured</span><span>✦</span><span>Apple Silicon</span><span>✦</span>
-    </div>
+    <div class="tagline">16 worlds · 169 real-time effects · one prism · <a href="#get">$9.99, four worlds free</a></div>
   </div>
 
-  <!-- WORLDS -->
-  <section id="worlds" class="section worlds">
-    <div class="section-head">
-      <h2>16 worlds. <span class="grad">Your desktop, transformed.</span></h2>
-      <p>Each world is a tuned stack of real effects — not a colour filter. Tap any in the deck above to sweep the whole page into it. These four are the ones nobody else has.</p>
-    </div>
-    <div class="feats">
-      <button class="feat" data-world="painting"><span class="feat-glyph">🎨</span><b>Painting</b><span>Impressionist oil cells, broken colour, and a watercolour wash on cold-press paper.</span></button>
-      <button class="feat" data-world="comic"><span class="feat-glyph">💥</span><b>Comic Book</b><span>Posterised pop-art fills under a real Ben-Day halftone dot screen.</span></button>
-      <button class="feat" data-world="print"><span class="feat-glyph">🗾</span><b>Print Art</b><span>Ukiyo-e woodblock: flat colour fields, key-block lines, visible washi.</span></button>
-      <button class="feat" data-world="pencil"><span class="feat-glyph">✏️</span><b>Pencil Sketch</b><span>Graphite contours and cross-hatch shading on warm paper.</span></button>
-    </div>
-  </section>
-
-  <!-- EFFECTS -->
-  <section id="effects" class="section">
-    <div class="section-head">
-      <h2>Under the worlds: <span class="grad">169 effects.</span></h2>
-      <p>The presets are built from a library of 169 real-time effects across 14 categories. On the full version you stack, reorder, and tune every one — or build a world of your own. Tap a category to preview it live.</p>
-    </div>
-    <div class="cat-grid" id="catGrid"></div>
-  </section>
-
-  <!-- HOW -->
-  <section id="how" class="section how">
-    <div class="section-head"><h2>How it pulls this off</h2></div>
-    <div class="steps">
-      <div class="step"><span class="num">01</span><h3>Capture</h3><p>ScreenCaptureKit streams every display straight to a Metal texture. Zero-copy, on the GPU, never touching disk.</p></div>
-      <div class="step"><span class="num">02</span><h3>Shade</h3><p>Your stack of effects runs as fragment shaders, in any order, with strength, opacity, and blend mode per layer.</p></div>
-      <div class="step"><span class="num">03</span><h3>Overlay</h3><p>A click-through window paints the result back over your desktop. It follows you across Spaces and full-screen apps.</p></div>
-    </div>
-    <div class="mystique">
-      <h3>So real it can’t be screen-captured.</h3>
-      <p>The overlay excludes itself from capture, so screen recordings and screenshots miss the effect entirely. That’s not a bug — it’s the flex. Flip one toggle when you actually want it to show up.</p>
-    </div>
-  </section>
-
-  <!-- PRICING -->
-  <section id="pricing" class="section pricing">
-    <div class="section-head"><h2>One price. <span class="grad">Yours forever.</span></h2></div>
-    <div class="price-cards">
-      <div class="price-card">
-        <div class="tier">Free</div>
-        <div class="amount">$0</div>
-        <ul>
-          <li>✓ Four cinematic worlds: Golden Hour, Fuji-Film, Noir, Cyberpunk</li>
-          <li>✓ Intensity + quality controls</li>
-          <li>✓ Across your whole desktop, no time limit</li>
-          <li class="off">— The other 12 worlds</li>
-          <li class="off">— Editing &amp; building your own</li>
-        </ul>
-        <a class="btn btn-ghost" href="#download">Download free</a>
-      </div>
-      <div class="price-card featured">
-        <div class="flare" aria-hidden="true"></div>
-        <div class="tier">Full</div>
-        <div class="amount">$9.99 <small>one-time</small></div>
-        <ul>
-          <li>✓ All 16 worlds, all 169 effects</li>
-          <li>✓ Stack, reorder, and tune everything</li>
-          <li>✓ Build &amp; save your own presets · import shaders</li>
-          <li>✓ Glass: live window transparency &amp; desktop tint</li>
-          <li>✓ Free updates</li>
-        </ul>
-        <a class="btn btn-primary" href="#download">Get Spectra</a>
-        <div class="fine">30-day money-back. No subscription, ever.</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- FAQ -->
-  <section id="faq" class="section faq">
-    <div class="section-head"><h2>Questions</h2></div>
-    <div class="faq-list">
-      <details><summary>What do I need to run it?</summary><p>An Apple Silicon Mac on macOS 15 or later. You grant Screen Recording once (everything is processed on your Mac and never leaves it), then turn effects on.</p></details>
-      <details><summary>Is my screen sent anywhere?</summary><p>No. Frames are processed on the GPU and discarded. Nothing is recorded, saved, or uploaded. No accounts, no analytics.</p></details>
-      <details><summary>What’s free, and what’s the $9.99?</summary><p>Free gives you four full cinematic worlds — Golden Hour, Fuji-Film, Noir, and Cyberpunk — with the intensity and quality controls, with no time limit. One $9.99 purchase unlocks the other 12 worlds, all 169 effects, editing and building your own, and Glass.</p></details>
-      <details><summary>What is “Glass” and does it need anything special?</summary><p>Glass adds live window transparency and a desktop tint. It’s optional, and it’s the only feature that needs part of System Integrity Protection disabled (a reversible, one-time Recovery step). Everything else works without it.</p></details>
-      <details><summary>Are these the real effects?</summary><p>The worlds you see shading this page are WebGL ports of the actual presets. The Mac app runs the full Metal pipeline at native resolution over your whole desktop — sharper, faster, and with the other 165 effects behind them.</p></details>
-      <details><summary>Refunds?</summary><p>Yes — 30 days, no questions. Purchases run through Lemon Squeezy as the merchant of record.</p></details>
-    </div>
-  </section>
-
-  <!-- DOWNLOAD -->
-  <section id="download" class="section download">
-    <h2>Make your Mac <span class="grad">unreal.</span></h2>
-    <a class="btn btn-primary btn-lg" href="#">Download Spectra</a>
-    <p class="fine">Apple Silicon · macOS 15+ · signed &amp; notarized</p>
-  </section>
-
-  <footer class="footer">
-    <div class="foot-brand"><img src="assets/logo.svg" alt="Spectra" width="120" height="26" /><span>Your whole desktop, shaded.</span></div>
-    <nav class="foot-links">
-      <a href="../docs/EULA.md">License</a>
-      <a href="../docs/PRIVACY.md">Privacy</a>
-      <a href="mailto:jacksoswag@proton.me">Support</a>
-    </nav>
-    <div class="foot-fine">© <span id="year"></span> Spectra. Built for Apple Silicon.</div>
+  <footer class="mini-foot">
+    <a href="../docs/EULA.md">License</a><a href="../docs/PRIVACY.md">Privacy</a><a href="mailto:jacksoswag@proton.me">Support</a>
+    <span>Apple Silicon · macOS 15+</span>
   </footer>
 
-  <script src="js/demo.js"></script>
-  <script src="js/site.js"></script>
+  <script src="js/shaders.js"></script>
+  <script src="js/rig.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/scenes.js"></script>
+  <script src="js/story.js"></script>
+  <script src="js/cinematic.js"></script>
 </body>
 </html>
