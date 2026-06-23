@@ -23,7 +23,7 @@ One unified workspace, no modes. Everything lives in a single coherent window:
 - **Effect Stack and Parameters** on the right: add, remove, reorder (drag and drop), duplicate, rename, group, enable, and disable layered effects, with universal and effect-specific controls beneath.
 - **Performance** along the bottom on demand: frame rate, GPU and CPU time, latency, dropped frames, pipeline analysis, and on-demand per-effect cost profiling.
 
-A menu bar item is always available for quick pause/unpause, preset switching (grouped by category), an intensity slider, and a quality slider with an Auto toggle that hands control to the adaptive governor. Live fps and latency read at a glance, with shortcuts into the Studio and Settings windows.
+A menu bar item is always available for quick start/stop (also bound to a global hotkey), preset switching (grouped by category), an intensity slider, a quality slider with an Auto toggle that hands control to the adaptive governor, and a Glass toggle for the yabai-driven window transparency layer. Live fps and latency read at a glance, with shortcuts into the Studio and Settings windows. The Dock tile only appears while the Studio window is open; closing it drops the app back to a menu bar plus overlay process.
 
 ## Authoring effects
 
@@ -82,7 +82,7 @@ xcodebuild -project Spectra.xcodeproj -scheme Spectra -configuration Debug \
   -destination 'platform=macOS' build
 ```
 
-On first launch, grant Screen Recording access in System Settings when prompted, then click the green Start button in the toolbar to begin rendering. The same button turns red ("Stop") while effects are running, and the menu bar item offers Pause/Unpause.
+On first launch, grant Screen Recording access in System Settings when prompted, then click the green Start button in the toolbar to begin rendering. The same button turns red ("Stop") while effects are running, and the menu bar item offers the same Start/Stop toggle plus a global hotkey for it.
 
 ## Architecture
 
