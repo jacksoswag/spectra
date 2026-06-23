@@ -1,6 +1,8 @@
 import Foundation
 import Metal
 import simd
+import CoreGraphics
+import ImageIO
 
 /// Per-frame context shared by every pass in a chain.
 struct FrameContext {
@@ -21,6 +23,10 @@ struct FrameContext {
     /// (the master "intensity" slider). 1.0 = render each effect at its authored
     /// strength; the engine derives this linearly from the user's setting (100% → 1.0×).
     var intensityScale: Float = 1.0
+    /// Menu-bar height in display UV (0 when unknown / no menu bar). The Noir screen-wide ornate
+    /// border reads this (injected into slot 7) and clears that top strip so the clock/menus stay
+    /// readable.
+    var menuBarHeightUV: Float = 0
 
     // MARK: Interactive pointer state
     //
@@ -41,6 +47,57 @@ struct FrameContext {
     /// Recent pointer path in UV, newest first (the dragged-water rope); ≤ trailCount entries.
     var pointerTrail: [SIMD2<Float>] = []
     var pointerTrailCount: Float = 0
+    /// Persistent draw-on-screen accumulation layer for the Pencil-Sketch draw tool (red channel =
+    /// stroke mask). Managed by `DisplayRenderer` (stamped while the left button drags, cleared on a
+    /// right-click); bound for `fx_int_pencilDraw`. nil for every other chain.
+    var pencilLayer: MTLTexture? = nil
+
+    // MARK: Window geometry (MAOE §5.1)
+    //
+    // Live per-window rectangles (display-local top-left UV), populated only while a
+    // rect-consuming effect (chrome §12, generative §15.2) is in the chain; otherwise empty,
+    // so the geometry buffer is never bound and ordinary effects pay nothing.
+    var windows: [WindowGeometryProvider.Window] = []
+    var windowCount: Int { windows.count }
+
+    // MARK: Discrete events (MAOE §5.2)
+    //
+    // Seconds since each event (large sentinel when none recent), injected into the event
+    // uniform block for the event-driven interaction effects (§7). Populated only while an
+    // event-consuming effect is in the chain; inert otherwise.
+    /// Seconds since the last scroll-wheel event, and that event's delta.
+    var scrollAge: Float = 999
+    var scrollDelta: SIMD2<Float> = .zero
+    /// Seconds since the last Space switch settled (drives space-transition signatures).
+    var spaceAge: Float = 999
+    /// Seconds the current press has been held (any button); large sentinel when not pressed.
+    var pressAge: Float = 999
+    /// Most recent window-lifecycle event (§5.4): age, kind (0 none/1 opened/2 closed/3
+    /// minimized), the window's last rect in UV, and the Dock direction for a minimize.
+    var lifecycleAge: Float = 999
+    var lifecycleKind: Float = 0
+    var lifecycleRect: SIMD4<Float> = .zero
+    var dockDirection: SIMD2<Float> = .zero
+    /// Current pointer position (this display's UV; (-1,-1) when on another display), its
+    /// normalized speed (UV/sec), and seconds since the last significant move — for the
+    /// movement-reactive effects (light leak, speed lines, CMYK shift).
+    var currentPointer: SIMD2<Float> = SIMD2(-1, -1)
+    var pointerSpeed: Float = 0
+    var moveAge: Float = 999
+    /// Whether the §5.2 decay render gate is currently active (a discrete event is within its
+    /// decay window). When false, the renderer skips event-driven passes (§10) — they would
+    /// only render `base` — reclaiming their cost inside an otherwise-animated world.
+    var decayActive: Bool = false
+
+    // MARK: Ambient inputs (MAOE §15.1) — global signals injected at slots 64+ for
+    // ambient-aware effects (audio-reactive / keyboard-reactive). Inert (zeros / large age)
+    // unless the feature is enabled and the world opts in.
+    /// Overall audio level (0…1) and three coarse bands (bass / mid / treble), 0…1 each.
+    var audioLevel: Float = 0
+    var audioBands: SIMD3<Float> = .zero
+    /// Seconds since the last keystroke (large sentinel when none) and a 0…1 glyph seed for it.
+    var keyAge: Float = 999
+    var keyChar: Float = 0
 
     /// Sample the system wall clock for the live REC OSD: seconds since local
     /// midnight plus today's year/month/day. Cheap (microseconds); called once per
@@ -76,14 +133,88 @@ final class EffectChainRenderer {
         self.pool = pool
     }
 
-    /// Fragment functions that consume the system-injected interactive pointer block. Shared
-    /// with `RenderEngine`, which engages `PointerInputSampler` only while one is in the chain.
-    static let pointerEffectFunctions: Set<String> = ["fx_env_splash", "fx_env_bubbles"]
+    /// The three bundled comic burst sprites for `fx_int_powSprite` (§7.1) — POW / BANG / POP —
+    /// loaded once and bound at fragment texture indices 8 / 12 / 13. The shader picks one per click
+    /// (hashed off the click position) so each click pops a different word. nil entries fall back to
+    /// the POW sprite, and an all-nil set no-ops the effect gracefully.
+    private lazy var powSpriteTexture: MTLTexture? =
+        Self.loadBundledTexture("pow-sprite", subdirectory: "InteractionSprites", device: context.device)
+    private lazy var bangSpriteTexture: MTLTexture? =
+        Self.loadBundledTexture("bang-sprite", subdirectory: "InteractionSprites", device: context.device)
+    private lazy var popSpriteTexture: MTLTexture? =
+        Self.loadBundledTexture("pop-sprite", subdirectory: "InteractionSprites", device: context.device)
+    static let powSpriteTextureIndex = 8
+    static let bangSpriteTextureIndex = 12
+    static let popSpriteTextureIndex = 13
+    /// Fragment texture index at which the Pencil draw-layer is bound for `fx_int_pencilDraw`.
+    static let pencilLayerTextureIndex = 14
+
+    /// Bundled ornate corner flourish for `fx_chrome_spriteBorder` (Noir art-nouveau frame), bound
+    /// at fragment texture index 11. nil if missing (the pass then draws only its thin edge rule).
+    private lazy var borderSpriteTexture: MTLTexture? =
+        Self.loadBundledTexture("ornate-corner", subdirectory: "BorderSprites", device: context.device)
+    static let borderSpriteTextureIndex = 11
+
+    /// Load a bundled `@2x` PNG into a premultiplied rgba8 texture.
+    private static func loadBundledTexture(_ name: String, subdirectory: String, device: MTLDevice) -> MTLTexture? {
+        guard let url = Bundle.main.url(forResource: name + "@2x", withExtension: "png")
+                ?? Bundle.main.url(forResource: name + "@2x", withExtension: "png", subdirectory: subdirectory),
+              let data = try? Data(contentsOf: url),
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let w = cg.width, h = cg.height, bpr = w * 4
+        var bytes = [UInt8](repeating: 0, count: bpr * h)
+        let drew = bytes.withUnsafeMutableBytes { raw -> Bool in
+            guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8,
+                                      bytesPerRow: bpr, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drew else { return nil }
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: w, height: h, mipmapped: false)
+        desc.usage = .shaderRead; desc.storageMode = .shared
+        guard let tex = device.makeTexture(descriptor: desc) else { return nil }
+        bytes.withUnsafeBytes { raw in
+            tex.replace(region: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0, withBytes: raw.baseAddress!, bytesPerRow: bpr)
+        }
+        return tex
+    }
+
+    /// Fragment functions that consume the system-injected interactive pointer block (slots
+    /// 16–45). Shared with `RenderEngine`, which engages `PointerInputSampler` only while one is
+    /// in the chain. Includes the §7.1 pointer-driven effects and the §7.2 press-hold line-warp
+    /// CRT/VHS functions.
+    static var pointerEffectFunctions: Set<String> = [
+        "fx_env_splash", "fx_env_bubbles",
+        "fx_int_clickPulse", "fx_int_clickRipple", "fx_int_glyphBurst", "fx_int_inkRipple",
+        "fx_int_powBurst", "fx_int_powSprite", "fx_int_dragTrail", "fx_int_liquidTrail", "fx_int_glyphTrail",
+        "fx_int_shadowDeform", "fx_int_lightLeak", "fx_int_pencilDraw",
+        "fx_style_oil_cells", "fx_style_oil_combine",   // Painting's held-cursor van-Gogh ripple
+        "fx_crt_crt", "fx_crt_crtAdvanced", "fx_crt_scanlines", "fx_crt_analogTV", "fx_vhs_tracking",
+    ]
+
+    /// Fragment functions that consume the system-injected EVENT block (slots 46–62: scroll /
+    /// space / press / move / lifecycle). The §5.2 event clock gates injection on this set,
+    /// mirroring `pointerEffectFunctions`. An effect may be in both sets (disjoint slot ranges).
+    static var eventEffectFunctions: Set<String> = [
+        "fx_int_scrollDrift", "fx_int_cmykShift", "fx_int_speedLines",
+        "fx_int_hyperspaceStreak", "fx_int_spaceGlyphRain", "fx_int_iris", "fx_int_filmSquares",
+        "fx_int_bubblePop", "fx_int_bubbleTrail", "fx_int_windowGlitch", "fx_int_shadowCollapse",
+        "fx_int_captionCollapse", "fx_int_decode",
+    ]
 
     /// Base parameter slot of the injected pointer block. Sits above any pointer effect's own
     /// params (bubbles 0…5, splash 0…4), so the block never clobbers them: 16 clickX, 17 clickY,
     /// 18 clickAge, 19 pressActive, 20 releaseAge, 21 trailCount, then 22… trail UV pairs.
     private static let pointerSlotBase = 16
+
+    /// First free slot after the pointer/trail block — the event block's base. Recomputed from
+    /// `trailCount` (16 + 6 named + trailCount×2 = 46 today) so changing the trail length shifts
+    /// it automatically rather than silently overlapping. Event block layout:
+    /// 46 scrollAge, 47/48 scrollDelta, 49 spaceAge, 50 pressAge, 51 lifecycleAge,
+    /// 52 lifecycleKind, 53…56 lifecycleRect, 57/58 dockDirection.
+    static let eventSlotBase = pointerSlotBase + 6 + PointerInputSampler.trailCount * 2
 
     /// Inject the live pointer state into a pointer effect's reserved high slots, after
     /// `writeParameters` (which clears all 64 slots). A no-op for every other effect.
@@ -97,11 +228,60 @@ final class EffectChainRenderer {
         uniforms.setParam(base + 4, frame.releaseAge)
         uniforms.setParam(base + 5, frame.pointerTrailCount)
         var slot = base + 6
-        for point in frame.pointerTrail.prefix(PointerInputSampler.trailCount) {
+        // The trail rides in a reused fixed buffer; only the first `pointerTrailCount` entries
+        // are valid (the rest are stale), so read by count rather than the buffer length.
+        let count = min(Int(frame.pointerTrailCount), frame.pointerTrail.count)
+        for i in 0..<count {
+            let point = frame.pointerTrail[i]
             uniforms.setParam(slot, point.x)
             uniforms.setParam(slot + 1, point.y)
             slot += 2
         }
+    }
+
+    /// Fragment functions that consume the ambient global block (slots 64+: audio + keyboard).
+    /// Populated by the §15 ambient-reactive effects.
+    static var ambientEffectFunctions: Set<String> = ["fx_int_audioPulse", "fx_int_keyGlyph"]
+
+    /// Base slot of the ambient global block (above the 0–63 effect/injection range).
+    /// 64 audioLevel, 65/66/67 audioBands, 68 keyAge, 69 keyChar.
+    private static let ambientSlotBase = 64
+
+    /// Inject the ambient global block (audio + keyboard, MAOE §15.1) for an ambient effect.
+    private func injectAmbient(into uniforms: inout SpectraUniforms, function: String, frame: FrameContext) {
+        guard Self.ambientEffectFunctions.contains(function) else { return }
+        let base = Self.ambientSlotBase
+        uniforms.setParam(base + 0, frame.audioLevel)
+        uniforms.setParam(base + 1, frame.audioBands.x)
+        uniforms.setParam(base + 2, frame.audioBands.y)
+        uniforms.setParam(base + 3, frame.audioBands.z)
+        uniforms.setParam(base + 4, frame.keyAge)
+        uniforms.setParam(base + 5, frame.keyChar)
+    }
+
+    /// Inject the live event block (scroll / space / press / lifecycle) for an event effect,
+    /// after `writeParameters`. A no-op for every other effect. Disjoint from the pointer block,
+    /// so an effect may consume both.
+    private func injectEvent(into uniforms: inout SpectraUniforms, function: String, frame: FrameContext) {
+        guard Self.eventEffectFunctions.contains(function) else { return }
+        let base = Self.eventSlotBase
+        uniforms.setParam(base + 0, frame.scrollAge)
+        uniforms.setParam(base + 1, frame.scrollDelta.x)
+        uniforms.setParam(base + 2, frame.scrollDelta.y)
+        uniforms.setParam(base + 3, frame.spaceAge)
+        uniforms.setParam(base + 4, frame.pressAge)
+        uniforms.setParam(base + 5, frame.lifecycleAge)
+        uniforms.setParam(base + 6, frame.lifecycleKind)
+        uniforms.setParam(base + 7, frame.lifecycleRect.x)
+        uniforms.setParam(base + 8, frame.lifecycleRect.y)
+        uniforms.setParam(base + 9, frame.lifecycleRect.z)
+        uniforms.setParam(base + 10, frame.lifecycleRect.w)
+        uniforms.setParam(base + 11, frame.dockDirection.x)
+        uniforms.setParam(base + 12, frame.dockDirection.y)
+        uniforms.setParam(base + 13, frame.currentPointer.x)
+        uniforms.setParam(base + 14, frame.currentPointer.y)
+        uniforms.setParam(base + 15, frame.pointerSpeed)
+        uniforms.setParam(base + 16, frame.moveAge)
     }
 
     /// Fragment texture index at which the previous frame's output is bound for
@@ -139,6 +319,18 @@ final class EffectChainRenderer {
         var reusable: [MTLTexture] = []
         var passCount = 0
 
+        // Live window-geometry buffer (MAOE §5.1), packed once per frame and bound at
+        // fragment/compute buffer index 2 only for passes that declare `requiresWindowRects`.
+        // Lazy: an empty window list still yields a valid zero-count buffer so a chrome shader
+        // reads "no windows" rather than garbage.
+        var packedWindows: [Float]?
+        func windowBuffer() -> [Float] {
+            if let packedWindows { return packedWindows }
+            let p = WindowGeometryUniforms.pack(frame.windows)
+            packedWindows = p
+            return p
+        }
+
         func obtain(_ w: Int, _ h: Int) -> MTLTexture {
             if let index = reusable.firstIndex(where: { $0.width == w && $0.height == h }) {
                 return reusable.remove(at: index)
@@ -171,12 +363,19 @@ final class EffectChainRenderer {
         }
 
         for effect in chain {
+            // MAOE §10: skip an event-driven effect while the decay gate is idle — it would
+            // only return `base`, so skipping reclaims its full-screen pass inside an animated
+            // world. Continuous / graded effects (triggerKind nil or .continuous) always run.
+            if let trigger = effect.descriptor.triggerKind, trigger.isEventDriven, !frame.decayActive {
+                continue
+            }
             let effectInput = current
             var passSource = current
             var previousTarget: MTLTexture?
             // Pass outputs that a later pass taps must not be recycled mid-effect; track them
-            // and the index of the output currently held in `previousTarget`.
-            let tappedIndices = Set(effect.descriptor.passes.compactMap { $0.tapPass })
+            // and the index of the output currently held in `previousTarget`. Set is derived
+            // once at resolve time (`ResolvedEffect.tappedIndices`), not rebuilt per frame.
+            let tappedIndices = effect.tappedIndices
             var passOutputs: [Int: MTLTexture] = [:]
             var previousTargetIndex: Int?
 
@@ -185,9 +384,11 @@ final class EffectChainRenderer {
                 // "Render Scale" slider), falling back to the authored `scale` when unset.
                 var passScale = pass.scale
                 if let slot = pass.scaleParam {
-                    var probe = SpectraUniforms()
-                    effect.writeParameters(into: &probe)
-                    let v = probe.param(slot)
+                    // Read the one parameter float directly instead of materialising a full
+                    // SpectraUniforms via writeParameters (which clears 80 slots and allocates a
+                    // [Float] per parameter) just to probe a single value each frame.
+                    let floats = effect.parameterFloats()
+                    let v = slot < floats.count ? floats[slot] : 0
                     if v > 0.01 { passScale = max(0.1, min(1.0, v)) }
                 }
                 let targetWidth = max(1, Int((Float(width) * passScale).rounded()))
@@ -197,38 +398,59 @@ final class EffectChainRenderer {
                 // Bindings mirror the render path (src=0, orig=1, aux=2+, history=10) plus
                 // the writable output at texture(11).
                 if pass.isCompute {
-                    guard let computePipeline = try? shaders.computePipeline(
-                              pass.fragmentFunction, library: effect.customLibrary),
-                          let encoder = commandBuffer.makeComputeCommandEncoder() else { continue }
+                    let computePipeline: MTLComputePipelineState
+                    do {
+                        computePipeline = try shaders.computePipeline(
+                            pass.fragmentFunction, library: effect.customLibrary)
+                    } catch {
+                        Log.render.error("Skipping compute pass '\(pass.fragmentFunction)': \(error.localizedDescription)")
+                        continue
+                    }
+                    guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
+                        Log.render.error("Skipping compute pass '\(pass.fragmentFunction)': could not create compute encoder")
+                        continue
+                    }
                     let target = obtain(targetWidth, targetHeight)
                     encoder.label = "\(effect.descriptor.id)#\(passIndex) (compute)"
                     encoder.setComputePipelineState(computePipeline)
 
-                    var uniforms = SpectraUniforms()
-                    uniforms.resolution = SIMD2(Float(targetWidth), Float(targetHeight))
-                    uniforms.time = frame.time
-                    uniforms.frameIndex = frame.frameIndex
-                    uniforms.clockSeconds = frame.clockSeconds
-                    uniforms.passIndex = Float(passIndex)
-                    uniforms.passScale = passScale
-                    uniforms.direction = pass.direction
-                    effect.writeUniversal(into: &uniforms)
-                    uniforms.strength *= frame.intensityScale
-                    effect.writeParameters(into: &uniforms)
-                    injectPointer(into: &uniforms, function: pass.fragmentFunction, frame: frame)
+                    // Uniforms live on zero-initialised stack scratch for this pass (no heap
+                    // allocation per GPU pass); `setBytes` copies them into the encoder.
+                    withUnsafeTemporaryAllocation(of: Float.self, capacity: SpectraUniforms.floatCount) { scratch in
+                        scratch.initialize(repeating: 0)
+                        var uniforms = SpectraUniforms(storage: scratch)
+                        uniforms.resolution = SIMD2(Float(targetWidth), Float(targetHeight))
+                        uniforms.time = frame.time
+                        uniforms.frameIndex = frame.frameIndex
+                        uniforms.clockSeconds = frame.clockSeconds
+                        uniforms.passIndex = Float(passIndex)
+                        uniforms.passScale = passScale
+                        uniforms.direction = pass.direction
+                        effect.writeUniversal(into: &uniforms)
+                        uniforms.strength *= frame.intensityScale
+                        effect.writeParameters(into: &uniforms)
+                        injectPointer(into: &uniforms, function: pass.fragmentFunction, frame: frame)
+                        injectEvent(into: &uniforms, function: pass.fragmentFunction, frame: frame)
+                        injectAmbient(into: &uniforms, function: pass.fragmentFunction, frame: frame)
 
-                    encoder.setTexture(passSource, index: 0)
-                    encoder.setTexture(effectInput, index: 1)
-                    for (auxIndex, auxTexture) in effect.auxTextures.enumerated() {
-                        encoder.setTexture(auxTexture, index: 2 + auxIndex)
-                    }
-                    encoder.setTexture(history ?? input, index: Self.historyTextureIndex)
-                    if let tap = pass.tapPass, let tapTex = passOutputs[tap] {
-                        encoder.setTexture(tapTex, index: Self.tappedTextureIndex)
-                    }
-                    encoder.setTexture(target, index: 11)
-                    uniforms.withUnsafeBytes { raw in
-                        encoder.setBytes(raw.baseAddress!, length: SpectraUniforms.byteCount, index: 0)
+                        encoder.setTexture(passSource, index: 0)
+                        encoder.setTexture(effectInput, index: 1)
+                        for (auxIndex, auxTexture) in effect.auxTextures.enumerated() {
+                            encoder.setTexture(auxTexture, index: 2 + auxIndex)
+                        }
+                        encoder.setTexture(history ?? input, index: Self.historyTextureIndex)
+                        if let tap = pass.tapPass, let tapTex = passOutputs[tap] {
+                            encoder.setTexture(tapTex, index: Self.tappedTextureIndex)
+                        }
+                        if pass.requiresWindowRects {
+                            windowBuffer().withUnsafeBytes { raw in
+                                encoder.setBytes(raw.baseAddress!, length: WindowGeometryUniforms.byteCount, index: 2)
+                            }
+                        }
+                        encoder.setTexture(target, index: 11)
+                        uniforms.withUnsafeBytes { raw in
+                            encoder.setBytes(raw.baseAddress!, length: SpectraUniforms.byteCount, index: 0)
+                        }
                     }
                     let threadgroup = MTLSize(width: 16, height: 16, depth: 1)
                     let groups = MTLSize(width: (targetWidth + 15) / 16,
@@ -271,52 +493,82 @@ final class EffectChainRenderer {
                 encoder.label = "\(effect.descriptor.id)#\(passIndex)"
                 encoder.setRenderPipelineState(pipeline)
 
-                var uniforms = SpectraUniforms()
-                uniforms.resolution = SIMD2(Float(targetWidth), Float(targetHeight))
-                uniforms.time = frame.time
-                uniforms.frameIndex = frame.frameIndex
-                uniforms.clockSeconds = frame.clockSeconds
-                uniforms.passIndex = Float(passIndex)
-                uniforms.passScale = pass.scale
-                uniforms.direction = pass.direction
-                effect.writeUniversal(into: &uniforms)
-                // Fold in the global intensity multiplier. Scaling the universal
-                // strength turns one slider into "overall shader strength": for
-                // cross-faded effects it pushes the processed/original mix (the
-                // composite lets strength exceed 1 so presets authored at full
-                // strength still gain headroom); for geometric effects, which read
-                // strength directly, it scales the displacement.
-                uniforms.strength *= frame.intensityScale
-                effect.writeParameters(into: &uniforms)
-                injectPointer(into: &uniforms, function: pass.fragmentFunction, frame: frame)
-                // REC OSD system-injected values. Runs for every recOSD pass.
-                if pass.fragmentFunction == "fx_cam_recOSD" {
-                    // recOSD declares params 0..10, leaving slot 11 free for a
-                    // system-injected value — used here to feed the real battery
-                    // fraction to the icon. Unconditional (not gated on liveClock) so
-                    // the bar is accurate regardless of the live-date toggle.
-                    uniforms.setParam(11, frame.batteryLevel)
-                    // Live mode (param 10): replace the static year/month/day params
-                    // (5/6/7) with today's date. The timecode reads u.clockSeconds
-                    // directly in the shader.
-                    if uniforms.param(10) > 0.5 {
-                        uniforms.setParam(5, frame.year)
-                        uniforms.setParam(6, frame.month)
-                        uniforms.setParam(7, frame.day)
+                // Uniforms live on zero-initialised stack scratch for this pass (no heap
+                // allocation per GPU pass); `setFragmentBytes` copies them into the encoder.
+                withUnsafeTemporaryAllocation(of: Float.self, capacity: SpectraUniforms.floatCount) { scratch in
+                    scratch.initialize(repeating: 0)
+                    var uniforms = SpectraUniforms(storage: scratch)
+                    uniforms.resolution = SIMD2(Float(targetWidth), Float(targetHeight))
+                    uniforms.time = frame.time
+                    uniforms.frameIndex = frame.frameIndex
+                    uniforms.clockSeconds = frame.clockSeconds
+                    uniforms.passIndex = Float(passIndex)
+                    uniforms.passScale = pass.scale
+                    uniforms.direction = pass.direction
+                    effect.writeUniversal(into: &uniforms)
+                    // Fold in the global intensity multiplier. Scaling the universal
+                    // strength turns one slider into "overall shader strength": for
+                    // cross-faded effects it pushes the processed/original mix (the
+                    // composite lets strength exceed 1 so presets authored at full
+                    // strength still gain headroom); for geometric effects, which read
+                    // strength directly, it scales the displacement.
+                    uniforms.strength *= frame.intensityScale
+                    effect.writeParameters(into: &uniforms)
+                    injectPointer(into: &uniforms, function: pass.fragmentFunction, frame: frame)
+                    injectEvent(into: &uniforms, function: pass.fragmentFunction, frame: frame)
+                    injectAmbient(into: &uniforms, function: pass.fragmentFunction, frame: frame)
+                    // Noir's ornate border (params 0..6) reads the menu-bar height from the free slot 7
+                    // so it can clear the menu-bar strip; harmless for any other pass.
+                    if pass.fragmentFunction == "fx_chrome_spriteBorder" {
+                        uniforms.setParam(7, frame.menuBarHeightUV)
+                    }
+                    // REC OSD system-injected values. Runs for every recOSD pass.
+                    if pass.fragmentFunction == "fx_cam_recOSD" {
+                        // recOSD declares params 0..10, leaving slot 11 free for a
+                        // system-injected value — used here to feed the real battery
+                        // fraction to the icon. Unconditional (not gated on liveClock) so
+                        // the bar is accurate regardless of the live-date toggle.
+                        uniforms.setParam(11, frame.batteryLevel)
+                        // Live mode (param 10): replace the static year/month/day params
+                        // (5/6/7) with today's date. The timecode reads u.clockSeconds
+                        // directly in the shader.
+                        if uniforms.param(10) > 0.5 {
+                            uniforms.setParam(5, frame.year)
+                            uniforms.setParam(6, frame.month)
+                            uniforms.setParam(7, frame.day)
+                        }
+                    }
+
+                    encoder.setFragmentTexture(passSource, index: 0)
+                    encoder.setFragmentTexture(effectInput, index: 1)
+                    for (auxIndex, auxTexture) in effect.auxTextures.enumerated() {
+                        encoder.setFragmentTexture(auxTexture, index: 2 + auxIndex)
+                    }
+                    encoder.setFragmentTexture(history ?? input, index: Self.historyTextureIndex)
+                    if let tap = pass.tapPass, let tapTex = passOutputs[tap] {
+                        encoder.setFragmentTexture(tapTex, index: Self.tappedTextureIndex)
+                    }
+                    uniforms.withUnsafeBytes { raw in
+                        encoder.setFragmentBytes(raw.baseAddress!, length: SpectraUniforms.byteCount, index: 0)
                     }
                 }
-
-                encoder.setFragmentTexture(passSource, index: 0)
-                encoder.setFragmentTexture(effectInput, index: 1)
-                for (auxIndex, auxTexture) in effect.auxTextures.enumerated() {
-                    encoder.setFragmentTexture(auxTexture, index: 2 + auxIndex)
+                if pass.requiresWindowRects {
+                    windowBuffer().withUnsafeBytes { raw in
+                        encoder.setFragmentBytes(raw.baseAddress!, length: WindowGeometryUniforms.byteCount, index: 2)
+                    }
                 }
-                encoder.setFragmentTexture(history ?? input, index: Self.historyTextureIndex)
-                if let tap = pass.tapPass, let tapTex = passOutputs[tap] {
-                    encoder.setFragmentTexture(tapTex, index: Self.tappedTextureIndex)
+                if pass.fragmentFunction == "fx_int_powSprite", let pow = powSpriteTexture {
+                    // Bind all three burst sprites; the shader selects per click. Missing variants
+                    // fall back to POW so every bound slot is valid.
+                    encoder.setFragmentTexture(pow, index: Self.powSpriteTextureIndex)
+                    encoder.setFragmentTexture(bangSpriteTexture ?? pow, index: Self.bangSpriteTextureIndex)
+                    encoder.setFragmentTexture(popSpriteTexture ?? pow, index: Self.popSpriteTextureIndex)
                 }
-                uniforms.withUnsafeBytes { raw in
-                    encoder.setFragmentBytes(raw.baseAddress!, length: SpectraUniforms.byteCount, index: 0)
+                if pass.fragmentFunction == "fx_chrome_spriteBorder", let tex = borderSpriteTexture {
+                    encoder.setFragmentTexture(tex, index: Self.borderSpriteTextureIndex)
+                }
+                if pass.fragmentFunction == "fx_int_pencilDraw", let tex = frame.pencilLayer {
+                    encoder.setFragmentTexture(tex, index: Self.pencilLayerTextureIndex)
                 }
                 // Fused colour pass: its run of ops rides in a second buffer. Each
                 // op carries its own strength, so the global intensity is folded in

@@ -16,6 +16,10 @@ struct ResolvedEffect {
     /// applies a run of pointwise colour ops packed into this flat buffer (bound at
     /// fragment buffer index 1). nil for an ordinary effect.
     let fusedOps: [Float]?
+    /// Pass indices that a later pass taps (must not be recycled mid-effect). Derived
+    /// once here from the descriptor so the renderer doesn't rebuild this set per effect
+    /// per frame on the link thread.
+    let tappedIndices: Set<Int>
 
     init(
         descriptor: EffectDescriptor,
@@ -29,6 +33,7 @@ struct ResolvedEffect {
         self.customLibrary = customLibrary
         self.auxTextures = auxTextures
         self.fusedOps = fusedOps
+        self.tappedIndices = Set(descriptor.passes.compactMap { $0.tapPass })
     }
 
     /// Opcode for this effect in `spectra_colorproc` (Color.metal), or nil.
