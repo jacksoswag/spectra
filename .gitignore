@@ -82,3 +82,10 @@ research/experimental/findings/imgstat
 
 # Effect-descriptor codegen tool (local tooling, not part of the shipped app)
 Scripts/effects_workflow.js
+.arc/
+
+# Local Claude project config / agent state (not release material)
+.claude/
+
+# Raw source photos for the website (optimized webp ship in website/public/looks)
+website photos/
