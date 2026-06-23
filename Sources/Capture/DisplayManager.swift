@@ -70,9 +70,19 @@ final class DisplayManager {
     }
 
     private func fetchShareableWindows(matching windowNumbers: Set<Int>) async -> [SCWindow] {
-        guard let content = try? await SCShareableContent.excludingDesktopWindows(
-            false, onScreenWindowsOnly: true) else { return [] }
-        return content.windows.filter { windowNumbers.contains(Int($0.windowID)) }
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(
+                false, onScreenWindowsOnly: true)
+            return content.windows.filter { windowNumbers.contains(Int($0.windowID)) }
+        } catch {
+            // Screen Recording may have been revoked mid-session. Surface it (lastError +
+            // re-checked permission) instead of silently returning no windows — which would
+            // leave control windows rendering as holes with no UI signal.
+            permissionAuthorized = ScreenRecordingPermission.isAuthorized
+            lastError = error.localizedDescription
+            Log.capture.error("Shareable-windows fetch failed (Screen Recording revoked?): \(error.localizedDescription, privacy: .public)")
+            return []
+        }
     }
 
     func scDisplay(for id: CGDirectDisplayID) -> SCDisplay? { scDisplays[id] }

@@ -59,11 +59,25 @@ final class SettingsStore {
     /// when there's headroom) instead of the fixed slider. The menu-bar "Auto" toggle.
     var autoQuality: Bool { didSet { persist() } }
     var showCursorInCapture: Bool { didSet { persist() } }
-    /// Draw a stylized cursor (run through the effect chain) instead of the system
-    /// cursor; hides the hardware cursor while active.
-    var customCursor: Bool { didSet { persist() } }
+    /// Global cursor override (MAOE §6). When set, it wins over the active world's
+    /// `world.cursor`; when nil, the world default (or the system cursor) applies. Persisted
+    /// so it survives relaunch.
+    var cursorOverride: CursorSpec? { didSet { persist() } }
+    /// Legacy "draw a stylized cursor through the chain" toggle, now expressed through
+    /// `cursorOverride` (system style at full intensity = the old behaviour). Kept as a
+    /// computed accessor so existing call sites and the simple toggle UI keep working.
+    var customCursor: Bool {
+        get { (cursorOverride?.intensity ?? .none) != .none }
+        set { cursorOverride = newValue ? CursorSpec(style: .system, intensity: .full) : nil }
+    }
     var frameRatePolicy: FrameRatePolicy { didSet { persist() } }
     var reduceMotion: Bool { didSet { persist() } }
+    /// Global on/off for the §15 engine capabilities. Each world still opts in via `WorldSpec`,
+    /// so these gate but never force the feature on. Audio + keyboard need their own grants
+    /// (Screen Recording for audio; Input Monitoring for keyboard — degrades gracefully).
+    var audioReactiveEnabled: Bool { didSet { persist() } }
+    var keyboardReactiveEnabled: Bool { didSet { persist() } }
+    var focusSpotlightEnabled: Bool { didSet { persist() } }
     var menuBarShowsPerformance: Bool { didSet { persist() } }
     /// Raise the overlay above the menu bar, status items, and Dock so effects
     /// (warp, grade, bloom…) cover the entire screen rather than stopping at the
@@ -78,6 +92,15 @@ final class SettingsStore {
     /// directly via `SystemEffectsController` (independent of the main effects switch and the
     /// effect stack). Persisted so it stays where you left it.
     var glassEnabled: Bool { didSet { persist() } }
+    /// Per-element Glass controls (the Studio "Glass" tab). Each drives one
+    /// `SystemEffectsController` subsystem directly, independent of the main effects
+    /// switch and the effect stack — the same standalone path as `glassEnabled`. The two
+    /// style fields hold the chosen `MenuBarStyle` / `DockStyle` index (0 = None = off).
+    var glassTransparency: Bool { didSet { persist() } }
+    var glassTiling: Bool { didSet { persist() } }
+    var glassTint: Bool { didSet { persist() } }
+    var glassMenuBarStyleIndex: Int { didSet { persist() } }
+    var glassDockStyleIndex: Int { didSet { persist() } }
     /// Make the overlay visible to external screen capture (system Screenshot UI /
     /// `screencapture`, third-party recorders) by flipping its `sharingType` from
     /// `.none` to `.readOnly`. On by default so screenshots and recordings include the
@@ -87,6 +110,9 @@ final class SettingsStore {
     /// Whether the first-run welcome has been shown. Set once and never reset by
     /// "Reset to Defaults" (it tracks a one-time event, not a preference).
     var hasSeenWelcome: Bool { didSet { persist() } }
+    /// Whether the one-time "how to draw / erase" sketch help has been shown. Set once and never
+    /// reset by "Reset to Defaults" (it tracks a one-time event, not a preference).
+    var hasSeenSketchHelp: Bool { didSet { persist() } }
     /// Global effect intensity (0…1), the master strength of the whole shader.
     /// 100% (the default) is the look the presets ship at; `SpectraEngine` maps this
     /// linearly to a per-effect strength multiplier (1.0 → 1.0×, 0 → 0×) applied at
@@ -107,7 +133,10 @@ final class SettingsStore {
     /// v6: `intensity` default moved to 1.0 and its render curve became linear (100% =
     ///     authored look, no +30% overdrive past 70%); stored values are remapped so the
     ///     rendered strength is preserved.
-    private static let currentSchemaVersion = 6
+    /// v7: replaced the `customCursor` bool with a richer `cursorOverride` (CursorSpec). A
+    ///     stored `customCursor == true` migrates to `system`/`full` (preserves "draw the real
+    ///     cursor through effects"); `false` migrates to no override (defer to the world).
+    private static let currentSchemaVersion = 8
 
     private struct State: Codable {
         var startEnabledOnLaunch = false
@@ -124,7 +153,11 @@ final class SettingsStore {
         // on-by-default below.
         var autoQuality: Bool? = true
         var showCursorInCapture = false
-        var customCursor = false
+        var customCursor = false   // legacy ≤ v6; migrated to `cursorOverride` at v7
+        var cursorOverride: CursorSpec? = nil
+        var audioReactiveEnabled: Bool? = false
+        var keyboardReactiveEnabled: Bool? = false
+        var focusSpotlightEnabled: Bool? = false
         var frameRatePolicy: FrameRatePolicy = .matchDisplay
         var reduceMotion = false
         var menuBarShowsPerformance = true
@@ -133,8 +166,14 @@ final class SettingsStore {
         var coverMenuBarAndDock: Bool? = true
         var fuseColorPasses: Bool? = true
         var glassEnabled: Bool? = false
+        var glassTransparency: Bool? = false
+        var glassTiling: Bool? = false
+        var glassTint: Bool? = false
+        var glassMenuBarStyleIndex: Int? = 0
+        var glassDockStyleIndex: Int? = 0
         var showInScreenshots: Bool? = true
         var hasSeenWelcome: Bool? = false
+        var hasSeenSketchHelp: Bool? = false
         // Optional so files written before v5 decode to nil and adopt the 100%
         // default (which reproduces the presets' shipped look). Values from v5 are
         // remapped onto the new linear curve during migration.
@@ -169,6 +208,15 @@ final class SettingsStore {
             if let stored = state.intensity {
                 state.intensity = Swift.min(1.0, stored / 0.7)
             }
+            // v8: the old v7 migration forced a `.system` cursor override for legacy customCursor
+            // users. That override wins over every world in resolveCursorSpec(), so it silently
+            // shadowed each world's own sprite cursor — the world cursors never showed. A global
+            // "force the system cursor everywhere" was never an intentional user choice, so clear
+            // it; worlds drive the cursor by default, and the user can still pick a global override
+            // explicitly in Settings.
+            if let ov = state.cursorOverride, case .system = ov.style {
+                state.cursorOverride = nil
+            }
             state.schemaVersion = Self.currentSchemaVersion
             migrated = true
         }
@@ -177,15 +225,24 @@ final class SettingsStore {
         renderScale = Swift.min(RenderScale.max, Swift.max(RenderScale.min, state.renderScale ?? 1.0))
         autoQuality = state.autoQuality ?? true
         showCursorInCapture = state.showCursorInCapture
-        customCursor = state.customCursor
+        cursorOverride = state.cursorOverride
+        audioReactiveEnabled = state.audioReactiveEnabled ?? false
+        keyboardReactiveEnabled = state.keyboardReactiveEnabled ?? false
+        focusSpotlightEnabled = state.focusSpotlightEnabled ?? false
         frameRatePolicy = state.frameRatePolicy
         reduceMotion = state.reduceMotion
         menuBarShowsPerformance = state.menuBarShowsPerformance
         coverMenuBarAndDock = state.coverMenuBarAndDock ?? true
         fuseColorPasses = state.fuseColorPasses ?? true
         glassEnabled = state.glassEnabled ?? false
+        glassTransparency = state.glassTransparency ?? false
+        glassTiling = state.glassTiling ?? false
+        glassTint = state.glassTint ?? false
+        glassMenuBarStyleIndex = state.glassMenuBarStyleIndex ?? 0
+        glassDockStyleIndex = state.glassDockStyleIndex ?? 0
         showInScreenshots = state.showInScreenshots ?? true
         hasSeenWelcome = state.hasSeenWelcome ?? false
+        hasSeenSketchHelp = state.hasSeenSketchHelp ?? false
         intensity = Swift.min(1.0, Swift.max(0.0, state.intensity ?? 1.0))
         favoriteEffectIDs = Set(state.favoriteEffectIDs)
 
@@ -202,14 +259,22 @@ final class SettingsStore {
         renderScale = d.renderScale ?? 1.0
         autoQuality = d.autoQuality ?? true
         showCursorInCapture = d.showCursorInCapture
-        customCursor = d.customCursor
+        cursorOverride = d.cursorOverride
+        audioReactiveEnabled = d.audioReactiveEnabled ?? false
+        keyboardReactiveEnabled = d.keyboardReactiveEnabled ?? false
+        focusSpotlightEnabled = d.focusSpotlightEnabled ?? false
         frameRatePolicy = d.frameRatePolicy
         reduceMotion = d.reduceMotion
         menuBarShowsPerformance = d.menuBarShowsPerformance
         coverMenuBarAndDock = d.coverMenuBarAndDock ?? true
         fuseColorPasses = d.fuseColorPasses ?? true
         glassEnabled = d.glassEnabled ?? false
-        showInScreenshots = d.showInScreenshots ?? false
+        glassTransparency = d.glassTransparency ?? false
+        glassTiling = d.glassTiling ?? false
+        glassTint = d.glassTint ?? false
+        glassMenuBarStyleIndex = d.glassMenuBarStyleIndex ?? 0
+        glassDockStyleIndex = d.glassDockStyleIndex ?? 0
+        showInScreenshots = d.showInScreenshots ?? true   // match the shipped default (State + init)
         intensity = d.intensity ?? 1.0
         isLoading = false
         persist()
@@ -222,6 +287,10 @@ final class SettingsStore {
         else { favoriteEffectIDs.insert(id) }
     }
 
+    /// Last settings-write failure (nil when the last write succeeded), surfaced so a lost write
+    /// doesn't silently drop the user's preferences. Mirrors `LicenseManager.persistError`.
+    private(set) var persistError: String?
+
     private func persist() {
         guard !isLoading else { return }
         let state = State(
@@ -229,16 +298,31 @@ final class SettingsStore {
             renderScale: renderScale,
             autoQuality: autoQuality,
             showCursorInCapture: showCursorInCapture,
-            customCursor: customCursor,
+            cursorOverride: cursorOverride,
+            audioReactiveEnabled: audioReactiveEnabled,
+            keyboardReactiveEnabled: keyboardReactiveEnabled,
+            focusSpotlightEnabled: focusSpotlightEnabled,
             frameRatePolicy: frameRatePolicy,
             reduceMotion: reduceMotion, menuBarShowsPerformance: menuBarShowsPerformance,
             coverMenuBarAndDock: coverMenuBarAndDock,
             fuseColorPasses: fuseColorPasses,
             glassEnabled: glassEnabled,
+            glassTransparency: glassTransparency,
+            glassTiling: glassTiling,
+            glassTint: glassTint,
+            glassMenuBarStyleIndex: glassMenuBarStyleIndex,
+            glassDockStyleIndex: glassDockStyleIndex,
             showInScreenshots: showInScreenshots,
             hasSeenWelcome: hasSeenWelcome,
+            hasSeenSketchHelp: hasSeenSketchHelp,
             intensity: intensity,
             favoriteEffectIDs: favoriteEffectIDs.sorted())
-        try? JSONStore.save(state, to: AppPaths.settingsFile)
+        do {
+            try JSONStore.save(state, to: AppPaths.settingsFile)
+            persistError = nil
+        } catch {
+            persistError = error.localizedDescription
+            Log.storage.error("Settings write failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
