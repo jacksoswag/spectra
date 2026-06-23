@@ -3,6 +3,18 @@ import AppKit
 import Metal
 import QuartzCore
 
+/// Thread-safe holder for the last Space-switch time (MAOE §5.2). `RenderEngine` stamps it
+/// once a Space transition has settled; each `DisplayRenderer` reads it on the link thread to
+/// derive `spaceAge` for the space-transition effects. A shared reference (not a closure) so
+/// crossing the main → link thread boundary stays trivially `Sendable`.
+final class SpaceClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _time: Double = -1
+    func stamp() { lock.lock(); _time = CACurrentMediaTime(); lock.unlock() }
+    /// `CACurrentMediaTime()` of the last settled Space switch, or -1 if none yet.
+    func time() -> Double { lock.lock(); defer { lock.unlock() }; return _time }
+}
+
 /// Drives the effect chain for a single display and presents the result onto its
 /// overlay window.
 ///
@@ -43,6 +55,17 @@ final class DisplayRenderer: NSObject {
     /// enabled. Stateless; reads an immutable snapshot the shared main-actor `cursorSampler`
     /// publishes, so it runs on the off-main link thread.
     private let cursorCompositor: CursorCompositor
+    /// Persistent draw-on-screen accumulation layer for the Pencil draw tool (red channel = stroke
+    /// mask). Created lazily at chain resolution and kept ACROSS frames (never pooled), so strokes
+    /// persist; stamped while the left button drags and cleared on a right-click. Only ever touched
+    /// on the link thread, and only while the Pencil chain is active.
+    private var pencilLayer: MTLTexture?
+    private var pencilPrevUV = SIMD2<Float>(-1, -1)   // last stamped point (-1 = stroke not started)
+    private var pencilSmoothedUV = SIMD2<Float>(-1, -1)   // low-passed draw point: a slight jitter smooth
+    private var pencilAnchorUV = SIMD2<Float>(-1, -1)  // press point; a stroke begins only once the cursor moves off it
+    private var pencilPrevLeft = false                // left-button state last frame (double-click edge detect)
+    private var pencilLastLeftDown: Double = -2        // time of the previous left-down (double-click-to-clear)
+    private var pencilLastLeftDownPos = CGPoint.zero
     /// Shared main-actor sampler that reads the live cursor (NSEvent/NSCursor) on the main
     /// thread and publishes a thread-safe snapshot the link-thread callback consumes.
     private let cursorSampler: CursorSampler
@@ -50,6 +73,20 @@ final class DisplayRenderer: NSObject {
     /// interactive effects, published as a thread-safe snapshot this link-thread callback folds
     /// into each frame's `FrameContext`.
     private let pointerSampler: PointerInputSampler
+    /// Reused link-thread buffer for the pointer trail in UV (capacity = `trailCount`), so a held
+    /// or recently-released drag doesn't allocate a fresh array every frame. `pointerTrailCount`
+    /// carries how many entries are valid; assigning it into `FrameContext` shares it copy-on-write
+    /// and the frame is consumed before the next fill, so no copy is made.
+    private var pointerTrailScratch = [SIMD2<Float>](repeating: .zero, count: PointerInputSampler.trailCount)
+    /// Shared provider publishing per-display window rectangles (CGWindowList → display-local
+    /// UV) for window-aware effects. Lock-free read on the link thread; empty when no
+    /// rect-consuming effect is in any chain.
+    private let windowGeometry: WindowGeometryProvider
+    /// Shared Space-switch clock (set by the engine after a switch settles); read on the link
+    /// thread to derive `spaceAge`.
+    private let spaceClock: SpaceClock
+    /// Shared audio reactor (MAOE §15.1); lock-free read on the link thread. Inert when disabled.
+    private let audioReactor: AudioReactor
     /// Hosts the `CAMetalDisplayLink` callback OFF the main run loop, so SwiftUI (the Studio
     /// window) laying out can't delay a tick and add ~one frame of latency. The link object's
     /// lifecycle (create/pause/rebuild/invalidate) still runs on the main thread; only the
@@ -105,6 +142,22 @@ final class DisplayRenderer: NSObject {
     private var pendingFrame: CapturedFrame?
     private var lastFrame: CapturedFrame?
     private var needsRedraw = false
+    /// MAOE §5.2 decay render gate. The link callback treats the frame as live while
+    /// `CACurrentMediaTime() < decayExpiresAt`, then drops back to idle — the single mechanism
+    /// behind every one-shot event effect (click bursts, scroll drift, space transitions, the
+    /// press-hold line warp). Guarded by `stateLock`; armed from arbitrary threads via
+    /// `armDecay`. A one-shot effect NEVER forces continuous rendering, so idle cost stays zero.
+    private var decayExpiresAt: Double = 0
+    /// Most recent window-lifecycle event for this display (MAOE §5.4), stored so the event
+    /// block can age it out for the close/minimize/open bursts. `stateLock`-guarded; written
+    /// from the geometry provider's routing on the main thread, read on the link thread.
+    private var lifecycleKind: Float = 0          // 0 none, 1 opened, 2 closed, 3 minimized
+    private var lifecycleRect: SIMD4<Float> = .zero
+    private var lifecycleDockDir: SIMD2<Float> = .zero
+    private var lifecycleTime: Double = -1
+    /// One-shot styled-capture request (MAOE §15.4). Set on the main actor, consumed once on the
+    /// next rendered frame on the link thread. `stateLock`-guarded.
+    private var captureRequest: ((CGImage?) -> Void)?
     /// Monotonic id of each captured frame, bumped in `submit` (capture queue) and
     /// carried through the mailbox so the consumer can tell a brand-new capture from a
     /// redraw of `lastFrame`. Used only by the frame-gated reveal. Guarded by `frameLock`.
@@ -167,13 +220,17 @@ final class DisplayRenderer: NSObject {
     var faultHandler: ((Error?) -> Void)?
 
     init(displayID: CGDirectDisplayID, overlay: OverlayWindow, context: MetalContext,
-         shaders: ShaderLibrary, cursorSampler: CursorSampler, pointerSampler: PointerInputSampler) {
+         shaders: ShaderLibrary, cursorSampler: CursorSampler, pointerSampler: PointerInputSampler,
+         windowGeometry: WindowGeometryProvider, spaceClock: SpaceClock, audioReactor: AudioReactor) {
         self.displayID = displayID
         self.overlay = overlay
         self.context = context
         self.shaders = shaders
         self.cursorSampler = cursorSampler
         self.pointerSampler = pointerSampler
+        self.windowGeometry = windowGeometry
+        self.spaceClock = spaceClock
+        self.audioReactor = audioReactor
         self.pool = TexturePool(device: context.device)
         self.chainRenderer = EffectChainRenderer(context: context, shaders: shaders, pool: pool)
         self.cursorCompositor = CursorCompositor(shaders: shaders)
@@ -194,6 +251,45 @@ final class DisplayRenderer: NSObject {
             SIMD2(Float((p.x - frame.minX) / frame.width),
                   Float((frame.height - (p.y - frame.minY)) / frame.height))   // flip to top-left
         }
+        // Event ages (MAOE §5.2). Display-agnostic — scroll/space/press are global signals — so
+        // they are always folded in; the injection allowlist (`eventEffectFunctions`) decides
+        // which effects actually read them.
+        if snapshot.lastScrollTime >= 0 {
+            ctx.scrollAge = Float(now - snapshot.lastScrollTime)
+            ctx.scrollDelta = SIMD2(Float(snapshot.scrollDelta.dx), Float(snapshot.scrollDelta.dy))
+        }
+        let spaceTime = spaceClock.time()
+        if spaceTime >= 0 { ctx.spaceAge = Float(now - spaceTime) }
+        ctx.pressAge = (snapshot.pressed && snapshot.lastDownTime >= 0)
+            ? Float(now - snapshot.lastDownTime) : 999
+        // Current pointer + speed for the movement-reactive effects. (-1,-1) UV when the
+        // pointer is on another display, so an effect only reacts on the screen it's over.
+        if frame.contains(snapshot.pointerPos) {
+            ctx.currentPointer = toUV(snapshot.pointerPos)
+            ctx.pointerSpeed = Float(snapshot.pointerSpeed / frame.height)   // UV/sec
+            ctx.moveAge = snapshot.lastMoveTime >= 0 ? Float(now - snapshot.lastMoveTime) : 999
+        }
+        // Window-lifecycle burst (MAOE §5.4): age the stored event so the close/minimize/open
+        // burst self-decays. Read under the same lock used by the link callback for intensity.
+        stateLock.lock()
+        let lcTime = lifecycleTime, lcKind = lifecycleKind
+        let lcRect = lifecycleRect, lcDock = lifecycleDockDir
+        stateLock.unlock()
+        if lcTime >= 0 {
+            ctx.lifecycleAge = Float(now - lcTime)
+            ctx.lifecycleKind = lcKind
+            ctx.lifecycleRect = lcRect
+            ctx.dockDirection = lcDock
+        }
+        // Ambient inputs (MAOE §15.1): keystroke age/seed from the pointer sampler, audio from
+        // the reactor. Inert unless the respective feature is engaged.
+        if snapshot.lastKeyTime >= 0 {
+            ctx.keyAge = Float(now - snapshot.lastKeyTime)
+            ctx.keyChar = Float(snapshot.keySeed)
+        }
+        let audio = audioReactor.current()
+        ctx.audioLevel = audio.level
+        ctx.audioBands = SIMD3(audio.bass, audio.mid, audio.treble)
         // Confine each interaction to the display it actually happens on: a click or drag on
         // another screen must not make this one run the splash (its geometry is off-canvas, but
         // the crown's droplet loop would still burn fullscreen GPU for its whole lifetime).
@@ -206,14 +302,107 @@ final class DisplayRenderer: NSObject {
         ctx.pressActive = snapshot.pressed ? 1 : 0
         ctx.releaseAge = snapshot.lastUpTime >= 0 ? Float(now - snapshot.lastUpTime) : 999
         // Only build the trail while it's needed (held, or within the release-collapse window);
-        // a long-idle frozen trail otherwise allocates an array every frame for nothing.
+        // a long-idle frozen trail otherwise burns work every frame for nothing. Fill the reused
+        // scratch buffer rather than allocating a fresh array per frame.
         if snapshot.pressed || (snapshot.lastUpTime >= 0 && now - snapshot.lastUpTime < 1.0) {
-            var trail: [SIMD2<Float>] = []
-            trail.reserveCapacity(snapshot.trailLength)
-            for i in 0..<snapshot.trailLength { trail.append(toUV(snapshot.trail[i])) }
-            ctx.pointerTrail = trail
-            ctx.pointerTrailCount = Float(snapshot.trailLength)
+            let n = min(snapshot.trailLength, PointerInputSampler.trailCount)
+            for i in 0..<n { pointerTrailScratch[i] = toUV(snapshot.trail[i]) }
+            ctx.pointerTrail = pointerTrailScratch
+            ctx.pointerTrailCount = Float(n)
         }
+    }
+
+    /// CPU mirror of `PencilStampUniforms` in Pencil.metal (same field order + padding).
+    private struct PencilStampUniforms { var prev: SIMD2<Float>; var cur: SIMD2<Float>; var halfWidth: Float; var aspect: Float }
+
+    /// Maintain the Pencil draw layer (link thread): create it at the chain resolution, clear it on
+    /// a right-click (or on first creation), and stamp a soft graphite mark from the previous to the
+    /// current cursor while the LEFT button drags (width inverse to speed, so a slow stroke is
+    /// thicker). Returns the layer to bind for `fx_int_pencilDraw`. Only called while the Pencil
+    /// chain is active, so it is zero-cost for every other preset.
+    private func updatePencilLayer(chainInput: MTLTexture, framePoints frame: CGRect,
+                                   into commandBuffer: MTLCommandBuffer) -> MTLTexture? {
+        let w = chainInput.width, h = chainInput.height
+        guard w > 0, h > 0, frame.width > 0, frame.height > 0 else { return nil }
+        var created = false
+        if pencilLayer?.width != w || pencilLayer?.height != h {
+            let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .r16Float, width: w, height: h, mipmapped: false)
+            desc.usage = [.renderTarget, .shaderRead]
+            desc.storageMode = .private
+            pencilLayer = context.device.makeTexture(descriptor: desc)
+            pencilPrevUV = SIMD2(-1, -1)
+            pencilSmoothedUV = SIMD2(-1, -1)
+            created = true
+        }
+        guard let layer = pencilLayer else { return nil }
+        let snapshot = pointerSampler.current()
+
+        // Clear on a left DOUBLE-click (or when the layer was just created — private storage is
+        // uninitialized). A double-click is two left-down edges within 0.4 s at ~the same spot; the
+        // move-gate below means each of those clicks leaves no mark, so the gesture only erases.
+        let now = CACurrentMediaTime()
+        let leftDownEdge = snapshot.leftPressed && !pencilPrevLeft
+        pencilPrevLeft = snapshot.leftPressed
+        var doClear = created
+        if leftDownEdge {
+            let ddx = snapshot.pointerPos.x - pencilLastLeftDownPos.x
+            let ddy = snapshot.pointerPos.y - pencilLastLeftDownPos.y
+            if now - pencilLastLeftDown < 0.4 && ddx * ddx + ddy * ddy < 144 {
+                doClear = true
+                pencilLastLeftDown = -2   // consume, so a triple-click isn't a second clear
+            } else {
+                pencilLastLeftDown = now
+                pencilLastLeftDownPos = snapshot.pointerPos
+            }
+        }
+        if doClear {
+            pencilPrevUV = SIMD2(-1, -1); pencilSmoothedUV = SIMD2(-1, -1); pencilAnchorUV = SIMD2(-1, -1)
+            let rp = MTLRenderPassDescriptor()
+            rp.colorAttachments[0].texture = layer
+            rp.colorAttachments[0].loadAction = .clear
+            rp.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+            rp.colorAttachments[0].storeAction = .store
+            commandBuffer.makeRenderCommandEncoder(descriptor: rp)?.endEncoding()
+        }
+
+        // Stamp while the LEFT button drags. The stroke begins only once the cursor has MOVED off the
+        // press point, so a single click leaves no dot.
+        if snapshot.leftPressed, frame.contains(snapshot.pointerPos),
+           let pipeline = try? shaders.maxBlendPipeline(fragment: "fx_pencil_stamp", pixelFormat: .r16Float) {
+            let raw = SIMD2<Float>(Float((snapshot.pointerPos.x - frame.minX) / frame.width),
+                                   Float((frame.height - (snapshot.pointerPos.y - frame.minY)) / frame.height))
+            if pencilAnchorUV.x < 0 { pencilAnchorUV = raw }                        // remember where this press began
+            let mdx = raw.x - pencilAnchorUV.x, mdy = raw.y - pencilAnchorUV.y
+            let started = pencilPrevUV.x >= 0 || mdx * mdx + mdy * mdy > 0.004 * 0.004
+            if started {
+                // Slight path smoothing: a light low-pass that rounds off pointer jitter with barely
+                // any lag (0.7 = mostly the raw point, a touch of history). The stroke's first segment
+                // runs from the press point so it starts exactly where the cursor went down.
+                let smooth: Float = 0.7
+                pencilSmoothedUV = pencilSmoothedUV.x < 0 ? raw : smooth * raw + (1 - smooth) * pencilSmoothedUV
+                let cur = pencilSmoothedUV
+                let prev = pencilPrevUV.x < 0 ? pencilAnchorUV : pencilPrevUV
+                let speedUV = Float(snapshot.pointerSpeed / frame.height)               // UV/sec
+                let halfW = max(0.0007, 0.0035 - min(speedUV, 1.2) / 1.2 * 0.0028)      // slow → thick, fast → thin
+                var u = PencilStampUniforms(prev: prev, cur: cur, halfWidth: halfW, aspect: Float(w) / Float(h))
+                let rp = MTLRenderPassDescriptor()
+                rp.colorAttachments[0].texture = layer
+                rp.colorAttachments[0].loadAction = .load
+                rp.colorAttachments[0].storeAction = .store
+                if let enc = commandBuffer.makeRenderCommandEncoder(descriptor: rp) {
+                    enc.setRenderPipelineState(pipeline)
+                    enc.setFragmentBytes(&u, length: MemoryLayout<PencilStampUniforms>.stride, index: 0)
+                    enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+                    enc.endEncoding()
+                }
+                pencilPrevUV = cur
+            }
+        } else if !snapshot.leftPressed {
+            pencilPrevUV = SIMD2(-1, -1)   // pen lifted: the next stroke starts fresh, no joining line
+            pencilSmoothedUV = SIMD2(-1, -1)
+            pencilAnchorUV = SIMD2(-1, -1)
+        }
+        return layer
     }
 
     /// Enable/disable drawing the live cursor into the frame (so it runs through the chain).
@@ -221,6 +410,18 @@ final class DisplayRenderer: NSObject {
     /// engine; this only flips whether the composite pass runs.
     func setCustomCursorEnabled(_ on: Bool) {
         cursorCompositor.enabled = on
+    }
+
+    /// Set the active cursor styling (MAOE §6) on this display's compositor. Main thread.
+    func setCursorSpec(_ spec: CursorSpec) {
+        cursorCompositor.spec = spec
+    }
+
+    /// MAOE §15.4: capture the next rendered frame as a `CGImage` (the styled desktop). The
+    /// completion fires on the main thread. Triggers a redraw so a static desktop still captures.
+    func captureNextFrame(_ completion: @escaping (CGImage?) -> Void) {
+        stateLock.lock(); captureRequest = completion; stateLock.unlock()
+        requestRedraw()
     }
 
     /// Cache the overlay's current frame (AppKit global points) for the cursor composite. Main
@@ -355,12 +556,12 @@ final class DisplayRenderer: NSObject {
     /// this the overlay stays frozen on a stale frame until the user manually re-swipes.
     /// Gated on the overlay actually being visible so a legitimately-dormant link (overlay on
     /// a Space that isn't currently displayed) isn't churned, plus a cooldown.
-    func restartDisplayLinkIfStalled() {
+    func restartDisplayLinkIfStalled(stallThreshold: Double = 0.75, cooldown: Double = 1.0) {
         stateLock.lock(); let active = _active; let lastCB = lastCallbackTime; stateLock.unlock()
         guard active, lastCB > 0, overlay.occlusionState.contains(.visible) else { return }
         let now = CACurrentMediaTime()
-        guard now - lastCB > 0.75 else { return }               // stalled: no callback for >0.75s
-        guard now - lastWatchdogRebuild > 1.0 else { return }   // cooldown (main-only); short so a re-death recovers fast now that rebuilds actually take effect
+        guard now - lastCB > stallThreshold else { return }     // stalled: no callback for >threshold
+        guard now - lastWatchdogRebuild > cooldown else { return }   // cooldown (main-only); short so a re-death recovers fast now that rebuilds actually take effect
         lastWatchdogRebuild = now
         Log.render.notice("Display-link watchdog restart id=\(self.displayID, privacy: .public) cbAgeMs=\(Int((now - lastCB) * 1000), privacy: .public)")
         rebuildDisplayLink()
@@ -380,6 +581,27 @@ final class DisplayRenderer: NSObject {
     /// next rendered frame.
     func setIntensityScale(_ scale: Float) {
         stateLock.lock(); intensityScale = scale; stateLock.unlock()
+    }
+
+    /// MAOE §5.2: keep this display rendering for `seconds` so a discrete event's decaying
+    /// burst plays out, then return to idle. Callable from any thread (the link free-runs while
+    /// active, so the next tick within ~16 ms picks this up — no explicit wake needed). Extends,
+    /// never shortens, an existing decay window.
+    nonisolated func armDecay(_ seconds: Double) {
+        let deadline = CACurrentMediaTime() + max(0, seconds)
+        stateLock.lock(); decayExpiresAt = max(decayExpiresAt, deadline); stateLock.unlock()
+    }
+
+    /// MAOE §5.4: record a window-lifecycle event (close/minimize/open) so its decaying burst
+    /// fires at the window's last rect, and arm the decay clock. Thread-safe.
+    nonisolated func emitLifecycleEvent(kind: Float, rectUV: SIMD4<Float>, dockDir: SIMD2<Float>) {
+        stateLock.lock()
+        lifecycleKind = kind
+        lifecycleRect = rectUV
+        lifecycleDockDir = dockDir
+        lifecycleTime = CACurrentMediaTime()
+        stateLock.unlock()
+        armDecay(1.3)
     }
 
     /// The single effective render cap: `maxRenderFPS`, lowered by the user setting. Read on
@@ -439,7 +661,9 @@ final class DisplayRenderer: NSObject {
         let snapshot = chain
         chainLock.unlock()
 
-        stateLock.lock(); let intensity = intensityScale; let framePoints = cachedFramePoints; stateLock.unlock()
+        stateLock.lock(); let intensity = intensityScale; let framePoints = cachedFramePoints
+        let decayDeadline = decayExpiresAt; stateLock.unlock()
+        let decayActive = CACurrentMediaTime() < decayDeadline
 
         let time = Float(CACurrentMediaTime() - startTime)
         frameCounter += 1
@@ -450,15 +674,31 @@ final class DisplayRenderer: NSObject {
             year: clock.year, month: clock.month, day: clock.day,
             batteryLevel: BatteryProvider.level(),
             intensityScale: intensity)
+        frameContext.decayActive = decayActive
+        // Menu-bar height in UV (the standard ~24 pt strip at the top of the display), so the Noir
+        // screen-wide ornate border can clear it and leave the clock/menus readable.
+        if framePoints.height > 0 { frameContext.menuBarHeightUV = Float(26.0 / framePoints.height) }
         applyPointer(to: &frameContext, framePoints: framePoints)
+        // Live window geometry (MAOE §5.1). Already display-local UV; lock-free read. Empty
+        // unless a rect-consuming effect engaged the provider, so ordinary presets pay nothing.
+        frameContext.windows = windowGeometry.snapshot(for: displayID).windows
 
         // Optionally draw the live cursor into the frame so it goes through the chain, using
         // the snapshot the main-actor sampler published. The composited texture (if any) is
         // released on GPU completion.
         let cursorComposite = cursorCompositor.composite(
             input: frame.texture, snapshot: cursorSampler.current(), displayFramePoints: framePoints,
-            into: commandBuffer, pool: pool)
+            pressAge: frameContext.pressAge, into: commandBuffer, pool: pool)
         let chainInput = cursorComposite ?? frame.texture
+
+        // Pencil draw-on-screen tool: maintain its persistent stroke layer (stamp while dragging,
+        // clear on right-click) and hand it to the chain. Gated on the effect being present, so
+        // every other preset pays nothing and keeps no layer.
+        if snapshot.contains(where: { $0.descriptor.id == "interaction.pencilDraw" }) {
+            frameContext.pencilLayer = updatePencilLayer(chainInput: chainInput, framePoints: framePoints, into: commandBuffer)
+        } else if pencilLayer != nil {
+            pencilLayer = nil   // released when leaving the Pencil world
+        }
 
         let needsHistory = snapshot.contains { $0.descriptor.needsHistory }
         let result = chainRenderer.encode(
@@ -488,6 +728,22 @@ final class DisplayRenderer: NSObject {
 
         let cpuMilliseconds = (CACurrentMediaTime() - encodeStart) * 1000.0
         let captureHostTime = frame.hostTime
+
+        // MAOE §15.4: one-press styled capture. Render the final output into a CPU-readable
+        // texture and turn it into a CGImage on GPU completion.
+        stateLock.lock(); let capture = captureRequest; captureRequest = nil; stateLock.unlock()
+        if let capture {
+            let w = result.outputTexture.width, h = result.outputTexture.height
+            let desc = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: .bgra8Unorm, width: w, height: h, mipmapped: false)
+            desc.usage = [.renderTarget, .shaderRead]; desc.storageMode = .shared
+            let captureTexture = context.device.makeTexture(descriptor: desc)
+            if let captureTexture { _ = presentTexture(result.outputTexture, to: captureTexture, in: commandBuffer) }
+            commandBuffer.addCompletedHandler { _ in
+                let image = captureTexture.flatMap { Self.makeCGImage(from: $0) }
+                DispatchQueue.main.async { capture(image) }
+            }
+        }
 
         // Capture pool + semaphore strongly so a teardown mid-flight cannot
         // deallocate the DispatchSemaphore below its initial count (a libdispatch
@@ -558,6 +814,22 @@ final class DisplayRenderer: NSObject {
         return true
     }
 
+    /// Read a `bgra8Unorm` shared texture's pixels into a `CGImage` (for the styled capture).
+    private static func makeCGImage(from texture: MTLTexture) -> CGImage? {
+        let w = texture.width, h = texture.height
+        let bytesPerRow = w * 4
+        var bytes = [UInt8](repeating: 0, count: bytesPerRow * h)
+        bytes.withUnsafeMutableBytes {
+            texture.getBytes($0.baseAddress!, bytesPerRow: bytesPerRow,
+                             from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
+        }
+        let info = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        guard let ctx = CGContext(data: &bytes, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: bytesPerRow, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: info) else { return nil }
+        return ctx.makeImage()
+    }
+
     private func report(dropped: Bool, cpu: Double, gpu: Double, latency: Double, passes: Int) {
         sampleHandler?(FrameSample(
             cpuMilliseconds: cpu, gpuMilliseconds: gpu, latencyMilliseconds: latency,
@@ -594,7 +866,11 @@ extension DisplayRenderer: CAMetalDisplayLinkDelegate {
         frameLock.unlock()
 
         guard let frame else { return }                              // nothing captured yet
-        guard hasNew || redraw || hasAnimatedEffect else { return }  // idle: nothing changed
+        // MAOE §5.2 decay gate: a discrete event (click/scroll/space/press/lifecycle) keeps the
+        // frame live for its decaying burst, then we fall back to idle.
+        stateLock.lock(); let decayDeadline = decayExpiresAt; stateLock.unlock()
+        let decaying = CACurrentMediaTime() < decayDeadline
+        guard hasNew || redraw || hasAnimatedEffect || decaying else { return }  // idle: nothing changed
 
         // Cap the render rate without inducing a beat. The link already fires at
         // `renderFPSCap` (preferredFrameRateRange); this wall-clock check is a backstop

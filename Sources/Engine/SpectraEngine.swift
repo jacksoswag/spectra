@@ -62,7 +62,12 @@ final class SpectraEngine {
     // dormant desktop (which legitimately delivers no frames) is never restarted. The generation
     // counter supersedes a pending check when another Space switch arrives first.
     @ObservationIgnored private var spaceCaptureCheckGeneration: UInt64 = 0
-    private static let captureStallGracePeriod: CFTimeInterval = 0.4
+    /// How long after LANDING on a Space a healthy stream has to deliver a fresh frame before its
+    /// stream is judged stalled and rebuilt. Fired the instant the Space change lands (not after the
+    /// carry settle), so the frozen frame clears as fast as the new stream can start. Kept just long
+    /// enough that a healthy stream (which delivers within ~1–2 frames of the content change) is
+    /// never torn down by mistake; raise if false rebuilds appear.
+    private static let captureStallGracePeriod: CFTimeInterval = 0.12
 
     // Hard-freeze failsafe. The window-tied render clock (CAMetalDisplayLink) can stop delivering
     // callbacks after a Space carry/elevation; the overlay then freezes on a stale frame while
@@ -122,13 +127,28 @@ final class SpectraEngine {
     private static let autoGPUSmoothing = 0.3
     @ObservationIgnored private let startHostTime = CACurrentMediaTime()
     @ObservationIgnored private var refreshTimer: Timer?
+    // Fast, continuous freeze watchdog. Recovery used to hang off the `activeSpaceDidChange`
+    // notification (which fires when a swipe ENDS) and the 0.5s `tick()` (0.75s stall threshold),
+    // so a render clock that dies the instant a swipe STARTS stayed frozen ~1.25s. This runs the
+    // render-clock liveness check on a tight ~0.1s clock with a 0.3s stall threshold, independent
+    // of the Space notification, so a swipe-start stall self-heals ~0.3s in instead of after settle.
+    @ObservationIgnored private var freezeWatchdogTimer: Timer?
     @ObservationIgnored private var gpuFaultCounts: [CGDirectDisplayID: Int] = [:]
     @ObservationIgnored private var folderWatcher: FolderWatcher?
     @ObservationIgnored private var importedFileDates: [URL: Date] = [:]
+    /// NotificationCenter observer tokens registered in `bootstrap()`, removed in `shutdown()`
+    /// so the closures don't keep firing for the process lifetime after teardown.
+    @ObservationIgnored private var notificationObservers: [NSObjectProtocol] = []
+    /// The in-flight capture-exception refresh, cancelled and replaced on each call so concurrent
+    /// refreshes can't race on which `updateContentFilter` lands last.
+    @ObservationIgnored private var captureExceptionsTask: Task<Void, Never>?
     /// Process-wide panic switch. When the overlay covers the menu bar/Dock the
     /// status item is hidden, so this is the guaranteed way to turn it off.
     @ObservationIgnored private var globalPanicHotKey: GlobalHotKey?
     @ObservationIgnored private var globalToggleHotKey: GlobalHotKey?
+    @ObservationIgnored private var cycleWorldHotKey: GlobalHotKey?
+    @ObservationIgnored private var filterWindowHotKey: GlobalHotKey?
+    @ObservationIgnored private var captureFrameHotKey: GlobalHotKey?
 
     /// Global color grading via the scanout transfer LUT. A display whose chain is
     /// made up ENTIRELY of per-channel color effects is rendered here — above the
@@ -294,21 +314,29 @@ final class SpectraEngine {
         renderEngine.controlWindowsProvider = { [weak self] in
             self?.controlWindows.allObjects ?? []
         }
+        // The instant a Space change lands: wake ScreenCaptureKit (re-issue the filter) and arm the
+        // fast stall check, so a frozen frame clears as quickly as the stream can deliver/restart.
+        // The overlay stays opaque throughout — it never exposes the raw desktop.
+        renderEngine.onActiveSpaceLanded = { [weak self] in
+            self?.refreshCaptureExceptions()
+            self?.armCaptureStallWatchdog()
+        }
+        // After the carry settles, re-issue the filter again (the full-carry path reorders the
+        // window, which can re-stall the stream); the landing-armed watchdog still backs it up.
         renderEngine.onActiveSpaceSettled = { [weak self] in
             self?.refreshCaptureExceptions()
-            self?.armCaptureStallWatchdog()   // catch a stream that silently stalled on the carry
         }
         // SwiftUI's ColorPicker opens the shared NSColorPanel, which is born at a normal window
         // level — behind the elevated overlay, so clicking a colour swatch looks like nothing
         // happens. When it becomes key, register it like a control window so it's lifted crisp
         // ABOVE the overlay (and follows Space switches). Every colour parameter shares this one
         // panel, so this fixes all of them at once.
-        NotificationCenter.default.addObserver(
+        notificationObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
         ) { [weak self] note in
             guard let panel = note.object as? NSColorPanel else { return }
             MainActor.assumeIsolated { self?.registerControlWindow(panel) }
-        }
+        })
         AppPaths.ensureDirectories()
         displayGrade.clearStaleGradeAtLaunch()   // reset any scanout LUT a prior crash left installed
         permissionAuthorized = ScreenRecordingPermission.isAuthorized
@@ -344,12 +372,24 @@ final class SpectraEngine {
         startFolderWatch()
         registerGlobalPanicHotKey()
         registerGlobalToggleHotKey()
+        registerControlHotKeys()
         // A Dock-icon reopen raises the Studio above the overlay (it's a SwiftUI
         // singleton window that reopening surfaces without re-registering).
-        NotificationCenter.default.addObserver(
+        notificationObservers.append(NotificationCenter.default.addObserver(
             forName: .spectraReopen, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.frontStudioWindow() }
-        }
+        })
+        // While Screen Recording is still ungranted, re-check the moment the app regains
+        // focus — the user may have just toggled it in System Settings — so the banner
+        // clears and Start works without a manual "Re-check". Once granted this is a
+        // cheap bool check that does nothing.
+        notificationObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.permissionAuthorized else { return }
+                Task { await self.refreshDisplays() }
+            }
+        })
     }
 
     /// Register ⌃⌥⌘S as a global "turn the overlay off" panic switch. It works even
@@ -379,9 +419,27 @@ final class SpectraEngine {
         }
     }
 
+    /// Register the §16.3 control chords: cycle world (⌥⌘W), filter window (⌥⌘F), capture
+    /// frame (⌥⌘C). Each degrades gracefully if its chord is already taken.
+    private func registerControlHotKeys() {
+        if cycleWorldHotKey == nil {
+            cycleWorldHotKey = GlobalHotKey.cycleWorld { [weak self] in MainActor.assumeIsolated { self?.cycleWorld() } }
+        }
+        if filterWindowHotKey == nil {
+            filterWindowHotKey = GlobalHotKey.filterWindow { [weak self] in MainActor.assumeIsolated { self?.toggleFilterWindow() } }
+        }
+        if captureFrameHotKey == nil {
+            captureFrameHotKey = GlobalHotKey.captureFrame { [weak self] in MainActor.assumeIsolated { self?.captureStyledFrame() } }
+        }
+    }
+
     func shutdown() {
         refreshTimer?.invalidate()
+        freezeWatchdogTimer?.invalidate()
         folderWatcher?.stop()
+        notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        notificationObservers.removeAll()
+        captureExceptionsTask?.cancel()
         globalPanicHotKey = nil   // unregisters the Carbon hotkey
         globalToggleHotKey = nil  // unregisters the Carbon hotkey
         displayGrade.clearAll()   // restore every display's colour profile (scanout LUT)
@@ -502,22 +560,77 @@ final class SpectraEngine {
         }
     }
 
-    /// Whether the custom-cursor pipeline (composite the live cursor through the chain
-    /// + hide the hardware cursor) should be engaged. True when the user opted in via
-    /// the setting, OR — even with the setting off — when any active overlay is running
-    /// a warp effect: those warp the captured cursor, so leaving the unwarped hardware
-    /// cursor on top produces the confusing double-cursor the user reported.
-    private func effectiveCustomCursorActive() -> Bool {
-        settings.customCursor
-            || displays.contains { wantsOverlay($0.id) && chainWarpsGeometry($0.id) }
+    /// Set (or clear) the global cursor override (MAOE §6). `nil` defers to the active world's
+    /// cursor; a spec wins over it. Applied atomically through `applyCursorState`.
+    func setCursorOverride(_ spec: CursorSpec?) {
+        settings.cursorOverride = spec
+        applyCursorState()
     }
 
-    /// Toggle the stylized cursor: draw the cursor into the frame so it runs through
-    /// the effect chain, and hide the hardware cursor. When on, the system cursor is
-    /// also kept out of the capture so it isn't drawn twice.
-    func setCustomCursor(_ on: Bool) {
-        settings.customCursor = on
-        applyCursorState()
+    /// Toggle Reduce Motion (MAOE §10): drops continuous effects from every chain and forces a
+    /// zero continuous-effect budget. Re-resolves so it takes effect immediately.
+    func setReduceMotion(_ on: Bool) {
+        settings.reduceMotion = on
+        updatePipelines()
+    }
+
+    // MARK: - Engine capabilities (MAOE §15.1)
+
+    func setAudioReactive(_ on: Bool) { settings.audioReactiveEnabled = on; applyAmbientState() }
+    func setKeyboardReactive(_ on: Bool) { settings.keyboardReactiveEnabled = on; applyAmbientState() }
+    func setFocusSpotlight(_ on: Bool) { settings.focusSpotlightEnabled = on; updatePipelines() }
+
+    // MARK: - Interface control (MAOE §16.3)
+
+    /// Whether the focused window is currently punched out of the effect (the filter-window
+    /// hotkey toggles it).
+    private(set) var filterWindowActive = false
+
+    /// Apply the next world to the selected display (hotkey world-switcher). A "world" is a
+    /// shippable cinematic / retro / artistic built-in preset.
+    func cycleWorld() {
+        guard let id = selectedDisplayID else { return }
+        let names: Set<String> = [PresetCategory.cinematic.rawValue, PresetCategory.retro.rawValue,
+                                  PresetCategory.artistic.rawValue]
+        let worlds = presets.builtIn.filter { names.contains($0.category) }
+        guard !worlds.isEmpty else { return }
+        let current = activePresetName(for: id)
+        let index = worlds.firstIndex { $0.name == current } ?? -1
+        apply(worlds[(index + 1) % worlds.count], to: id)
+    }
+
+    /// Toggle punching the focused window out of the effect (filter-window hotkey).
+    func toggleFilterWindow() {
+        filterWindowActive.toggle()
+        // Engage the geometry provider even on a chain that otherwise wouldn't need it, by
+        // re-resolving (the appended punch row declares `requiresWindowRects`).
+        updatePipelines()
+    }
+
+    /// Write the styled desktop frame to a PNG on the Desktop (§15.4 one-press capture).
+    func captureStyledFrame() {
+        guard let id = selectedDisplayID ?? displays.first?.id,
+              let renderer = renderEngine.renderer(for: id) else { return }
+        renderer.captureNextFrame { image in
+            guard let image else { return }
+            StyledOutput.writePNG(image)
+        }
+    }
+
+    /// True when any active display's world opts into the predicate's capability.
+    private func anyActiveWorldWants(_ pred: (WorldSpec) -> Bool) -> Bool {
+        displays.contains { display in
+            guard let w = world(for: display.id) else { return false }
+            return pred(w)
+        }
+    }
+
+    /// Engage/disengage the audio reactor and the keyboard monitor: on only when the global
+    /// toggle AND a live world opt-in agree (so a capability is never forced on). The keyboard
+    /// monitor degrades gracefully when Input Monitoring is denied (no events delivered).
+    private func applyAmbientState() {
+        renderEngine.audioReactor.setEnabled(settings.audioReactiveEnabled && anyActiveWorldWants(\.audioReactive))
+        renderEngine.pointerSampler.setKeyboardEnabled(settings.keyboardReactiveEnabled && anyActiveWorldWants(\.keyboardReactive))
     }
 
     /// Owns the hardware-cursor hide: a balanced `CGDisplayHideCursor`/`ShowCursor`
@@ -537,10 +650,67 @@ final class SpectraEngine {
     /// hardware cursor in one place. The effective state folds in the setting *and*
     /// auto-engagement for warp chains, so adding/removing a CRT/distortion effect
     /// (or toggling the setting) routes through here and stays consistent.
+    /// Resolve the effective cursor styling (MAOE §6): the global override wins; otherwise the
+    /// active world's cursor on the focused display (then any display whose world sets one);
+    /// otherwise the system cursor.
+    /// The active world for a display (MAOE §5.3). Prefers the preset actually applied there
+    /// (`lastAppliedPresetID`) so the behaviour facets — cursor, system-UI, motion — resolve
+    /// reliably even when the live chain's parameter values have drifted from the library entry
+    /// (a structural `matchesPreset` would then miss and silently drop the world). Falls back to a
+    /// structural match for chains assembled without `apply()` (session restore, hand-built stacks).
+    private func world(for displayID: CGDirectDisplayID) -> WorldSpec? {
+        if let pid = lastAppliedPresetID[displayID], let preset = presets.preset(id: pid),
+           let stack = stacks[displayID], !stack.chain().isEmpty {
+            return preset.world
+        }
+        guard let chain = stacks[displayID]?.chain() else { return nil }
+        return presets.matchingPreset(for: chain)?.world
+    }
+
+    private func resolveCursorSpec() -> CursorSpec {
+        if let override = settings.cursorOverride { return override }
+        let order = ([selectedDisplayID].compactMap { $0 } + displays.map(\.id))
+        // A cursor row in a display's stack (a user-chosen custom cursor) wins over its world's cursor.
+        for id in order {
+            if let spec = stackCursorSpec(for: id) { return spec }
+        }
+        for id in order {
+            if let cursor = world(for: id)?.cursor { return cursor }
+        }
+        return .systemDefault
+    }
+
+    /// The cursor built from the first effectively-enabled Custom Cursor row in a display's stack
+    /// (its arrow/hand/text image filenames), or nil when none is present or no image is chosen yet.
+    private func stackCursorSpec(for displayID: CGDirectDisplayID) -> CursorSpec? {
+        let chain = stack(for: displayID).chain()
+        for instance in chain.effects where chain.isEffectivelyEnabled(instance) {
+            guard registry.descriptor(instance.descriptorID)?.controllerKind == .cursorStyle,
+                  instance.descriptorID == CursorEffects.customCursorID else { continue }
+            let idx = instance.value("pointer", default: .index(0)).indexValue ?? 0
+            let press = instance.value("press", default: .bool(false)).boolValue ?? false
+            let images = CursorImageSet(
+                arrow: instance.value("arrow", default: .image("")).imageValue ?? "",
+                hand: instance.value("hand", default: .image("")).imageValue ?? "",
+                text: instance.value("text", default: .image("")).imageValue ?? "")
+            guard let style = CursorEffects.style(forOptionIndex: idx, images: images) else { continue }
+            return CursorSpec(style: style, intensity: .full, pressAnim: press)
+        }
+        return nil
+    }
+
     private func applyCursorState() {
-        let effective = effectiveCustomCursorActive()
+        var spec = resolveCursorSpec()
+        // Whenever an overlay is up, composite the cursor through the shader so EVERY preset shows a
+        // SHADED cursor with no unshaded hardware double. A world with no bespoke cursor falls back
+        // to the real system cursor — which still shows the right arrow/I-beam/hand shape, now
+        // stylized by the effect — instead of the raw hardware pointer floating on top.
+        let overlayUp = displays.contains { wantsOverlay($0.id) }
+        if overlayUp, spec.intensity == .none { spec = CursorSpec(style: .system, intensity: .full) }
+        let effective = spec.intensity != .none
         // One shared cursor sampler feeds every display's renderer (it reads AppKit on the main
         // thread and publishes a snapshot the off-main link thread reads), so engage it once.
+        renderEngine.setCursorSpec(spec)
         renderEngine.setCustomCursorEnabled(effective)
         // When the live cursor is composited into the frame it must be kept out of the
         // capture, or it is drawn twice; otherwise honour the user's capture setting.
@@ -650,7 +820,7 @@ final class SpectraEngine {
     /// Whether `preset` may be applied in the current tier: any preset when licensed,
     /// only the cinematic presets in the free tier.
     func canApply(_ preset: Preset) -> Bool {
-        license.isLicensed || preset.category == .cinematic
+        license.isLicensed || preset.category == PresetCategory.cinematic.rawValue
     }
 
     var activeStack: EffectStack? {
@@ -786,6 +956,9 @@ final class SpectraEngine {
         guard let files = try? fm.contentsOfDirectory(
             at: AppPaths.shadersDirectory,
             includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        // Drop tracked entries for files removed from the folder, so the map stays bounded.
+        let present = Set(files)
+        importedFileDates = importedFileDates.filter { present.contains($0.key) }
         let watched: Set<String> = ["metal", "shader", "spectra"]
         for file in files where watched.contains(file.pathExtension.lowercased()) {
             let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
@@ -839,12 +1012,32 @@ final class SpectraEngine {
         guard canApply(preset) else { license.promptGate(); return }
         let target = displayID ?? selectedDisplayID
         guard let target else { return }
-        isApplyingPreset = true
-        stack(for: target).load(preset.chain)
-        isApplyingPreset = false
+        // Record the preset id BEFORE loading the chain: `stack.load` fires the stack's onChange,
+        // which runs `applyCursorState()` synchronously. If the id were set afterwards, that pass
+        // would resolve the world (and so the cursor) against the PREVIOUS preset — the cursor then
+        // lags one selection behind (you had to pick a preset twice for its cursor to take).
         activePresetByDisplay[target] = preset.name
         lastAppliedPresetID[target] = preset.id
+        isApplyingPreset = true
+        stack(for: target).load(chainWithCursorRow(preset))
+        isApplyingPreset = false
         presets.markRecent(preset)
+    }
+
+    /// A preset's chain plus a synthetic `Cursor` row reflecting its `WorldSpec.cursor`, so the
+    /// pointer shows up as an editable effect in the stack when the preset loads (rather than being
+    /// hidden in the world spec). Only bespoke sprite cursors become a row; a plain system cursor
+    /// adds nothing, and a chain that already carries a Cursor row is left as-is (no double-up).
+    private func chainWithCursorRow(_ preset: Preset) -> EffectChain {
+        var chain = preset.chain
+        if chain.effects.contains(where: { $0.descriptorID == CursorEffects.customCursorID }) { return chain }
+        guard let cursor = preset.world?.cursor, cursor.intensity != .none else { return chain }
+        let idx = CursorEffects.optionIndex(for: cursor.style)
+        guard idx >= 2 else { return chain }   // 0 = custom image, 1 = system: nothing bespoke to show
+        chain.effects.append(EffectInstance(
+            descriptorID: CursorEffects.customCursorID, isEnabled: true,
+            values: ["pointer": .index(idx), "press": .bool(cursor.pressAnim)]))
+        return chain
     }
 
     /// The editable (non-built-in) preset that "Update preset" would overwrite for the
@@ -874,7 +1067,7 @@ final class SpectraEngine {
     }
 
     @discardableResult
-    func saveCurrentAsPreset(name: String, category: PresetCategory = .user,
+    func saveCurrentAsPreset(name: String, category: String = PresetCategory.userName,
                              summary: String = "", icon: String? = nil, tags: [String] = []) -> Preset? {
         guard license.isLicensed else { license.promptGate(); return nil }
         guard let stack = activeStack else { return nil }
@@ -927,7 +1120,50 @@ final class SpectraEngine {
 
     @discardableResult
     private func rebuildResolvedChain(for displayID: CGDirectDisplayID) -> [ResolvedEffect] {
-        let resolved = resolver.resolve(stack(for: displayID).chain())
+        var chain = stack(for: displayID).chain()
+        // Resolve the active world ONCE, before any engine-appended rows change the chain.
+        let world = self.world(for: displayID)
+        let uni = UniversalParameters(strength: 1, opacity: 1, blendAmount: 1, blendMode: .normal)
+        func append(_ id: String, _ values: [String: ParameterValue]) {
+            guard registry.descriptor(id) != nil else { return }
+            chain.effects.append(EffectInstance(descriptorID: id, isEnabled: true, values: values, universal: uni))
+        }
+        // MAOE §16.3 filter-window: punch the real desktop into the focused window (hotkey).
+        if filterWindowActive { append("chrome.windowPunch", ["mode": .index(0)]) }
+        // MAOE §15.1 focus spotlight: dim background windows when the global toggle is on.
+        if settings.focusSpotlightEnabled {
+            let dim = (world?.focusDim ?? 0) > 0 ? Double(world?.focusDim ?? 0) : 0.6
+            append("chrome.focusDim", ["dim": .scalar(dim)])
+        }
+        // MAOE §9: paint the world's menu-bar / Dock styling directly into the shaded frame
+        // (in-shader, no overlay window — the menu bar is always shaded by the elevated overlay).
+        if let ui = world?.systemUI {
+            if let m = ui.menuBar, m != .none {
+                append("chrome.menuBar", ["style": .index(m.shaderIndex),
+                                          "height": .scalar(Double(menuBarHeightUV(for: displayID))),
+                                          "intensity": .scalar(1)])
+            }
+            if let dk = ui.dock, dk != .none {
+                let r = dockRectUV(for: displayID)
+                if r.z > 0.001 {
+                    let lc = ui.light?.color ?? SIMD4(0.3, 1.0, 0.45, 1)
+                    append("chrome.dock", ["style": .index(dk.shaderIndex),
+                                           "dockRect": .vector4(SIMD4(Double(r.x), Double(r.y), Double(r.z), Double(r.w))),
+                                           "intensity": .scalar(1),
+                                           "color": .vector3(SIMD3(lc.x, lc.y, lc.z))])
+                }
+            }
+        }
+        var resolved = resolver.resolve(chain)
+        // MAOE §10: Reduce Motion drops continuous (animated) effects so the world falls back to
+        // static + event-driven, visibly cutting idle GPU. A small cost floor keeps trivially
+        // cheap single-pass animation (subtle grain) so the look isn't gutted needlessly.
+        if settings.reduceMotion {
+            resolved = resolved.filter { effect in
+                guard effect.isEffectivelyAnimated else { return true }
+                return effect.descriptor.passes.count <= 1   // keep cheap grain; drop heavy pyramids/rain
+            }
+        }
         resolvedChains[displayID] = resolved
         renderEngine.updateChain(resolved, displayID: displayID)
         // Rebuilding a chain can change whether it warps (e.g. a custom effect was
@@ -935,6 +1171,47 @@ final class SpectraEngine {
         // the cursor pipeline in sync. Cheap, and a no-op when nothing warps.
         applyCursorState()
         return resolved
+    }
+
+    /// Menu-bar height for a display in top-of-screen UV (the strip the in-shader menu-bar pass
+    /// paints). 0 on a display with no menu bar.
+    private func menuBarHeightUV(for displayID: CGDirectDisplayID) -> Float {
+        guard let screen = NSScreen.screens.first(where: {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID
+        }), screen.frame.height > 0 else { return 0.024 }
+        return Float((screen.frame.maxY - screen.visibleFrame.maxY) / screen.frame.height)
+    }
+
+    /// Cached Dock rect per display. `dockRectUV` runs inside `rebuildResolvedChain` (every
+    /// param edit / Space switch), and the `CGWindowListCopyWindowInfo` call it makes is the
+    /// expensive part; the result is stable until the display geometry changes, so cache it and
+    /// clear the cache in `handleDisplaysChanged`.
+    @ObservationIgnored private var dockRectCache: [CGDirectDisplayID: SIMD4<Float>] = [:]
+
+    /// The Dock's rect for a display in display-local top-left UV (from CGWindowList), or zero
+    /// when the Dock is hidden / on another display. Cached; see `dockRectCache`.
+    private func dockRectUV(for displayID: CGDirectDisplayID) -> SIMD4<Float> {
+        if let cached = dockRectCache[displayID] { return cached }
+        let rect = computeDockRectUV(for: displayID)
+        dockRectCache[displayID] = rect
+        return rect
+    }
+
+    private func computeDockRectUV(for displayID: CGDirectDisplayID) -> SIMD4<Float> {
+        let b = CGDisplayBounds(displayID)
+        guard b.width > 0, b.height > 0,
+              let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
+        else { return .zero }
+        for info in infos where (info[kCGWindowOwnerName as String] as? String) == "Dock" {
+            guard let d = info[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = d["X"], let y = d["Y"], let w = d["Width"], let h = d["Height"],
+                  w > 40, h > 20 else { continue }
+            let c = CGRect(x: x, y: y, width: w, height: h).intersection(b)
+            guard !c.isNull else { continue }
+            return SIMD4(Float((c.minX - b.minX) / b.width), Float((c.minY - b.minY) / b.height),
+                         Float(c.width / b.width), Float(c.height / b.height))
+        }
+        return .zero
     }
 
     func currentTime() -> Float { Float(CACurrentMediaTime() - startHostTime) }
@@ -1034,13 +1311,53 @@ final class SpectraEngine {
     /// and window transparency is blocked by SIP. Called both inline (status already
     /// known) and from the async status callback.
     private func maybeRequestSIPGuide() {
-        guard pendingGlassSIPCheck, settings.glassEnabled, systemEffectsStatus == .sipRequired else { return }
+        guard pendingGlassSIPCheck, (settings.glassEnabled || settings.glassTransparency),
+              systemEffectsStatus == .sipRequired else { return }
         pendingGlassSIPCheck = false
         sipGuideRequested = true
     }
 
     /// Dismiss the SIP education window (the app calls this when the window closes).
     func dismissSIPGuide() { sipGuideRequested = false }
+
+    // MARK: - Glass tab (per-element controls)
+
+    /// Window Transparency (yabai opacity). Paid, and SIP-off is needed for the opacity to
+    /// take hold — armed the same way as the menu-bar `setGlassEnabled` quick toggle.
+    func setGlassTransparency(_ on: Bool) {
+        if on && !license.isLicensed { license.promptGate(); return }
+        settings.glassTransparency = on
+        pendingGlassSIPCheck = on
+        if !on && !settings.glassEnabled { sipGuideRequested = false }
+        reconcileSystemEffects()
+        if on {
+            maybeRequestSIPGuide()
+            refreshSystemEffectsStatus(needsOpacity: true)
+        }
+    }
+
+    /// Window Tiling (yabai BSP). No SIP required.
+    func setGlassTiling(_ on: Bool) {
+        settings.glassTiling = on
+        reconcileSystemEffects()
+    }
+
+    /// Adaptive desktop tint. No privileges required.
+    func setGlassTint(_ on: Bool) {
+        settings.glassTint = on
+        reconcileSystemEffects()
+    }
+
+    /// Menu-bar / Dock treatment (index into `MenuBarStyle` / `DockStyle`; 0 = None = off).
+    func setGlassMenuBarStyle(index: Int) {
+        settings.glassMenuBarStyleIndex = index
+        reconcileSystemEffects()
+    }
+
+    func setGlassDockStyle(index: Int) {
+        settings.glassDockStyleIndex = index
+        reconcileSystemEffects()
+    }
 
     /// The desired aggregate system-effect state. Two sources, deduplicated (first wins):
     /// per-effect rows in a display's stack (only while the main pipeline is enabled), and
@@ -1062,13 +1379,36 @@ final class SpectraEngine {
                         if state.layout == nil { state.layout = LayoutSettings(instance) }
                     case .adaptiveTint:
                         if state.tint == nil { state.tint = TintSettings(instance) }
+                    case .menuBarStyle:
+                        if state.menuBarStyle == nil { state.menuBarStyle = MenuBarStyle(rawIndex: instance.value("style", default: .index(0)).indexValue ?? 0) }
+                    case .dockStyle:
+                        if state.dockStyle == nil { state.dockStyle = DockStyle(rawIndex: instance.value("style", default: .index(0)).indexValue ?? 0) }
+                    case .cursorStyle:
+                        break   // cursor rows drive the cursor pipeline via resolveCursorSpec, not the system controller
                     }
                 }
             }
+            // MAOE §9: the world's menu-bar / Dock styling is now painted IN-SHADER (appended in
+            // `rebuildResolvedChain`), not via the overlay windows — it composites correctly with
+            // the always-elevated overlay and needs no Space machinery. The `.menuBarStyle` /
+            // `.dockStyle` controllerKind rows above still drive the overlays for a manual stack
+            // edit (the exposed-chrome case), so they remain wired.
         }
         if settings.glassEnabled {
             if state.transparency == nil { state.transparency = .glass }
             if state.tint == nil { state.tint = .glass }
+        }
+        // Per-element Glass tab toggles: a third source, independent of the master switch
+        // and the stack, layered after stack rows + the menu-bar quick toggle (first-wins
+        // per field). A style index of 0 means None = off.
+        if settings.glassTransparency, state.transparency == nil { state.transparency = .glass }
+        if settings.glassTiling, state.layout == nil { state.layout = .glass }
+        if settings.glassTint, state.tint == nil { state.tint = .glass }
+        if settings.glassMenuBarStyleIndex > 0, state.menuBarStyle == nil {
+            state.menuBarStyle = MenuBarStyle(rawIndex: settings.glassMenuBarStyleIndex)
+        }
+        if settings.glassDockStyleIndex > 0, state.dockStyle == nil {
+            state.dockStyle = DockStyle(rawIndex: settings.glassDockStyleIndex)
         }
         return state
     }
@@ -1157,6 +1497,16 @@ final class SpectraEngine {
             renderEngine.deactivate(id)
             resolvedChains[id] = nil
         }
+        // Prune per-display bookkeeping for displays that are gone, so these maps stay bounded
+        // across repeated external-display hot-plugging. `stacks` and the preset maps are kept on
+        // purpose so a re-plugged display restores its last chain from the persisted state.
+        let live = Set(displays.map(\.id))
+        appliedScale = appliedScale.filter { live.contains($0.key) }
+        freezeRecoveries = freezeRecoveries.filter { live.contains($0.key) }
+        gpuFaultCounts = gpuFaultCounts.filter { live.contains($0.key) }
+        presentStuckSince = presentStuckSince.filter { live.contains($0.key) }
+        lastCaptureCount = lastCaptureCount.filter { live.contains($0.key) }
+        lastPresentCount = lastPresentCount.filter { live.contains($0.key) }
 
         renderEngine.setCoversMenuBarAndDock(settings.coverMenuBarAndDock)
         renderEngine.setOverlaysVisibleToScreenshots(settings.showInScreenshots)
@@ -1165,6 +1515,7 @@ final class SpectraEngine {
         // chain rebuilt, push the effective custom-cursor state (setting OR warp
         // auto-engage) to all renderers, sessions, and the hardware cursor at once.
         applyCursorState()
+        applyAmbientState()   // MAOE §15.1: engage audio reactor / keyboard monitor per world + toggle
         refreshCaptureExceptions()
     }
 
@@ -1180,7 +1531,9 @@ final class SpectraEngine {
         let session = CaptureSession(
             displayID: display.id, pixelWidth: width, pixelHeight: height, fps: fps,
             showsCursor: settings.showCursorInCapture, context: context)
-        session.stopHandler = { [weak self] error in self?.handleSessionStopped(display.id, error) }
+        session.stopHandler = { [weak self, weak session] error in
+            self?.handleSessionStopped(display.id, error, session: session)
+        }
         sessions[display.id] = session
         appliedScale[display.id] = scale
 
@@ -1203,6 +1556,10 @@ final class SpectraEngine {
             } catch {
                 Log.capture.error("Failed to start capture for \(display.id): \(error.localizedDescription)")
                 startupError = "Couldn't start screen capture. \(error.localizedDescription)"
+                // Clear the never-started session so a later reconcile retries instead of seeing a
+                // non-nil-but-dead session and skipping start forever (the overlay would stay frozen
+                // with no live feed until the user toggled the effect off/on).
+                sessions[display.id] = nil
             }
         }
     }
@@ -1233,17 +1590,26 @@ final class SpectraEngine {
     /// starts rendering through the chain. The overlay stays excluded throughout.
     private func refreshCaptureExceptions() {
         guard !sessions.isEmpty else { return }
-        Task {
+        // Replace any in-flight refresh so two concurrent runs can't race on which filter lands
+        // last (a loser could drop a just-registered control window from the exception list).
+        captureExceptionsTask?.cancel()
+        captureExceptionsTask = Task {
             let apps = await displayManager.captureExclusions()
+            if Task.isCancelled { return }
             let exceptions = await controlWindowSCWindows()
+            if Task.isCancelled { return }
             for (id, session) in sessions {
+                if Task.isCancelled { return }   // a newer refresh superseded us; don't land a stale filter
                 guard let scDisplay = displayManager.scDisplay(for: id) else { continue }
                 await session.updateFilter(scDisplay: scDisplay, excluding: apps, excepting: exceptions)
             }
         }
     }
 
-    private func handleSessionStopped(_ displayID: CGDirectDisplayID, _ error: Error?) {
+    private func handleSessionStopped(_ displayID: CGDirectDisplayID, _ error: Error?, session: CaptureSession?) {
+        // Ignore a stop from a session already replaced by a newer one: a stale handler from a
+        // torn-down or re-added display must not clear the live session out of `sessions`.
+        guard sessions[displayID] === session else { return }
         sessions[displayID] = nil
         // A stop *with an error* can mean Screen Recording was revoked mid-session.
         // Re-check the grant before blindly restarting: if it's gone, reflect it (the
@@ -1261,13 +1627,15 @@ final class SpectraEngine {
         }
     }
 
-    /// Arm the fast post-Space-switch capture-liveness check. A Space switch always
-    /// changes on-screen content, so a healthy stream MUST deliver a fresh frame within
-    /// the short grace window; if a visible display's last-frame timestamp hasn't moved
-    /// past the settle by then, its SCStream stalled silently and is rebuilt. Runs as a
-    /// one-shot ~0.4s after settle (much faster than the old 1.5s-grace + 0.5s-tick path)
-    /// and is generation-guarded so a rapid second swipe supersedes a pending check.
-    /// Called from `onActiveSpaceSettled`, right after the capture filter is re-issued.
+    /// Arm the fast capture-liveness check, fired the INSTANT a Space change lands (from
+    /// `onActiveSpaceLanded`, before the carry debounce). A Space switch always changes on-screen
+    /// content, so a healthy stream MUST deliver a fresh frame within the short grace window; if a
+    /// visible display's last-frame timestamp hasn't moved past the landing reference by then, its
+    /// SCStream stalled silently and is rebuilt. Runs as a one-shot `captureStallGracePeriod` after
+    /// landing (firing at landing, not after settle, and with a much tighter grace than before, so a
+    /// frozen frame clears as fast as the stream can restart) and is generation-guarded so a rapid
+    /// second swipe supersedes a pending check. The immediate filter re-issue in `onActiveSpaceLanded`
+    /// is the free first attempt to wake the stream before this teardown-rebuild fallback fires.
     private func armCaptureStallWatchdog() {
         guard !sessions.isEmpty else { return }
         spaceCaptureCheckGeneration &+= 1
@@ -1378,6 +1746,7 @@ final class SpectraEngine {
 
     private func handleDisplaysChanged() {
         displays = displayManager.displays
+        dockRectCache.removeAll()   // display geometry moved; the cached Dock rects are stale
         wallpaper.refresh()
         if displays.first(where: { $0.id == selectedDisplayID }) == nil {
             selectedDisplayID = displayManager.mainDisplay?.id
@@ -1396,11 +1765,21 @@ final class SpectraEngine {
         }
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
+
+        // Fast continuous freeze watchdog (see the property note): tight stall threshold so a
+        // render clock that dies at swipe-start self-heals ~0.3s in, not after the swipe settles.
+        freezeWatchdogTimer?.invalidate()
+        let freezeTimer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.renderEngine.restartStalledDisplayLinks(stallThreshold: 0.3, cooldown: 0.5)
+            }
+        }
+        RunLoop.main.add(freezeTimer, forMode: .common)
+        freezeWatchdogTimer = freezeTimer
     }
 
     private func tick() {
         performance.refresh()
-        renderEngine.restartStalledDisplayLinks()     // rebuild any clock that died on a carry (fixes the freeze)
         renderEngine.ensureOverlaysOnActiveSpace()   // follow the user across Spaces (focused-display, occlusion-gated)
         detectAndRecoverHardFreeze()                 // failsafe: auto-recover a frozen overlay so it can't trap the screen
         governAutoQuality()                          // adaptive quality (the "Auto" toggle), no-op unless enabled

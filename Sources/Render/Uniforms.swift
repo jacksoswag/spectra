@@ -23,11 +23,22 @@ import simd
 /// ```
 struct SpectraUniforms {
     static let headerFloatCount = 16
-    static let paramSlotCount = 64
-    static let floatCount = headerFloatCount + paramSlotCount   // 80
+    // 64 effect/injection slots (0–63) + 16 ambient/global slots (64–79: audio, keyboard, and
+    // headroom — MAOE §15). Existing effects read 0–63 unchanged; the renderer injects ambient
+    // globals into 64+ only for ambient-aware effects.
+    static let paramSlotCount = 80
+    static let floatCount = headerFloatCount + paramSlotCount   // 96
     static let byteCount = floatCount * MemoryLayout<Float>.stride
 
-    private(set) var storage = [Float](repeating: 0, count: SpectraUniforms.floatCount)
+    /// Backing floats, viewed through a caller-provided buffer (e.g. stack scratch from
+    /// `withUnsafeTemporaryAllocation`) so the value type holds no heap allocation. The
+    /// buffer must hold at least `floatCount` zero-initialised elements and must outlive
+    /// every use of this value. Indexing is identical to the prior `[Float]` storage.
+    private let storage: UnsafeMutableBufferPointer<Float>
+
+    init(storage: UnsafeMutableBufferPointer<Float>) {
+        self.storage = storage
+    }
 
     // MARK: Header accessors
 
@@ -88,6 +99,6 @@ struct SpectraUniforms {
 
     /// Provide the raw bytes for upload into an `MTLBuffer`.
     func withUnsafeBytes<R>(_ body: (UnsafeRawBufferPointer) -> R) -> R {
-        storage.withUnsafeBytes(body)
+        body(UnsafeRawBufferPointer(storage))
     }
 }
