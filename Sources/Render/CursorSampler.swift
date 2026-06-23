@@ -40,9 +40,57 @@ final class CursorSampler {
     /// Cap the rasterized sprite so an unusual cursor can't blow up the texture.
     private let maxDimension = 192
 
+    /// The active cursor styling (MAOE §6). Set from the main actor via `setSpec`. A `sprite`
+    /// style is the world's own pointer: its art is shown whenever the style is active, decoupled
+    /// from any system-cursor detection. Restyle variants leave sprite selection to the system and
+    /// are applied later in the compositor shader.
+    private var spec: CursorSpec = .systemDefault
+    /// Lazily-loaded bundle sprites + the asset names whose art was missing (so we don't retry
+    /// every frame — a missing variant degrades to the world's arrow). Keyed by full asset basename
+    /// (e.g. "noir-object", "noir-object-text") so the per-role variants cache independently.
+    private var spriteCache: [String: Sprite] = [:]
+    private var spriteLoadFailed: Set<String> = []
+    /// Authored hotspots (points) per asset basename, from `cursor-hotspots.json`.
+    private var hotspots: [String: CGPoint] = [:]
+
     private(set) var enabled = false
 
-    init(device: MTLDevice) { self.device = device }
+    init(device: MTLDevice) {
+        self.device = device
+        loadHotspots()
+    }
+
+    /// The shape the live system cursor currently is, used to pick a sprite variant.
+    private enum CursorRole {
+        case arrow, text, hand
+        var suffix: String { switch self { case .arrow: ""; case .text: "-text"; case .hand: "-hand" } }
+    }
+
+    /// Classify `NSCursor.currentSystem` by its NORMALISED hotspot position (no cursor-type API
+    /// exists, and `NSCursor.iBeam.image.size` reports (0,0), so absolute matching can't work):
+    ///   • centred hotspot  → text caret (I-beam)
+    ///   • upper-centre hotspot → link hand (fingertip)
+    ///   • otherwise (hotspot at a corner) → arrow
+    /// Cheap (reads the NSImage size + hotspot, no rasterization), so it can run per frame.
+    private func currentCursorRole() -> CursorRole {
+        guard let cur = NSCursor.currentSystem else { return .arrow }
+        let sz = cur.image.size
+        guard sz.width > 1, sz.height > 1 else { return .arrow }
+        let rx = cur.hotSpot.x / sz.width, ry = cur.hotSpot.y / sz.height
+        if rx > 0.38 && rx < 0.62 && ry > 0.38 && ry < 0.62 { return .text }   // centred = caret
+        if rx > 0.30 && rx < 0.58 && ry < 0.42 { return .hand }                // upper-centre = fingertip
+        return .arrow
+    }
+
+    /// Set the active cursor styling. Invalidates the cached sprite so the change takes effect
+    /// on the next sample, and re-publishes immediately when already engaged.
+    func setSpec(_ s: CursorSpec) {
+        guard s != spec else { return }
+        spec = s
+        cachedSprite = nil
+        lastImage = nil
+        if enabled { sample() }
+    }
 
     /// Thread-safe: read the latest published snapshot. Called from the render (link) thread.
     nonisolated func current() -> Snapshot {
@@ -100,6 +148,26 @@ final class CursorSampler {
     /// sampling — the old texture stays retained by any in-flight frame's captured snapshot
     /// until its GPU work completes.
     private func refreshSprite() -> Sprite? {
+        // User-supplied Custom Cursor (MAOE §6): load the image for the live role (arrow / hand /
+        // text), falling back to the arrow image when a role's slot is empty. A missing file
+        // degrades to the live system cursor below.
+        if let images = spec.style.customImages {
+            let role = currentCursorRole()
+            let pick = (role == .hand ? images.hand : role == .text ? images.text : images.arrow)
+            let name = pick.isEmpty ? images.arrow : pick
+            if !name.isEmpty, let s = customSprite(name) { return s }
+        }
+        // Bespoke sprite worlds (MAOE §6): the world's pointer IS the sprite, so it renders
+        // whenever the style is active — its appearance is independent of what shape the system
+        // cursor currently is. The bundle sprite is cached, so this is a cheap dictionary hit per
+        // frame. A missing asset degrades to the live system cursor below.
+        if let kind = spec.style.spriteKind {
+            // Swap among arrow / I-beam / hand variants by the live system cursor role; a missing
+            // variant falls back to the world's arrow sprite.
+            let role = currentCursorRole()
+            if let s = bundleSprite(kind.assetName + role.suffix) ?? bundleSprite(kind.assetName) { return s }
+        }
+
         let cursor = NSCursor.currentSystem ?? NSCursor.arrow
         let image = cursor.image
         if image === lastImage, let cachedSprite { return cachedSprite }
@@ -110,6 +178,16 @@ final class CursorSampler {
         let scale: CGFloat = 2   // rasterize @2x for crisp Retina edges
         let pxW = min(maxDimension, max(1, Int((image.size.width * scale).rounded())))
         let pxH = min(maxDimension, max(1, Int((image.size.height * scale).rounded())))
+        guard let texture = makeTexture(from: cgImage, pxW: pxW, pxH: pxH) else { return cachedSprite }
+        let sprite = Sprite(texture: texture, sizePoints: image.size, hotSpot: cursor.hotSpot)
+        cachedSprite = sprite
+        lastImage = image
+        return sprite
+    }
+
+    /// Rasterize a CGImage into a fresh premultiplied rgba8 MTLTexture (top-row-first to match
+    /// the shader's top-left UV origin).
+    private func makeTexture(from cgImage: CGImage, pxW: Int, pxH: Int) -> MTLTexture? {
         let bytesPerRow = pxW * 4
         var bytes = [UInt8](repeating: 0, count: bytesPerRow * pxH)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
@@ -122,22 +200,79 @@ final class CursorSampler {
             ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: pxW, height: pxH))
             return true
         }
-        guard drew else { return cachedSprite }
-
+        guard drew else { return nil }
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .rgba8Unorm, width: pxW, height: pxH, mipmapped: false)
         descriptor.usage = .shaderRead
         descriptor.storageMode = .shared
-        guard let texture = device.makeTexture(descriptor: descriptor) else { return cachedSprite }
+        guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
         bytes.withUnsafeBytes { raw in
             texture.replace(
                 region: MTLRegion(origin: MTLOrigin(x: 0, y: 0, z: 0),
                                   size: MTLSize(width: pxW, height: pxH, depth: 1)),
                 mipmapLevel: 0, withBytes: raw.baseAddress!, bytesPerRow: bytesPerRow)
         }
-        let sprite = Sprite(texture: texture, sizePoints: image.size, hotSpot: cursor.hotSpot)
-        cachedSprite = sprite
-        lastImage = image
+        return texture
+    }
+
+    /// Load a bespoke sprite from the bundle (`<assetName>@2x.png`), building a @2x texture with
+    /// the authored hotspot. Cached; a missing asset is recorded so it isn't retried each frame.
+    private func bundleSprite(_ asset: String) -> Sprite? {
+        if let cached = spriteCache[asset] { return cached }
+        if spriteLoadFailed.contains(asset) { return nil }
+        guard let url = Bundle.main.url(forResource: asset + "@2x", withExtension: "png"),
+              let data = try? Data(contentsOf: url),
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            spriteLoadFailed.insert(asset)   // expected for absent variants — caller falls back to the arrow
+            return nil
+        }
+        let pxW = min(maxDimension, cg.width), pxH = min(maxDimension, cg.height)
+        guard let texture = makeTexture(from: cg, pxW: pxW, pxH: pxH) else {
+            spriteLoadFailed.insert(asset); return nil
+        }
+        let scale: CGFloat = 2   // art is authored @2x
+        let hot = hotspots[asset] ?? CGPoint(x: 1, y: 1)
+        let sprite = Sprite(texture: texture,
+                            sizePoints: CGSize(width: CGFloat(pxW) / scale, height: CGFloat(pxH) / scale),
+                            hotSpot: hot)
+        spriteCache[asset] = sprite
         return sprite
+    }
+
+    /// Load a user-supplied cursor image from `AppPaths.cursorsDirectory/<filename>`, cached by
+    /// filename. User art carries no authored hotspot, so the active point defaults to the top-left
+    /// tip; the picked file is treated as @2x for a sensible on-screen size.
+    private func customSprite(_ filename: String) -> Sprite? {
+        if let cached = spriteCache[filename] { return cached }
+        if spriteLoadFailed.contains(filename) { return nil }
+        // Sanitize: the filename comes from a preset/param and must not escape the cursors dir.
+        let url = AppPaths.cursorsDirectory.appendingPathComponent(AppPaths.safeComponent(filename))
+        guard let data = try? Data(contentsOf: url),
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            spriteLoadFailed.insert(filename)
+            return nil
+        }
+        let pxW = min(maxDimension, cg.width), pxH = min(maxDimension, cg.height)
+        guard let texture = makeTexture(from: cg, pxW: pxW, pxH: pxH) else {
+            spriteLoadFailed.insert(filename); return nil
+        }
+        let scale: CGFloat = 2
+        let sprite = Sprite(texture: texture,
+                            sizePoints: CGSize(width: CGFloat(pxW) / scale, height: CGFloat(pxH) / scale),
+                            hotSpot: CGPoint(x: 0, y: 0))
+        spriteCache[filename] = sprite
+        return sprite
+    }
+
+    /// Load authored hotspots (points) for every sprite from `cursor-hotspots.json`.
+    private func loadHotspots() {
+        guard let url = Bundle.main.url(forResource: "cursor-hotspots", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let raw = try? JSONDecoder().decode([String: [String: Double]].self, from: data) else { return }
+        for (name, p) in raw {
+            if let x = p["x"], let y = p["y"] { hotspots[name] = CGPoint(x: x, y: y) }
+        }
     }
 }

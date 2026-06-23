@@ -139,7 +139,7 @@ final class YabaiBridge: @unchecked Sendable {
         queue.async {
             guard self.binaryPath != nil else { return }
             let snap = self.snapshot
-            self.run(["-m", "space", "--layout", snap?.spaceLayout ?? "float"])
+            self.run(["-m", "space", "--layout", Self.validLayout(snap?.spaceLayout ?? "float")])
             if let gap = snap?.windowGap { self.setConfig("window_gap", String(gap)) }
             if let snap {
                 self.setConfig("top_padding", String(snap.topPadding))
@@ -159,7 +159,7 @@ final class YabaiBridge: @unchecked Sendable {
         queue.sync {
             guard binaryPath != nil, let snap = snapshot else { return }
             restoreOpacity()
-            run(["-m", "space", "--layout", snap.spaceLayout])
+            run(["-m", "space", "--layout", Self.validLayout(snap.spaceLayout)])
             setConfig("window_gap", String(snap.windowGap))
             setConfig("top_padding", String(snap.topPadding))
             setConfig("bottom_padding", String(snap.bottomPadding))
@@ -182,7 +182,7 @@ final class YabaiBridge: @unchecked Sendable {
             self.snapshot = snap
             guard self.availabilityNow().isReady else { return }   // can't restore now; keep the file for next launch
             self.clearOpacity()
-            self.run(["-m", "space", "--layout", snap.spaceLayout])
+            self.run(["-m", "space", "--layout", Self.validLayout(snap.spaceLayout)])
             self.snapshot = nil
             try? FileManager.default.removeItem(at: Self.snapshotFile)
         }
@@ -232,6 +232,12 @@ final class YabaiBridge: @unchecked Sendable {
     private func queryString(_ key: String) -> String? {
         let r = run(["-m", "config", key])
         return r.status == 0 ? r.out.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+    }
+
+    /// Clamp a layout name to one Spectra actually sets, so a tampered on-disk snapshot can't feed
+    /// an arbitrary string to `yabai -m space --layout` (passed as a Process argument, not a shell).
+    private static func validLayout(_ layout: String) -> String {
+        ["bsp", "stack", "float"].contains(layout) ? layout : "float"
     }
 
     private func querySpaceLayout() -> String? {

@@ -5,7 +5,27 @@ import SwiftUI
 @main
 struct SpectraApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var engine: SpectraEngine? = try? SpectraEngine()
+    @State private var engine: SpectraEngine?
+    /// Specific reason engine init failed (per `ContextError`), shown to the user and logged,
+    /// rather than discarding the error and always blaming a missing GPU.
+    @State private var initErrorDetail: String?
+
+    init() {
+        do {
+            let createdEngine = try SpectraEngine()
+            _engine = State(initialValue: createdEngine)
+            _initErrorDetail = State(initialValue: nil)
+            // Hand the engine to the app delegate synchronously, before the first render, so an
+            // immediate quit still runs engine.shutdown() (yabai/cursor restore). The .task below
+            // re-assigns harmlessly and drives bootstrap.
+            appDelegate.engine = createdEngine
+        } catch {
+            Log.app.error("SpectraEngine init failed: \(error.localizedDescription, privacy: .public)")
+            _engine = State(initialValue: nil)
+            _initErrorDetail = State(initialValue:
+                (error as? MetalContext.ContextError)?.errorDescription ?? error.localizedDescription)
+        }
+    }
 
     var body: some Scene {
         Window("Spectra Studio", id: "studio") {
@@ -17,7 +37,7 @@ struct SpectraApp: App {
                             await engine.bootstrap()
                         }
                 } else {
-                    EngineUnavailableView()
+                    EngineUnavailableView(detail: initErrorDetail)
                 }
             }
             .frame(minWidth: 740, minHeight: 460)
@@ -125,14 +145,17 @@ private struct MenuBarStatusLabel: View {
     }
 }
 
-/// Shown when Metal initialisation fails (e.g. no GPU available).
+/// Shown when Metal initialisation fails. Surfaces the specific `ContextError` reason when
+/// known (e.g. a shader-library load failure vs a missing GPU) so it is diagnosable.
 private struct EngineUnavailableView: View {
+    var detail: String?
+
     var body: some View {
         VStack(spacing: Theme.Spacing.md) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 44)).foregroundStyle(.orange)
             Text("Spectra could not start").font(.title2.bold())
-            Text("A Metal-capable GPU is required to run Spectra.")
+            Text(detail ?? "A Metal-capable GPU is required to run Spectra.")
                 .foregroundStyle(.secondary)
             Button("Quit") { NSApp.terminate(nil) }
         }

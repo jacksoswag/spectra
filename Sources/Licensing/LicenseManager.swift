@@ -25,6 +25,10 @@ final class LicenseManager {
     /// so the UI can present the purchase prompt. The UI clears it on dismiss.
     var gatePrompted = false
 
+    /// Set when the on-disk license write fails (disk full / bad permissions), so the UI can
+    /// warn that an activation may not survive a relaunch. Cleared on the next successful write.
+    private(set) var persistError: String?
+
     @ObservationIgnored private var record: LicenseRecord
     @ObservationIgnored private let backend: LicenseBackend
     @ObservationIgnored private let now: () -> Date
@@ -42,21 +46,26 @@ final class LicenseManager {
     var licenseKey: String? { record.licenseKey }
 
     /// Owner/developer unlock: a hidden sentinel file forces the licensed tier on this
-    /// Mac without the purchase flow (see AppPaths.developerUnlockFile). A customer
-    /// won't stumble into it; delete the file to test the gated free tier.
+    /// Mac without the purchase flow (see AppPaths.developerUnlockFile). Compiled in for
+    /// DEBUG only — a release build always returns false, so the sentinel can't be used
+    /// to bypass licensing on a shipped copy. Delete the file to test the gated free tier.
     static var developerUnlock: Bool {
+        #if DEBUG
         FileManager.default.fileExists(atPath: AppPaths.developerUnlockFile.path)
+        #else
+        false
+        #endif
     }
 
     /// Pure status derivation from a record + a clock. Kept static, nonisolated, and
     /// side-effect free so it is trivially unit-testable (free vs licensed, grace).
     nonisolated static func derive(record: LicenseRecord, now: Date) -> LicenseStatus {
         guard let key = record.licenseKey, !key.isEmpty, record.lastValidationOK else { return .free }
-        if let last = record.lastValidated {
-            let graceEnd = last.addingTimeInterval(Double(LicenseConfig.offlineGraceDays) * 86_400)
-            if now > graceEnd { return .licensedUnverified }   // unlocked, but flag re-verify
-        }
-        return .licensed
+        // No recorded validation timestamp: unlocked but flagged for re-verification rather than
+        // claiming a fully-verified license (a key was stored but a success was never timestamped).
+        guard let last = record.lastValidated else { return .licensedUnverified }
+        let graceEnd = last.addingTimeInterval(Double(LicenseConfig.offlineGraceDays) * 86_400)
+        return now > graceEnd ? .licensedUnverified : .licensed   // past grace: unlocked, flag re-verify
     }
 
     /// Recompute `status` from the record and clock (no network). The developer-unlock
@@ -111,5 +120,18 @@ final class LicenseManager {
     /// Called by the entitlement gate when a blocked action is attempted.
     func promptGate() { gatePrompted = true }
 
-    private func persist() { try? JSONStore.save(record, to: AppPaths.licenseFile) }
+    /// Write the record to disk, surfacing failures rather than swallowing them: a lost write
+    /// means a just-activated key silently vanishes on next launch, so the UI is told.
+    private func persist() {
+        do {
+            try JSONStore.save(record, to: AppPaths.licenseFile)
+            // Owner-only perms: the file holds the license key. Best-effort; a chmod failure
+            // shouldn't fail the write itself.
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: AppPaths.licenseFile.path)
+            persistError = nil
+        } catch {
+            persistError = error.localizedDescription
+            Log.storage.error("License write failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 }
