@@ -42,6 +42,9 @@ final class SpectraEngine {
     var selectedDisplayID: CGDirectDisplayID? { didSet { updatePipelines(); saveState() } }
     private(set) var displays: [DisplayInfo] = []
     private(set) var startupError: String?
+    /// Last engine-state-write failure (nil when the last write succeeded), surfaced rather than
+    /// swallowed so a lost write doesn't silently drop the user's chains. Mirrors `LicenseManager.persistError`.
+    private(set) var saveStateError: String?
 
     @ObservationIgnored private var resolver: ChainResolver
     @ObservationIgnored private var stacks: [CGDirectDisplayID: EffectStack] = [:]
@@ -1921,7 +1924,13 @@ final class SpectraEngine {
             selectedDisplayID: selectedDisplayID,
             chains: chains,
             activePresets: presetMap)
-        try? JSONStore.save(state, to: AppPaths.stateFile)
+        do {
+            try JSONStore.save(state, to: AppPaths.stateFile)
+            saveStateError = nil
+        } catch {
+            saveStateError = error.localizedDescription
+            Log.storage.error("Engine state write failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Returns the persisted master on/off state so the caller can restore it on launch

@@ -45,8 +45,9 @@ final class AuxTextureFactory {
 
     /// Monotonic linear interpolation between clamped curve points.
     private func evaluate(_ sorted: [CurvePoint], at x: Double) -> Double {
-        if x <= sorted.first!.x { return clamp01(sorted.first!.y) }
-        if x >= sorted.last!.x { return clamp01(sorted.last!.y) }
+        guard let first = sorted.first, let last = sorted.last else { return 0 }
+        if x <= first.x { return clamp01(first.y) }
+        if x >= last.x { return clamp01(last.y) }
         for i in 1..<sorted.count {
             if x <= sorted[i].x {
                 let a = sorted[i - 1], b = sorted[i]
@@ -54,7 +55,7 @@ final class AuxTextureFactory {
                 return clamp01(a.y + (b.y - a.y) * t)
             }
         }
-        return clamp01(sorted.last!.y)
+        return clamp01(last.y)
     }
 
     // MARK: - Gradient (1D, RGBA)
@@ -81,8 +82,9 @@ final class AuxTextureFactory {
     }
 
     private func sampleGradient(_ sorted: [GradientStop], at p: Double) -> SIMD4<Double> {
-        if p <= sorted.first!.position { return sorted.first!.color }
-        if p >= sorted.last!.position { return sorted.last!.color }
+        guard let first = sorted.first, let last = sorted.last else { return SIMD4(0, 0, 0, 0) }
+        if p <= first.position { return first.color }
+        if p >= last.position { return last.color }
         for i in 1..<sorted.count {
             if p <= sorted[i].position {
                 let a = sorted[i - 1], b = sorted[i]
@@ -90,7 +92,7 @@ final class AuxTextureFactory {
                 return a.color + (b.color - a.color) * t
             }
         }
-        return sorted.last!.color
+        return last.color
     }
 
     // MARK: - LUT (3D, RGBA)
