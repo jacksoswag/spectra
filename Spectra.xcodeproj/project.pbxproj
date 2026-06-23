@@ -179,7 +179,6 @@
 		DFE9B0EFCE8DCA500B972634 /* typewriter@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = 29DA88FF3B8CD533FD798373 /* typewriter@2x.png */; };
 		DFF10B5CEE905CA6DE827969 /* CaptureSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47877D322266D92564A30E4F /* CaptureSession.swift */; };
 		E2AEE887ED028AD9D5D9AB37 /* ShaderImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F195518442119740C860C107 /* ShaderImporter.swift */; };
-		E2D4896E67DB2C2771AFF062 /* SystemAccessibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74760410DA657D639893C0C1 /* SystemAccessibility.swift */; };
 		E36A03D0A741FCC33E859665 /* EffectContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C2D4B3FE62F98B1D345ED9 /* EffectContractTests.swift */; };
 		E43B71DC98F6ABB1A872EA94 /* VHS.metal in Sources */ = {isa = PBXBuildFile; fileRef = F79E8229458605184B001A58 /* VHS.metal */; };
 		E4BE9FB6214C4CFADFFA13DA /* ColorEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2D1BBF5A9FB0AD1F80C64F /* ColorEffects.swift */; };
@@ -298,7 +297,6 @@
 		71310B95BE29EE617DAE60A4 /* RenderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderEngine.swift; sourceTree = "<group>"; };
 		727B28501C98029A2933273D /* bang-sprite@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "bang-sprite@2x.png"; sourceTree = "<group>"; };
 		732223F3F6B52DC71C9E341E /* MetalContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalContext.swift; sourceTree = "<group>"; };
-		74760410DA657D639893C0C1 /* SystemAccessibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAccessibility.swift; sourceTree = "<group>"; };
 		74FAE019D3B57B252A98BD53 /* StyleEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyleEffects.swift; sourceTree = "<group>"; };
 		7850FBDFB6AE07AEAB93041E /* FrameSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSample.swift; sourceTree = "<group>"; };
 		78D63D70BBB38F991022033A /* DistortionEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DistortionEffects.swift; sourceTree = "<group>"; };
@@ -788,7 +786,6 @@
 				F2EC30ED0945ACBBAD387EED /* LicenseView.swift */,
 				8965610CA83B8A5FA3C25FA5 /* SettingsView.swift */,
 				BC4AC6B829571151C7012055 /* SIPRequiredView.swift */,
-				74760410DA657D639893C0C1 /* SystemAccessibility.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -1236,7 +1233,6 @@
 				AE5E893DD0F20A25FF8AFEEF /* Style.metal in Sources */,
 				1707D2F46B1455C50F740E27 /* StyleEffects.swift in Sources */,
 				FF2E434F6D8DA4B2CE887599 /* StyledOutput.swift in Sources */,
-				E2D4896E67DB2C2771AFF062 /* SystemAccessibility.swift in Sources */,
 				8BBCAB5FACEA8F94D9104758 /* SystemEffects.swift in Sources */,
 				56644A5360FCB89B94256889 /* SystemEffectsController.swift in Sources */,
 				3BAC9621D3ADF4FC174C012B /* TexturePool.swift in Sources */,

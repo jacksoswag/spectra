@@ -87,14 +87,51 @@ struct GlassStackView: View {
     // MARK: - Rows
 
     private var transparencyRow: some View {
-        GlassRow(
-            icon: "macwindow", title: "Window Transparency",
-            subtitle: "Make every window see-through (via yabai). Needs SIP disabled.",
-            note: transparencyStatusNote) {
-            Toggle("", isOn: Binding(
-                get: { engine.settings.glassTransparency },
-                set: { engine.setGlassTransparency($0) }))
-                .labelsHidden().toggleStyle(.switch)
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            GlassRow(
+                icon: "macwindow", title: "Window Transparency",
+                subtitle: "Make every window see-through (via yabai). Needs SIP disabled.",
+                note: transparencyStatusNote) {
+                Toggle("", isOn: Binding(
+                    get: { engine.settings.glassTransparency },
+                    set: { engine.setGlassTransparency($0) }))
+                    .labelsHidden().toggleStyle(.switch)
+            }
+            if engine.settings.glassTransparency {
+                opacitySliders
+            }
+        }
+    }
+
+    /// Opacity sliders revealed while Window Transparency is on — the focused window and
+    /// every other window. Each applies to yabai when its drag ends, so the value can be
+    /// dialled in without flooding yabai's command queue mid-drag.
+    private var opacitySliders: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            opacitySlider("Active window",
+                          get: { engine.settings.glassActiveOpacity },
+                          set: { engine.setGlassActiveOpacity($0) })
+            opacitySlider("Inactive windows",
+                          get: { engine.settings.glassNormalOpacity },
+                          set: { engine.setGlassNormalOpacity($0) })
+        }
+        .padding(Theme.Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .spectraCard()
+    }
+
+    @ViewBuilder
+    private func opacitySlider(_ label: String, get: @escaping () -> Double,
+                               set: @escaping (Double) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(label).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Text("\(Int((get() * 100).rounded()))%")
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            }
+            Slider(value: Binding(get: get, set: set), in: 0.2...1.0,
+                   onEditingChanged: { editing in if !editing { engine.commitGlassTransparency() } })
         }
     }
 

@@ -100,6 +100,12 @@ final class SettingsStore {
     var glassTransparency: Bool { didSet { persist() } }
     var glassTiling: Bool { didSet { persist() } }
     var glassTint: Bool { didSet { persist() } }
+    /// Window-transparency opacity for the Glass tab sliders: the focused window
+    /// (`glassActiveOpacity`) and every other window (`glassNormalOpacity`), each 0.2…1.0.
+    /// They drive the menu-bar Glass "Window Transparency" element and persist so the chosen
+    /// look survives relaunch.
+    var glassActiveOpacity: Double { didSet { persist() } }
+    var glassNormalOpacity: Double { didSet { persist() } }
     /// Make the overlay visible to external screen capture (system Screenshot UI /
     /// `screencapture`, third-party recorders) by flipping its `sharingType` from
     /// `.none` to `.readOnly`. On by default so screenshots and recordings include the
@@ -168,6 +174,10 @@ final class SettingsStore {
         var glassTransparency: Bool? = false
         var glassTiling: Bool? = false
         var glassTint: Bool? = false
+        // Optional so older settings files (which lack the keys) decode to nil and adopt
+        // the defaults below rather than failing the whole decode.
+        var glassActiveOpacity: Double? = nil
+        var glassNormalOpacity: Double? = nil
         var showInScreenshots: Bool? = true
         var hasSeenWelcome: Bool? = false
         var hasSeenSketchHelp: Bool? = false
@@ -235,6 +245,8 @@ final class SettingsStore {
         glassTransparency = state.glassTransparency ?? false
         glassTiling = state.glassTiling ?? false
         glassTint = state.glassTint ?? false
+        glassActiveOpacity = Swift.min(1.0, Swift.max(0.2, state.glassActiveOpacity ?? 0.75))
+        glassNormalOpacity = Swift.min(1.0, Swift.max(0.2, state.glassNormalOpacity ?? 0.70))
         showInScreenshots = state.showInScreenshots ?? true
         hasSeenWelcome = state.hasSeenWelcome ?? false
         hasSeenSketchHelp = state.hasSeenSketchHelp ?? false
@@ -267,6 +279,8 @@ final class SettingsStore {
         glassTransparency = d.glassTransparency ?? false
         glassTiling = d.glassTiling ?? false
         glassTint = d.glassTint ?? false
+        glassActiveOpacity = d.glassActiveOpacity ?? 0.75
+        glassNormalOpacity = d.glassNormalOpacity ?? 0.70
         showInScreenshots = d.showInScreenshots ?? true   // match the shipped default (State + init)
         intensity = d.intensity ?? 1.0
         isLoading = false
@@ -303,6 +317,8 @@ final class SettingsStore {
             glassTransparency: glassTransparency,
             glassTiling: glassTiling,
             glassTint: glassTint,
+            glassActiveOpacity: glassActiveOpacity,
+            glassNormalOpacity: glassNormalOpacity,
             showInScreenshots: showInScreenshots,
             hasSeenWelcome: hasSeenWelcome,
             hasSeenSketchHelp: hasSeenSketchHelp,
