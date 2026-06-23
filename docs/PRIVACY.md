@@ -1,15 +1,11 @@
 # Spectra Privacy Policy
 
-_Draft. Effective date: [DATE]. Last updated: 2026-06-21._
-
-> This is a starting draft tailored to how Spectra works today. Have it reviewed
-> before you publish, and keep it accurate as the app changes. Fill in every
-> `[BRACKETED]` placeholder.
+_Effective date: 2026-06-22. Last updated: 2026-06-22._
 
 Spectra is built to keep your screen private. It processes what it captures on your
 Mac and sends nothing about your screen anywhere. This policy explains the little data
 that is involved and how it is handled. It applies to the Spectra macOS application
-provided by [LEGAL NAME OR ENTITY] ("we", "us").
+provided by Jackson Adams ("we", "us").
 
 ## The short version
 

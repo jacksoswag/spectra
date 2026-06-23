@@ -1,13 +1,9 @@
 # Spectra End User License Agreement
 
-_Draft. Effective date: [DATE]. Last updated: 2026-06-20._
-
-> This is a starting draft tailored to how Spectra works. Have it reviewed by a
-> lawyer in your jurisdiction before you publish or sell. Fill in every `[BRACKETED]`
-> placeholder. Items in brackets are decisions only you can make.
+_Effective date: 2026-06-22. Last updated: 2026-06-22._
 
 This End User License Agreement ("Agreement") is a legal agreement between you (the
-"User") and [LEGAL NAME OR ENTITY] ("Developer", "we", "us") for the Spectra
+"User") and Jackson Adams ("Developer", "we", "us") for the Spectra
 application and its updates and documentation ("Software"). By downloading,
 installing, activating, or using the Software, you agree to this Agreement. If you do
 not agree, do not install or use the Software.
@@ -120,8 +116,8 @@ limitations, so some of the above may not apply to you.
 
 ## 13. Governing law
 
-This Agreement is governed by the laws of [JURISDICTION], without regard to its
-conflict-of-laws rules. The courts of [JURISDICTION] will have exclusive jurisdiction,
+This Agreement is governed by the laws of the State of California, United States, without regard to its
+conflict-of-laws rules. The courts of the State of California, United States will have exclusive jurisdiction,
 unless mandatory law in your country of residence requires otherwise.
 
 ## 14. Contact
