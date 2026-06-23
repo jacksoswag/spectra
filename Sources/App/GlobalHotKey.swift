@@ -80,4 +80,19 @@ final class GlobalHotKey {
 
     /// Human-readable label for the pause/unpause chord, for UI hints.
     static let toggleLabel = "⌥⌘P"
+
+    /// ⌥⌘W — cycle to the next world (MAOE §16.3 hotkey world-switcher).
+    static func cycleWorld(onFire: @escaping () -> Void) -> GlobalHotKey? {
+        GlobalHotKey(keyCode: UInt32(kVK_ANSI_W), modifiers: UInt32(optionKey | cmdKey), id: 3, onFire: onFire)
+    }
+
+    /// ⌥⌘F — punch the focused window out of the effect / restore it (MAOE §16.3 filter-window).
+    static func filterWindow(onFire: @escaping () -> Void) -> GlobalHotKey? {
+        GlobalHotKey(keyCode: UInt32(kVK_ANSI_F), modifiers: UInt32(optionKey | cmdKey), id: 4, onFire: onFire)
+    }
+
+    /// ⌥⌘C — write the styled desktop frame to a PNG (MAOE §15.4 one-press capture).
+    static func captureFrame(onFire: @escaping () -> Void) -> GlobalHotKey? {
+        GlobalHotKey(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(optionKey | cmdKey), id: 5, onFire: onFire)
+    }
 }

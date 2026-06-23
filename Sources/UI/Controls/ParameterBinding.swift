@@ -107,6 +107,12 @@ enum ParameterBinding {
             set: { stack.setValue(.lut($0), for: parameter.id, on: instanceID) })
     }
 
+    static func image(_ stack: EffectStack, _ instanceID: UUID, _ parameter: EffectParameter) -> Binding<String> {
+        Binding(
+            get: { value(stack, instanceID, parameter).imageValue ?? parameter.defaultValue.imageValue ?? "" },
+            set: { stack.setValue(.image($0), for: parameter.id, on: instanceID) })
+    }
+
     // MARK: - Universal parameters
 
     static func strength(_ stack: EffectStack, _ instanceID: UUID) -> Binding<Double> {

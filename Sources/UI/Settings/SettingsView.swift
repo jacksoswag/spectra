@@ -23,7 +23,9 @@ private struct SettingsForm: View {
             Section("Behaviour") {
                 Toggle("Enable Spectra on launch", isOn: $settings.startEnabledOnLaunch)
                 Toggle("Show performance in menu bar", isOn: $settings.menuBarShowsPerformance)
-                Toggle("Reduce motion in animated effects", isOn: $settings.reduceMotion)
+                Toggle("Reduce motion in animated effects", isOn: Binding(
+                    get: { settings.reduceMotion },
+                    set: { engine.setReduceMotion($0) }))
                 Toggle("Cover menu bar & Dock", isOn: Binding(
                     get: { settings.coverMenuBarAndDock },
                     set: { engine.setCoverMenuBarAndDock($0) }))
@@ -41,9 +43,27 @@ private struct SettingsForm: View {
                     get: { settings.showCursorInCapture },
                     set: { engine.setShowCursorInCapture($0) }))
                     .disabled(settings.customCursor)
-                Toggle("Stylized cursor (drawn through effects)", isOn: Binding(
-                    get: { settings.customCursor },
-                    set: { engine.setCustomCursor($0) }))
+                Picker("Cursor", selection: Binding(
+                    get: { CursorOverrideOption.from(settings.cursorOverride) },
+                    set: { engine.setCursorOverride($0.spec) })) {
+                    ForEach(CursorOverrideOption.allCases) { Text($0.label).tag($0) }
+                }
+                Text("Overrides each world's cursor. “Use world default” lets the active world choose; the others draw the cursor through the effect chain.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Reactive (engine capabilities)") {
+                Toggle("Audio-reactive worlds", isOn: Binding(
+                    get: { settings.audioReactiveEnabled },
+                    set: { engine.setAudioReactive($0) }))
+                Toggle("Keyboard-reactive worlds", isOn: Binding(
+                    get: { settings.keyboardReactiveEnabled },
+                    set: { engine.setKeyboardReactive($0) }))
+                Toggle("Focus spotlight (dim background windows)", isOn: Binding(
+                    get: { settings.focusSpotlightEnabled },
+                    set: { engine.setFocusSpotlight($0) }))
+                Text("Each capability also requires the active world to opt in. Audio uses the Screen Recording grant; keyboard needs Input Monitoring (it degrades gracefully if denied).")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Performance") {
@@ -115,6 +135,11 @@ private struct SettingsForm: View {
                 }
                 Button("Open System Settings…") { ScreenRecordingPermission.openSystemSettings() }
                 Button("Re-check & Refresh Displays") { Task { await engine.refreshDisplays() } }
+                if !engine.permissionAuthorized {
+                    Button("Relaunch Spectra") { AppRelaunch.relaunch() }
+                    Text("If you granted access in System Settings, relaunch so the new permission takes effect.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Label("Captured frames are processed on-device only. Spectra never records, saves, or uploads your screen.",
                       systemImage: "lock.fill")
                     .font(.caption).foregroundStyle(.secondary)
@@ -132,8 +157,8 @@ private struct SettingsForm: View {
                             Text("Preset").font(.caption).foregroundStyle(.secondary)
                             Spacer()
                             Menu(engine.activePresetName(for: display.id) ?? "Choose…") {
-                                ForEach(engine.presets.categories) { category in
-                                    Menu(category.displayName) {
+                                ForEach(engine.presets.categories, id: \.self) { category in
+                                    Menu(category) {
                                         ForEach(engine.presets.presets(in: category)) { preset in
                                             Button(preset.name) { engine.apply(preset, to: display.id) }
                                         }
@@ -168,6 +193,43 @@ private struct SettingsForm: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This restores every Spectra setting to its shipped default. Your effects, presets, and favourites are kept.")
+        }
+    }
+}
+
+/// Global cursor-override choices for Settings (MAOE §6). "Use world default" clears the
+/// override so the active world's cursor applies; the rest are global restyles.
+enum CursorOverrideOption: String, CaseIterable, Identifiable, Hashable {
+    case worldDefault, through, neon, pixel, warm
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .worldDefault: "Use world default"
+        case .through: "System (through effects)"
+        case .neon: "Neon"
+        case .pixel: "Pixel green"
+        case .warm: "Warm tint"
+        }
+    }
+
+    var spec: CursorSpec? {
+        switch self {
+        case .worldDefault: nil
+        case .through: CursorSpec(style: .system, intensity: .full)
+        case .neon: CursorSpec(style: .neonCyan, intensity: .full)
+        case .pixel: CursorSpec(style: .pixelGreen, intensity: .full)
+        case .warm: CursorSpec(style: .warmTint, intensity: .full)
+        }
+    }
+
+    static func from(_ spec: CursorSpec?) -> CursorOverrideOption {
+        guard let spec, spec.intensity != .none else { return .worldDefault }
+        switch spec.style {
+        case .neonCyan: return .neon
+        case .pixelGreen: return .pixel
+        case .warmTint: return .warm
+        case .system, .sprite, .customImage: return .through
         }
     }
 }

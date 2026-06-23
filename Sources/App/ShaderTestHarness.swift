@@ -56,12 +56,12 @@ enum ShaderTestHarness {
         let names = env["SPECTRA_SHADERTEST_PRESETS"].map { Set($0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }) }
         let presets = BuiltInPresets.all.filter { preset in
             if let names { return names.contains(preset.name) }
-            return preset.category == .artistic
+            return preset.category == PresetCategory.artistic.rawValue
         }
 
         // Also dump each input unprocessed for an A/B reference.
         for (inputName, tex) in inputs {
-            if let png = readbackPNG(of: tex, via: "passthrough_fragment", renderer: nil, shaders: shaders, context: context, pool: pool, input: tex, chain: [], resolver: resolver) {
+            if let png = readbackPNG(of: tex, via: "passthrough_fragment", shaders: shaders, context: context) {
                 try? png.write(to: URL(fileURLWithPath: "\(outDir)/_input-\(inputName).png"))
             }
         }
@@ -96,9 +96,7 @@ enum ShaderTestHarness {
 
     /// Convenience used for the unprocessed input dump (empty chain path).
     private static func readbackPNG(
-        of tex: MTLTexture, via fn: String, renderer: EffectChainRenderer?,
-        shaders: ShaderLibrary, context: MetalContext, pool: TexturePool,
-        input: MTLTexture, chain: [ResolvedEffect], resolver: ChainResolver
+        of tex: MTLTexture, via fn: String, shaders: ShaderLibrary, context: MetalContext
     ) -> Data? {
         guard let cmd = context.commandQueue.makeCommandBuffer() else { return nil }
         let png = present(tex, via: fn, shaders: shaders, context: context, into: cmd)

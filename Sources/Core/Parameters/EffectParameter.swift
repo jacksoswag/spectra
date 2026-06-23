@@ -29,6 +29,9 @@ enum ParameterControl: Codable, Hashable, Sendable {
     case gradient
     /// A color lookup table chosen from built-in options, baked to a 3D texture.
     case lut(options: [String])
+    /// A user-supplied image file (e.g. a custom cursor sprite). The picked file is copied
+    /// into app support and the value holds its filename; consumed outside the GPU chain.
+    case image
 }
 
 /// A single tunable input on an effect.
@@ -190,5 +193,11 @@ extension EffectParameter {
         EffectParameter(
             id: id, name: name, control: .lut(options: options), defaultValue: .lut(def),
             group: group, help: help)
+    }
+
+    static func image(
+        _ id: String, _ name: String, group: String? = nil, help: String? = nil
+    ) -> EffectParameter {
+        EffectParameter(id: id, name: name, control: .image, defaultValue: .image(""), group: group, help: help)
     }
 }

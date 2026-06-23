@@ -101,6 +101,28 @@ inline float fx_crt_scanline(float uvY, float lineCount, float strength) {
     return 1.0 - strength * (1.0 - line);
 }
 
+// Press-hold line warp (MAOE §7.2): while ANY mouse button is held, pinch the scanline
+// coordinate inward toward the cursor within a soft radius, easing in on press and out on
+// release. ONLY the line coordinate bends — `spectra_tex(src/orig)` is sampled separately, so
+// the image content does not move. Driven entirely by the injected pointer block (slots 16–23),
+// so it needs no event block. `warpStrength` (a per-effect param, default 0) gates it.
+//   lineY   = the y the caller already feeds to fx_crt_scanline (differs per function).
+//   screenUV= the fragment's screen-space uv, for the radial falloff (NOT the warped/rolled y).
+inline float fx_crt_lineWarp(float lineY, float2 screenUV, constant SpectraUniforms &u,
+                             float warpStrength, float warpRadius) {
+    if (warpStrength <= 0.0) return lineY;
+    float env = spectra_pressEnvelope(u.params[18], u.params[19], u.params[20]);  // clickAge≈held duration
+    if (env <= 0.0) return lineY;
+    // Centre on the live pointer while held (trail head, slots 22/23), else the click point.
+    float2 center = (u.params[21] >= 1.0) ? float2(u.params[22], u.params[23])
+                                          : float2(u.params[16], u.params[17]);
+    float aspect = u.resolution.x / max(u.resolution.y, 1.0);
+    float2 dv = screenUV - center; dv.x *= aspect;
+    float falloff = smoothstep(1.0, 0.0, length(dv) / max(warpRadius, 1e-4));
+    float pinch = clamp(warpStrength, 0.0, 0.3) * falloff * env;
+    return center.y + (lineY - center.y) * (1.0 - pinch);
+}
+
 // MARK: - CRT (combined tube)
 
 fragment float4 fx_crt_crt(RasterizerData in [[stage_in]],
@@ -126,7 +148,8 @@ fragment float4 fx_crt_crt(RasterizerData in [[stage_in]],
     float tube = fx_crt_tubeMask(warped, 0.04);
 
     float3 c = fx_crt_sampleTube(src, wuv, u.texelSize);
-    c *= fx_crt_scanline(wuv.y, u.resolution.y * 0.5, scanStrength);
+    float lineY = fx_crt_lineWarp(wuv.y, in.uv, u, u.params[4], u.params[5]);   // §7.2 press warp
+    c *= fx_crt_scanline(lineY, u.resolution.y * 0.5, scanStrength);
     float3 mask = fx_crt_shadowMask(wuv * u.resolution, 3.0);
     c *= mix(float3(1.0), mask, maskStrength);
     c *= brightness * tube;
@@ -173,7 +196,8 @@ fragment float4 fx_crt_crtAdvanced(RasterizerData in [[stage_in]],
         c += bright * bloom;
     }
 
-    c *= fx_crt_scanline(wuv.y, u.resolution.y * 0.5, scanStrength);
+    float lineY = fx_crt_lineWarp(wuv.y, in.uv, u, u.params[5], u.params[6]);   // §7.2 press warp
+    c *= fx_crt_scanline(lineY, u.resolution.y * 0.5, scanStrength);
 
     float3 mask = fx_crt_shadowMask(wuv * u.resolution, 3.0);   // warped coords so the triad rides the curved image
     c *= mix(float3(1.0), mask, maskStrength);
@@ -194,7 +218,8 @@ fragment float4 fx_crt_scanlines(RasterizerData in [[stage_in]],
     float3 c = spectra_tex(src, in.uv).rgb;
     float count = max(u.params[0], 1.0);
     float strength = u.params[1];
-    float3 processed = c * fx_crt_scanline(in.uv.y, count, strength);
+    float lineY = fx_crt_lineWarp(in.uv.y, in.uv, u, u.params[2], u.params[3]);   // §7.2 press warp
+    float3 processed = c * fx_crt_scanline(lineY, count, strength);
     return spectra_compositeRGBA(base, processed, u);
 }
 
@@ -539,7 +564,8 @@ fragment float4 fx_crt_analogTV(RasterizerData in [[stage_in]],
     float3 c = spectra_yiq2rgb(float3(yiq.x, chroma));
 
     // Scanlines + shadow mask.
-    c *= fx_crt_scanline(uv.y, u.resolution.y * 0.5, scanStrength);
+    float lineY = fx_crt_lineWarp(uv.y, in.uv, u, u.params[5], u.params[6]);   // §7.2 press warp
+    c *= fx_crt_scanline(lineY, u.resolution.y * 0.5, scanStrength);
     float3 mask = fx_crt_shadowMask(in.uv * u.resolution, 3.0);
     c *= mix(float3(1.0), mask, maskStrength);
 

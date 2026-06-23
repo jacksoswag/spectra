@@ -1,0 +1,126 @@
+{
+  "aero-2000s" : {
+    "x" : 1.5,
+    "y" : 1.5
+  },
+  "aero-2000s-hand" : {
+    "x" : 10.5,
+    "y" : 2
+  },
+  "aero-2000s-text" : {
+    "x" : 13,
+    "y" : 13
+  },
+  "comic-ink" : {
+    "x" : 1,
+    "y" : 1
+  },
+  "comic-ink-hand" : {
+    "x" : 10.5,
+    "y" : 2
+  },
+  "comic-ink-text" : {
+    "x" : 13,
+    "y" : 13
+  },
+  "cyber-steel" : {
+    "x" : 1,
+    "y" : 1
+  },
+  "cyber-steel-hand" : {
+    "x" : 10.5,
+    "y" : 2
+  },
+  "cyber-steel-text" : {
+    "x" : 13,
+    "y" : 13
+  },
+  "matrix-pixel" : {
+    "x" : 1,
+    "y" : 1
+  },
+  "matrix-pixel-hand" : {
+    "x" : 10.5,
+    "y" : 2
+  },
+  "matrix-pixel-text" : {
+    "x" : 13,
+    "y" : 13
+  },
+  "night-warm" : {
+    "x" : 1,
+    "y" : 1
+  },
+  "night-warm-hand" : {
+    "x" : 10.5,
+    "y" : 2
+  },
+  "night-warm-text" : {
+    "x" : 13,
+    "y" : 13
+  },
+  "noir-object" : {
+    "x" : 1,
+    "y" : 1
+  },
+  "noir-object-hand" : {
+    "x" : 10.5,
+    "y" : 2
+  },
+  "noir-object-text" : {
+    "x" : 13,
+    "y" : 13
+  },
+  "pencil-tip" : {
+    "x" : 1.5,
+    "y" : 1.5
+  },
+  "pencil-tip-hand" : {
+    "x" : 10.5,
+    "y" : 2
+  },
+  "pencil-tip-text" : {
+    "x" : 13,
+    "y" : 13
+  },
+  "print-roof" : {
+    "x" : 1,
+    "y" : 1
+  },
+  "print-roof-hand" : {
+    "x" : 10.5,
+    "y" : 2
+  },
+  "print-roof-text" : {
+    "x" : 13,
+    "y" : 13
+  },
+  "retro-8090" : {
+    "x" : 1,
+    "y" : 1
+  },
+  "retro-8090-hand" : {
+    "x" : 10.5,
+    "y" : 2
+  },
+  "retro-8090-text" : {
+    "x" : 13,
+    "y" : 13
+  },
+  "serif" : {
+    "x" : 2,
+    "y" : 2
+  },
+  "typewriter" : {
+    "x" : 13,
+    "y" : 13
+  },
+  "typewriter-hand" : {
+    "x" : 10.5,
+    "y" : 2
+  },
+  "typewriter-text" : {
+    "x" : 13,
+    "y" : 13
+  }
+}

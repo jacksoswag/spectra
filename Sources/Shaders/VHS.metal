@@ -53,6 +53,22 @@ fragment float4 fx_vhs_tracking(RasterizerData in [[stage_in]],
 
     float2 uv = in.uv;
     uv.x += shift;
+    // Press-hold line warp (MAOE §7.2): while any button is held, pull the tracking lines
+    // horizontally toward the cursor within a soft radius (VHS's "lines" are the tracking
+    // bands), easing in on press and out on release. params: 2 warpStrength (0=off), 3 radius.
+    float warpStrength = u.params[2];
+    if (warpStrength > 0.0) {
+        float env = spectra_pressEnvelope(u.params[18], u.params[19], u.params[20]);
+        if (env > 0.0) {
+            float2 center = (u.params[21] >= 1.0) ? float2(u.params[22], u.params[23])
+                                                  : float2(u.params[16], u.params[17]);
+            float aspect = u.resolution.x / max(u.resolution.y, 1.0);
+            float2 dv = in.uv - center; dv.x *= aspect;
+            float falloff = smoothstep(1.0, 0.0, length(dv) / max(u.params[3], 1e-4));
+            float pinch = clamp(warpStrength, 0.0, 0.3) * falloff * env;
+            uv.x += (center.x - in.uv.x) * pinch;
+        }
+    }
     float3 c = spectra_tex(src, uv).rgb;
 
     // Add a faint horizontal noise smear inside the band core.

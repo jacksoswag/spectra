@@ -29,11 +29,21 @@ struct LayoutSettings: Equatable, Sendable {
     var gap: Double
     var padding: Double
 
+    init(layout: Int, gap: Double, padding: Double) {
+        self.layout = layout
+        self.gap = gap
+        self.padding = padding
+    }
+
     init(_ instance: EffectInstance) {
         layout = instance.value("layout", default: .index(0)).indexValue ?? 0
         gap = instance.value("gap", default: .scalar(8)).scalarValue ?? 8
         padding = instance.value("padding", default: .scalar(8)).scalarValue ?? 8
     }
+
+    /// The values the Glass tab's Tiling toggle applies: BSP tiling flush to the screen
+    /// edges and to each other (no window gap, no screen padding).
+    static let glass = LayoutSettings(layout: 0, gap: 0, padding: 0)
 }
 
 /// Resolved parameters for the Adaptive Tint system effect.
@@ -60,6 +70,10 @@ struct SystemEffectsState: Equatable, Sendable {
     var transparency: TransparencySettings?
     var layout: LayoutSettings?
     var tint: TintSettings?
+    /// Per-theme system-UI styling (MAOE §9): menu-bar / Dock treatments and the shared light.
+    var menuBarStyle: MenuBarStyle?
+    var dockStyle: DockStyle?
+    var lightModel: LightModel?
 
     static let inactive = SystemEffectsState()
 }
@@ -74,6 +88,10 @@ final class SystemEffectsController {
     private let yabai = YabaiBridge()
     private let provisioner = YabaiProvisioner()
     let tint = AdaptiveTintOverlay()
+    /// Per-theme menu-bar / Dock styling overlays (MAOE §9). Click-through and auto-excluded
+    /// from capture (in-process PID filter); nil-style means off.
+    private let menuBar = MenuBarStyleOverlay()
+    private let dock = DockStyleOverlay()
     private var lastState = SystemEffectsState.inactive
     private var lastDisplayIDs: [CGDirectDisplayID] = []
     private var retiredGlassAgent = false
@@ -195,6 +213,15 @@ final class SystemEffectsController {
             tint.deactivate()
         }
 
+        // Menu-bar / Dock styling (MAOE §9). Reconcile when the style or the shared light
+        // changes; a nil style tears the overlay down.
+        if state.menuBarStyle != lastState.menuBarStyle || state.lightModel != lastState.lightModel {
+            menuBar.apply(state.menuBarStyle, light: state.lightModel)
+        }
+        if state.dockStyle != lastState.dockStyle || state.lightModel != lastState.lightModel {
+            dock.apply(state.dockStyle, light: state.lightModel)
+        }
+
         // Provision yabai on demand when a yabai-backed effect is active.
         if state.transparency != nil || state.layout != nil {
             ensureYabai(needsOpacity: state.transparency != nil)
@@ -207,6 +234,8 @@ final class SystemEffectsController {
     /// the process can exit without leaving windows dimmed or tiled.
     func shutdown() {
         tint.deactivate()
+        menuBar.teardown()
+        dock.teardown()
         yabai.shutdownRestore()
         provisioner.stopServiceIfStarted()
         lastState = .inactive

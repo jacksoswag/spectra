@@ -68,6 +68,36 @@ final class ShaderLibrary {
         return state
     }
 
+    /// A pipeline that MAX-blends the fragment output into the target (factors one/one, op max), for
+    /// accumulation layers like the Pencil draw tool — each stamp adds to the layer without the
+    /// fullscreen pass wiping the strokes already there. Cached separately from the plain pipeline.
+    func maxBlendPipeline(fragment functionName: String, pixelFormat: MTLPixelFormat) throws -> MTLRenderPipelineState {
+        let key = Key(function: functionName + "#maxblend", pixelFormat: pixelFormat.rawValue, libraryID: nil)
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached = cache[key] { return cached }
+        let vertex = try makeFunction("fullscreen_vertex", in: context.defaultLibrary)
+        let fragment = try makeFunction(functionName, in: context.defaultLibrary)
+        let descriptor = MTLRenderPipelineDescriptor()
+        descriptor.label = "Spectra.\(functionName).maxblend"
+        descriptor.vertexFunction = vertex
+        descriptor.fragmentFunction = fragment
+        descriptor.rasterSampleCount = 1
+        if let a = descriptor.colorAttachments[0] {
+            a.pixelFormat = pixelFormat
+            a.isBlendingEnabled = true
+            a.rgbBlendOperation = .max
+            a.alphaBlendOperation = .max
+            a.sourceRGBBlendFactor = .one
+            a.destinationRGBBlendFactor = .one
+            a.sourceAlphaBlendFactor = .one
+            a.destinationAlphaBlendFactor = .one
+        }
+        let state = try context.device.makeRenderPipelineState(descriptor: descriptor)
+        cache[key] = state
+        return state
+    }
+
     /// Return (creating if needed) a compute pipeline for a kernel function. Used by
     /// passes flagged `isCompute` (e.g. the tile-cached painterly).
     func computePipeline(

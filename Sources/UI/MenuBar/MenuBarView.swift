@@ -129,9 +129,9 @@ private struct PresetPicker: View {
                               GridItem(.flexible(), spacing: Theme.Spacing.sm)],
                     alignment: .center, spacing: Theme.Spacing.md
                 ) {
-                    ForEach(engine.presets.categories) { category in
+                    ForEach(engine.presets.categories, id: \.self) { category in
                         VStack(spacing: Theme.Spacing.xs) {
-                            Text(category.displayName)
+                            Text(category)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                             ForEach(engine.presets.presets(in: category)) { preset in
@@ -193,9 +193,13 @@ private struct PerformanceReadout: View {
     var body: some View {
         let combined = engine.performance.combined
         HStack(spacing: Theme.Spacing.sm) {
+            // fixedSize so the Auto switch yields width to these labels instead of the
+            // layout clipping "fps" down to "f…" in the fixed-width panel.
             Label("\(Int(combined.fps.rounded())) fps", systemImage: "speedometer")
+                .fixedSize()
             Text("- \(Int(combined.latencyMilliseconds.rounded())) ms")
                 .foregroundStyle(.secondary)
+                .fixedSize()
             Spacer()
             Toggle("Auto", isOn: Binding(
                 get: { engine.settings.autoQuality },
@@ -219,6 +223,7 @@ struct MenuBarLabel: View {
     var body: some View {
         if engine.settings.menuBarShowsPerformance && engine.isEnabled {
             Label("\(Int(engine.performance.combined.fps.rounded())) fps", systemImage: "sparkles")
+                .fixedSize()
         } else {
             Image(systemName: "sparkles")
         }

@@ -38,7 +38,11 @@ BUILT="${DDP}/Build/Products/${CONFIG}/Spectra.app"
 
 echo "Installing to ${APP}..."
 pkill -x Spectra 2>/dev/null || true
-sleep 1
+# The app runs a graceful SIGTERM teardown (restores yabai window state), so wait for it
+# to actually exit before replacing the bundle and relaunching — a fixed sleep races it.
+# Force-kill as a backstop if teardown ever hangs past the budget.
+for _ in $(seq 1 50); do pgrep -x Spectra >/dev/null 2>&1 || break; sleep 0.1; done
+pkill -9 -x Spectra 2>/dev/null || true
 rm -rf "${APP}"
 cp -R "${BUILT}" "${APP}"
 

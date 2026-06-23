@@ -163,7 +163,7 @@ struct PreviewView: View {
     /// The preview pane is a small editing aid, not the live output — 30fps reads
     /// smoothly for animated effects and halves the preview's per-second encode
     /// cost, leaving more GPU/main-thread headroom for the overlay it sits beside.
-    private var fps: Int { 30 }
+    private let fps = 30
 
     var body: some View {
         ZStack {

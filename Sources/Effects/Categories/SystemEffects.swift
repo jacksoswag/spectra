@@ -12,8 +12,34 @@ import Foundation
 /// shows a setup note. Adaptive tint is no-privilege and always available.
 enum SystemEffects {
     static let all: [EffectDescriptor] = [
-        windowTransparency, windowLayout, adaptiveTint,
+        windowTransparency, windowLayout, adaptiveTint, menuBarStyle, dockStyle,
     ]
+
+    /// Per-theme menu-bar styling (MAOE §9), driven through `SystemEffectsController` to a
+    /// click-through overlay above the menu bar. The `style` index maps to `MenuBarStyle`.
+    static let menuBarStyle = EffectDescriptor(
+        id: "system.menuBarStyle", name: "Menu Bar Style", category: .system,
+        subtitle: "Per-theme menu-bar treatment (shadow, caption, reflective, pastel).",
+        icon: "menubar.rectangle",
+        parameters: [
+            .options("style", "Style", ["None", "Soft Shadow", "Caption", "Reflective", "Pastel"], default: 1),
+        ],
+        passes: [],
+        tags: ["menu bar", "system", "chrome", "shadow"],
+        controllerKind: .menuBarStyle)
+
+    /// Per-theme Dock styling (MAOE §9), driven to a click-through overlay near the Dock.
+    /// The `style` index maps to `DockStyle`.
+    static let dockStyle = EffectDescriptor(
+        id: "system.dockStyle", name: "Dock Style", category: .system,
+        subtitle: "Per-theme Dock treatment (grounded shadow, frame, neon outline, pastel).",
+        icon: "dock.rectangle",
+        parameters: [
+            .options("style", "Style", ["None", "Grounded Shadow", "Stage Frame", "Neon Outline", "Matte Pastel", "Reflective"], default: 1),
+        ],
+        passes: [],
+        tags: ["dock", "system", "chrome", "outline"],
+        controllerKind: .dockStyle)
 
     /// Global window opacity (and optional backdrop blur) via yabai. The captured
     /// desktop already composites the now-semi-transparent windows over the

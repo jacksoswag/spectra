@@ -37,8 +37,51 @@ struct SpectraUniforms {
     float2 direction;    // direction vector for separable/directional passes
     float  passScale;    // render target scale for this pass
     float  clockSeconds; // seconds since LOCAL midnight (wall clock), updated per frame
-    float  params[64];   // effect-specific parameters (declaration order)
+    float  params[80];   // 0–63 effect/injection slots; 64–79 ambient globals (audio/keyboard, §15)
 };
+
+// MARK: - Window geometry (MAOE §5.1)
+//
+// Per-window rectangles sourced from CGWindowList, in display-local top-left UV (same
+// space as `in.uv`). Bound at fragment/compute BUFFER index 2 — and ONLY for chrome /
+// debug effects whose `EffectPass.requiresWindowRects` is set, so ordinary effects pay
+// nothing and never see this binding. The CPU mirror is `WindowGeometryUniforms` in
+// WindowGeometryProvider.swift; the flat float layout must agree byte-for-byte.
+//
+// Idle cost is zero: the geometry provider only runs while a rect-consuming effect is in
+// the chain, and chrome is recomputed from the LIVE list every frame (never cached), so a
+// closed window contributes no border (MAOE §5.4 ghost-border mitigation).
+
+// An enumerator (not a program-scope `constant` variable) so the value is a pure
+// compile-time constant usable as an array bound, with no symbol to duplicate when the
+// per-file .air are linked together. Must match `WindowGeometryProvider.maxWindows`.
+enum : int { kSpectraMaxWindows = 64 };
+
+struct SpectraWindow {
+    float4 rect;   // xy = top-left origin (display UV), zw = size (display UV)
+    float4 meta;   // x = alpha (kCGWindowAlpha 0..1), y = focused (0/1),
+                   // z = corner radius (UV-Y units), w = reserved
+};
+
+struct WindowGeometry {
+    float count;            // number of valid windows (0..kSpectraMaxWindows)
+    float pad0, pad1, pad2; // pad the header to 16 bytes so `windows` is float4-aligned
+    SpectraWindow windows[kSpectraMaxWindows];
+};
+
+// Signed distance from a display-UV point to a window rect's interior (negative inside).
+// `aspect` = resolution.x / resolution.y, used to round the rect's corners isotropically
+// despite UV's non-square pixels.
+inline float spectra_windowSDF(float2 uv, float4 rect, float radiusUV, float aspect) {
+    float2 halfSize = rect.zw * 0.5;
+    float2 center = rect.xy + halfSize;
+    float2 p = uv - center;
+    // Work in aspect-corrected space so a UV-Y radius reads as a circle, not an ellipse.
+    p.x *= aspect; halfSize.x *= aspect;
+    float r = clamp(radiusUV, 0.0, min(halfSize.x, halfSize.y));
+    float2 q = abs(p) - (halfSize - r);
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
 
 // MARK: - Sampling
 
@@ -261,6 +304,60 @@ inline float2 spectra_rotate(float2 p, float angle) {
 
 inline float spectra_remap(float v, float inMin, float inMax, float outMin, float outMax) {
     return outMin + (outMax - outMin) * clamp((v - inMin) / (inMax - inMin), 0.0, 1.0);
+}
+
+// MARK: - Glyph font (shared, MAOE §7)
+//
+// A 5x7 bitmap font of 16 invented cipher glyphs (no standard letters/digits, so it reads as
+// alien code). Shared by the Matrix rain (`glitch_*`) and the interaction glyph bursts/trails
+// (`fx_int_*`). The font lives as a function-LOCAL array, not a program-scope `constant`, so
+// including this header in several .metal files can't duplicate a symbol at link.
+//
+// `p` is 0..1 within a glyph cell; `seed` hashes to a glyph index. A thin gutter keeps
+// adjacent glyphs from merging into a block.
+inline float glitch_glyph(float2 p, float seed) {
+    if (p.x < 0.04 || p.x > 0.96 || p.y < 0.02 || p.y > 0.98) return 0.0;   // inter-glyph gutter
+    const uint font[112] = {
+         4, 4,21,14,21, 4, 4,   // eye / node
+        17,10, 4,31, 4,10,17,   // barred X
+        28,16,30, 2,15, 1, 3,   // angular rune
+        27,17, 0, 4, 0,17,27,   // bracketed dot
+        16,24,12, 6, 3, 6,12,   // zigzag
+        31, 4, 4,14, 4, 4, 4,   // crowned stem
+        24, 4,30, 4,15, 4, 3,   // asymmetric hooks
+         4,14,31,14, 4,10,17,   // diamond + legs
+        17,31,17,31,17,31,17,   // ladder
+        14,17,22,21,13, 1, 6,   // spiral
+        10, 0,31, 0,10, 0, 4,   // dotted bars
+         4,14,21, 4, 4,21,14,   // twin arrows
+         4, 4, 0, 4, 0, 4, 4,   // dashed axis
+        28,16,16, 0, 1, 1, 7,   // opposed corners
+        10,31,10,31,10, 0, 4,   // grid
+        17,10, 4,10,17, 0,31,   // crosshatch + base
+    };
+    int col = int(clamp((p.x - 0.04) / 0.92, 0.0, 0.999) * 5.0);   // 0..4
+    int row = int(clamp((p.y - 0.02) / 0.96, 0.0, 0.999) * 7.0);   // 0..6
+    int glyph = int(spectra_hash11(seed) * 16.0) & 15;             // pick 0..15
+    uint rowBits = font[glyph * 7 + row];
+    return (rowBits & (1u << uint(4 - col))) != 0u ? 1.0 : 0.0;    // MSB = leftmost column
+}
+
+// Age-decay envelope shared by the one-shot interaction effects (MAOE §7): 0 before the event,
+// a fast attack, then an exponential decay over `life` seconds back to 0. `age` is seconds
+// since the event (large sentinel when none). Cheap; pure ALU.
+inline float spectra_eventEnvelope(float age, float life) {
+    if (age < 0.0 || age > life) return 0.0;
+    float attack = clamp(age / 0.06, 0.0, 1.0);          // ~60 ms ease-in
+    float decay = exp(-3.0 * age / max(life, 1.0e-3));   // exponential tail
+    return attack * decay;
+}
+
+// Press envelope for the press-hold line warp (MAOE §7.2): eases in while a button is held
+// (`pressAge` grows), holds, then there is no held state so the caller fades it out via the
+// release age. `pressed` is 1 while any button is down.
+inline float spectra_pressEnvelope(float pressAge, float pressed, float releaseAge) {
+    if (pressed > 0.5) return clamp(pressAge / 0.12, 0.0, 1.0);   // ease in over ~120 ms
+    return clamp(1.0 - releaseAge / 0.25, 0.0, 1.0);             // ease out over ~250 ms after release
 }
 
 // MARK: - Blend operators (raw values match BlendMode.swift)

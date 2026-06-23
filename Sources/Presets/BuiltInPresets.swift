@@ -15,6 +15,12 @@ private func fx(_ id: String, _ values: [String: ParameterValue] = [:], strength
 private func chain(_ effects: [EffectInstance]) -> EffectChain { EffectChain(effects: effects) }
 private func s(_ v: Double) -> ParameterValue { .scalar(v) }
 private func i(_ v: Int) -> ParameterValue { .index(v) }   // for .integer / .options params
+private func c4(_ r: Double, _ g: Double, _ b: Double, _ a: Double = 1) -> ParameterValue { .color(SIMD4(r, g, b, a)) }
+
+/// Concise cursor-facet builder for the world specs (MAOE §6).
+private func cursor(_ style: CursorStyle, _ intensity: CursorIntensity = .full, press: Bool = false) -> CursorSpec {
+    CursorSpec(style: style, intensity: intensity, pressAnim: press)
+}
 
 /// The curated, shipped preset library: distinct "worlds", grouped
 /// Cinematic / Retro / Artistic / Utility. Each references built-in effect ids; unknown ids
@@ -35,7 +41,16 @@ enum BuiltInPresets {
             fx("color.temperature", ["amount": s(0.15)]),
             fx("color.brightness", ["amount": s(0.05)]),
             fx("film.lightLeaks", strength: 0.4),
-        ]),
+            // MAOE: gold click pulse + warm drag trail; a directional drop shadow and an
+            // active-window gold border glow; a shadow collapse when a window closes.
+            fx("chrome.windowShadow", ["lightAngle": s(210), "distance": s(0.014), "softness": s(0.03), "opacity": s(0.4)]),
+            fx("chrome.windowBorder", ["style": s(2), "color": c4(1.0, 0.82, 0.5), "width": s(0.006), "softness": s(1.0), "activeOnly": s(1)]),  // directional bevel
+            fx("interaction.clickPulse"),
+            fx("interaction.shadowCollapse"),
+        ], world: WorldSpec(cursor: cursor(.system, .none),
+                            systemUI: SystemUIDefaults(dock: .groundedShadow,
+                                                       light: LightModel(angle: 210, intensity: 0.9, spread: 0.6)),
+                            motion: MotionBudget(continuousMax: 2))),
 
         preset(18, "Fuji-Film", icon: "camera.fill", .cinematic, "Warm 2000s disposable-camera look: an amber flash-lit cast, punchy contrast, heavy live colour grain, and faint black dust.", ["fuji-film", "fuji", "film", "disposable", "warm", "2000s", "flash", "grade"], [
             // Warm consumer/disposable color: an amber cast, lifted muddy blacks with
@@ -58,7 +73,12 @@ enum BuiltInPresets {
             fx("film.grain", ["intensity": s(0.30), "size": s(1.7), "speed": s(1.0), "color": s(0.95)]),
             // Sparse black dust for the cheap-print feel (inverted to black, reduced 75%).
             fx("film.debris", ["intensity": s(0.5), "density": s(0.32), "speed": s(0.5), "invert": s(1.0)], strength: 0.14),
-        ]),
+            // MAOE: subtle window shadow; a faint warm light-leak popped on click (no longer a
+            // screen-wide diagonal on every move). The film-sprocket Space-switch sweep was cut.
+            fx("chrome.windowShadow", ["lightAngle": s(250), "distance": s(0.008), "softness": s(0.022), "opacity": s(0.3)]),
+            fx("interaction.lightLeak"),
+        ], world: WorldSpec(cursor: cursor(.system, .none),   // unchanged system cursor (owner: serif nib was off)
+                            systemUI: SystemUIDefaults(menuBar: .pastel, dock: .mattePastel))),
 
         preset(1, "Noir", icon: "circle.lefthalf.filled", .cinematic, "Darkroom-accurate black-and-white built on real film color science.", ["mono", "noir", "black and white", "bw", "monochrome", "darkroom", "film"], [
             // True B&W as a photographic process: a green-weighted Tri-X channel
@@ -79,7 +99,15 @@ enum BuiltInPresets {
             ]),
             fx("film.halation", ["threshold": s(0.62)], strength: 0.20),
             fx("film.grain", ["intensity": s(0.17), "size": s(1.3), "speed": s(0.0)]),  // static, off the 0.18 daily ceiling
-        ]),
+            // Silent-film vertical-scratch noise, now part of the world shader (screen-wide), not a
+            // menu-bar strip.
+            fx("film.scratches", ["density": s(0.45), "speed": s(0.6)], strength: 0.6),
+            // MAOE: an ORNATE sprite frame on windows + the whole screen — real corner artwork plus
+            // a tiled edge ornament and a solid ink rule, off-white for dark mode. (Dropped
+            // interaction.iris: the owner didn't want the space-switch closing vignette.)
+            fx("chrome.spriteBorder", ["cornerSize": s(0.085), "ruleWidth": s(0.0016), "ink": c4(0.92, 0.92, 0.88), "intensity": s(0.9)]),
+        ], world: WorldSpec(cursor: cursor(.sprite(.noirObject), press: true),
+                            systemUI: SystemUIDefaults(dock: .stageFrame))),
 
         preset(23, "Cyberpunk", icon: "building.2.fill", .cinematic, "Your desktop as a neon-lit night city: crushed blacks, blooming magenta-cyan light, built for streams and setup tours.", ["neon", "night", "magenta", "cyan", "cyberpunk", "blade runner", "synthwave", "gaming"], [
             // Light sources are precious, the dark between them absolute. The
@@ -87,32 +115,40 @@ enum BuiltInPresets {
             // dropped in favor of the gradient + bloom.
             fx("color.blackPoint", ["point": s(0.06)]),               // crush shadows to void
             fx("color.contrast", ["amount": s(0.32)]),
-            fx("color.vibrance", ["amount": s(0.45)]),
+            fx("color.vibrance", ["amount": s(0.18)]),               // restrained, not RGB-gaming saturation (was 0.45)
             fx("color.colorBalance", [
                 "shadowCyanRed": s(-0.18), "shadowYellowBlue": s(0.20),
                 "highCyanRed": s(0.14), "highMagentaGreen": s(-0.12),
             ]),
-            // gradientMap moved AFTER the fusable colour run so blackPoint+contrast+vibrance+colorBalance
-            // collapse into ONE fused pass (was two runs split by the texture-binding gradientMap). It now
-            // maps post-vibrance/balance, so the dual-tone shifts slightly — the gradient stops may want a re-tune.
+            // Premium industrial night, not a gaming RGB peripheral: a low-chroma indigo→violet-steel
+            // ramp (no hot magenta, no electric cyan), mapped lightly so it tints rather than repaints.
             fx("color.gradientMap", [
-                "amount": s(0.55),
+                "amount": s(0.4),
                 "gradient": .gradient([
-                    GradientStop(position: 0.0,  color: SIMD4(0.02, 0.05, 0.09, 1)),  // near-black cyan
-                    GradientStop(position: 0.45, color: SIMD4(0.28, 0.10, 0.30, 1)),  // magenta-violet midtone
-                    GradientStop(position: 0.78, color: SIMD4(0.85, 0.18, 0.55, 1)),  // hot magenta (stays magenta to separate from Y2K)
-                    GradientStop(position: 1.0,  color: SIMD4(0.55, 0.92, 1.00, 1)),  // electric cyan-white
+                    GradientStop(position: 0.0,  color: SIMD4(0.02, 0.03, 0.07, 1)),  // near-black blue-violet
+                    GradientStop(position: 0.45, color: SIMD4(0.14, 0.10, 0.24, 1)),  // deep indigo midtone
+                    GradientStop(position: 0.78, color: SIMD4(0.34, 0.26, 0.46, 1)),  // muted violet-steel
+                    GradientStop(position: 1.0,  color: SIMD4(0.62, 0.66, 0.78, 1)),  // cool brushed-steel highlight
                 ]),
             ]),
-            // Combined bloom + halation in one shared glow pyramid, binding grain folded into its combine.
-            // (Dropped the explicit grainSize: s(1.4) — it equalled the descriptor default.)
+            // Restrained bloom: a higher threshold + much lower bloom/strength so only true light
+            // sources halo, instead of the whole desktop glowing neon (was bloom 0.7 / strength 0.8).
             fx("film.glow", [
-                "threshold": s(0.55), "bloom": s(0.7), "halation": s(0.4),
+                "threshold": s(0.66), "bloom": s(0.32), "halation": s(0.22),
                 "grain": s(0.22),
-            ], strength: 0.8),
+            ], strength: 0.45),
             // (The wet-night rain overlay was dropped: its falling streaks read as distracting
             //  moving lines over the desktop. The gradient + bloom carry the identity.)
-        ]),
+            // MAOE: neon window edge glow; cyan→magenta click ripple; hyperspace streaks on a
+            // Space switch; a glitch flash when a window opens.
+            fx("chrome.windowBorder", ["style": s(6), "color": c4(0.5, 0.2, 0.9), "width": s(0.0055), "softness": s(0.6), "screenFrame": s(1)]),  // circuit frame, per-segment random purple/pink/blue + always wraps the whole screen
+            fx("interaction.clickRipple"),
+            fx("interaction.windowGlitch"),
+            fx("interaction.audioPulse", ["color": c4(0.45, 0.4, 0.7), "strength": s(0.5)]),  // §15.1 audio-reactive (opt-in): muted indigo-steel, restrained (was hot-pink 1.3)
+        ], world: WorldSpec(cursor: cursor(.sprite(.cyberSteel)),
+                            systemUI: SystemUIDefaults(),   // dropped the green neon Dock outline (owner)
+                            motion: MotionBudget(continuousMax: 2),
+                            audioReactive: true, focusDim: 0.55)),
 
         // MARK: Retro
 
@@ -123,9 +159,10 @@ enum BuiltInPresets {
             fx("retro.crtAdvanced", [
                 "scanline": s(0.4), "maskStrength": s(0.45),
                 "curvature": s(0.10), "bloom": s(0.0), "vignette": s(0.3),  // inline 4-tap bloom off; phosphorGlow carries the glow (gather is now skipped)
+                "linePressWarp": s(0.0), "warpRadius": s(0.2),              // press-hold line warp removed (owner)
             ]),
             fx("retro.phosphorGlow", ["intensity": s(0.5), "persistence": s(0.4)]),
-        ]),
+        ], world: WorldSpec(cursor: cursor(.sprite(.retro8090)))),
 
         preset(16, "VHS Tape", icon: "recordingtape", .retro, "Magnetic-tape decay running live on your desktop: warm chroma bleed, tracking drift, and tape hiss.", ["vhs", "tape", "analog", "retro", "camcorder", "90s"], [
             // Usable tape: the chroma/luma desync identity (bleed + smear) plus a little
@@ -144,9 +181,9 @@ enum BuiltInPresets {
             // luma/chroma coupling, so the smear character changes — re-tune colorSmear if it reads off.
             // Dropped vhs.jitter (−1 animated pass): ~1px at full quality, sub-pixel under Auto.
             fx("vhs.colorSmear", ["amount": s(0.35)], strength: 0.6), // chroma lag trailing bright regions
-            fx("vhs.tracking", ["intensity": s(0.12), "speed": s(0.4)], strength: 0.4),
+            fx("vhs.tracking", ["intensity": s(0.12), "speed": s(0.4), "linePressWarp": s(0.05), "warpRadius": s(0.035)], strength: 0.4),  // MAOE §7.2 press-hold line warp, radius ~80% smaller than the 0.2 default so it's a tight pinch right under the cursor (owner)
             fx("noise.filmGrain", ["intensity": s(0.16), "scale": s(40), "speed": s(1.0)]),  // tape hiss
-        ]),
+        ], world: WorldSpec(cursor: cursor(.sprite(.retro8090)))),
 
         preset(3, "The Matrix", icon: "terminal.fill", .retro, "A live hacker terminal: animated code rain over a near-mono green-black world.", ["matrix", "green", "hacker", "digital", "rain", "code rain", "terminal"], [
             // One color, one light source: green pixels glowing out of black glass.
@@ -165,14 +202,25 @@ enum BuiltInPresets {
             fx("glitch.digitalRain", ["intensity": s(0.45), "density": s(0.62), "speed": s(1.4)], strength: 0.5),
             // (Dropped the cohesion grain: the 16-bit working space + predither already
             //  de-band the dark green field, and phosphor/scanlines/rain texture the frame.)
-        ]),
+            // MAOE: broken-circuit green window border; glyph burst on click + glyph trail on
+            // drag; a decode scramble when a window opens. (Dropped the screen-wide scroll-drift
+            // and Space-switch glyph-rain splashes — too much, owner.)
+            fx("chrome.windowBorder", ["style": s(5), "color": c4(0.10, 0.55, 0.22), "width": s(0.0055), "softness": s(0.6)]),  // dark damaged-terminal circuit frame: dim phosphor green on a recessed band
+            fx("interaction.glyphBurst"),
+            fx("interaction.glyphTrail"),
+            // (Dropped interaction.decode — the window-open glyph scramble read as a glyph-flood over
+            // windows on open/resize; owner wants no glyph floods during window operations.)
+            fx("interaction.keyGlyph"),                          // §15.1 keyboard-reactive (opt-in)
+        ], world: WorldSpec(cursor: cursor(.sprite(.matrixPixel)),
+                            motion: MotionBudget(continuousMax: 3),
+                            keyboardReactive: true)),
 
         preset(24, "Frutiger Aero", icon: "drop.fill", .retro, "Lush nature-tech glass: vivid aqua-greens, clean skies, and glossy bubble bloom.", ["frutiger aero", "aqua", "y2k", "glossy", "nature", "bubbles", "2000s"], [
             // The early-2000s "nature-tech" optimism: humid aqua-greens, clean sky blues,
             // glossy white gel highlights. Greener and fresher than Y2K/Aqua; warm-white
             // (never magenta) highlights keep it clear of Cyberpunk.
-            fx("color.saturation", ["amount": s(0.24)]),              // global candy chroma lift
-            fx("color.vibrance", ["amount": s(1.0)]),                 // protect-skin richness on top of saturation
+            fx("color.saturation", ["amount": s(0.18)]),              // global candy chroma lift (eased down)
+            fx("color.vibrance", ["amount": s(0.5)]),                 // protect-skin richness (was 1.0 — too hot)
             fx("color.temperature", ["amount": s(-0.15)]),            // cool, fresh cast
             fx("color.colorBalance", [
                 "magentaGreen": s(0.10),                              // push green into the world
@@ -188,8 +236,9 @@ enum BuiltInPresets {
                     GradientStop(position: 1.0,  color: SIMD4(1.00, 0.99, 0.94, 1)),  // glossy warm-white
                 ]),
             ]),
-            // Glossy bubble bloom + warm gel halation from one shared glow pyramid.
-            fx("film.glow", ["threshold": s(0.60), "bloom": s(0.75), "halation": s(0.4)], strength: 0.85),
+            // Glossy bubble bloom + warm gel halation from one shared glow pyramid (eased down: it
+            // was washing the whole desktop out — owner "super bright").
+            fx("film.glow", ["threshold": s(0.66), "bloom": s(0.45), "halation": s(0.3)], strength: 0.5),
             fx("sharpen.clarity", ["amount": s(0.35)]),               // edge recovery for text under bloom
             // The signature: rising glass bubbles with refraction, a Fresnel rim, thin-film
             // iridescence, and dual speculars (full neighbourhood sampling, so they never clip).
@@ -197,8 +246,16 @@ enum BuiltInPresets {
             // Interactive water: a glossy crown + droplets where you click, water that drags from
             // the cursor as you move, and a ripple + scatter on release. Drawn last so it reads on
             // top of the bubbles. Inert until the pointer engages, so a still desktop is unchanged.
-            fx("environment.splash", ["size": s(-0.2), "trail": s(0.6), "droplets": s(0.6), "gloss": s(0.75), "opacity": s(0.9)]),
-        ]),
+            fx("environment.splash", ["size": s(-0.46), "trail": s(0.6), "droplets": s(0.6), "gloss": s(0.75), "opacity": s(0.9)]),  // 33% smaller than the old -0.2 (0.8→0.54 scale)
+            // MAOE: a discrete glass window rim; a bubble pops on close, bubbles drift to the Dock
+            // on minimize. (Dropped chrome.titleStrip — its per-window gloss read as a big bright
+            // shape across the top, owner.)
+            fx("chrome.windowBorder", ["style": s(3), "color": c4(0.7, 0.92, 1.0), "width": s(0.004), "softness": s(0.6)]),  // discrete glass gel rim
+            fx("interaction.bubblePop"),
+            fx("interaction.bubbleTrail"),
+        ], world: WorldSpec(cursor: cursor(.sprite(.aero2000s)),
+                            systemUI: SystemUIDefaults(menuBar: .reflective, dock: .reflective),
+                            motion: MotionBudget(continuousMax: 3))),
 
         // MARK: Artistic
         // Full-frame "worlds" that re-render the desktop as another medium. Each
@@ -214,6 +271,10 @@ enum BuiltInPresets {
             fx("color.vibrance", ["amount": s(0.25)]),
             fx("style.paper", ["intensity": s(0.3), "scale": s(3.95), "drift": s(0.0), "tint": .color(SIMD4(0.98, 0.97, 0.93, 1))]),  // drift 0 = static grain: cheaper branch (1 fewer FBM + no history tap), no continuous redraw
             fx("color.lut", ["amount": s(0.75), "lut": .lut("Watercolor")]),
+            // MAOE: a soft per-window border bleed. The "paint ripple" is intrinsic to style.oil now —
+            // holding the button boosts the oil's vanGogh in a ripple around the cursor (oil_vanGoghBoost),
+            // so the brushwork itself gets more agitated there, instead of a separate colour overlay.
+            fx("chrome.windowVignette", ["color": c4(0.2, 0.16, 0.12), "strength": s(0.3), "size": s(0.08)]),
         ]),
 
         preset(31, "Comic Book", icon: "bubble.left.fill", .artistic, "Pop-art print: punchy flat posterized colour and a Ben-Day halftone dot screen.", ["comic", "manga", "pop art", "halftone", "ben-day", "cartoon", "lichtenstein", "art"], [
@@ -223,25 +284,37 @@ enum BuiltInPresets {
             // printed-shading texture.
             fx("style.quantize", ["bands": i(8), "smoothness": s(0.3), "saturation": s(0.5), "blackPoint": s(0.1)]),
             fx("style.halftone", ["scale": s(12.0), "angle": s(70), "strength": s(0.4), "coverage": s(0.14)]),
-        ]),
+            // MAOE: hard ink panel framing; a small 70s-style "POW" sprite on click. (Dropped
+            // interaction.speedLines — it darkened a big radial blob around the moving cursor.)
+            fx("chrome.windowBorder", ["style": s(1), "color": c4(0.05, 0.05, 0.05), "width": s(0.004), "softness": s(0.1)]),  // hard ink panel frame
+            fx("interaction.powSprite", ["size": s(0.026)]),  // one of POW/BANG/POP at random per click, small
+        ], world: WorldSpec(cursor: cursor(.sprite(.comicInk)))),
 
         preset(34, "Print Art", icon: "mountain.2.fill", .artistic, "Woodblock print: flat colour fields, crisp key block lines, a limited indigo-and-earth palette, and visible washi paper.", ["print", "woodblock", "ukiyo-e", "japanese", "hokusai", "hiroshige", "flat", "ink", "art"], [
             // Woodblock print built on the cel engine alone (no separate line pass): maximum
             // abstraction flattens forms, 8 tone bands with low smoothness keep crisp posterised
             // colour fields, and the cel's own narrow ink draws the key-block edges. A Ukiyo-e LUT
             // plus a touch of vibrance keep the indigo and earth palette rich, finished with washi paper.
-            fx("style.cel", ["bands": i(8), "saturation": s(0.4), "inkStrength": s(0.3), "inkWidth": s(0.5), "smoothness": s(0.1), "abstraction": s(1.0)]),
+            fx("style.cel", ["bands": i(16), "saturation": s(0.4), "inkStrength": s(0.3), "inkWidth": s(0.5), "smoothness": s(0.1), "abstraction": s(1.0)]),
             fx("color.lut", ["amount": s(0.78), "lut": .lut("Ukiyo-e")]),
             fx("color.vibrance", ["amount": s(0.18)]),
             fx("style.paper", ["intensity": s(0.4), "scale": s(2.0), "drift": s(0.0), "tint": .color(SIMD4(0.94, 0.91, 0.84, 1))]),  // drift 0 = static grain: cheaper branch, no continuous redraw
-        ]),
+            // MAOE: flat per-window framing. (No cmykShift: a whole-screen velocity-driven channel
+            // split fringed the entire print on every mouse move — read as a flicker; dropped.)
+            fx("chrome.windowBorder", ["style": s(1), "color": c4(0.06, 0.07, 0.13), "width": s(0.0022), "softness": s(0.05)]),  // hard, dark, discrete inset rule
+        ], world: WorldSpec(cursor: cursor(.sprite(.printRoof)))),
 
         preset(36, "Pencil Sketch", icon: "pencil", .artistic, "A hand-drawn graphite sketch: contour lines, cross-hatch shading, and warm paper.", ["pencil", "sketch", "graphite", "drawing", "hatch", "monochrome", "art"], [
-            // A graphite contour drawing on warm paper: the shared full-res line extractor in
-            // paper mode, tuned soft (lower sharpness = graphite, not hard ink) with a dark-grey
-            // lead. Crisp, stable lines that hold still, no Sobel crawl.
-            fx("style.lineart", ["lineScale": s(0.5), "strength": s(1.0), "threshold": s(0.0), "sharpness": s(0.5), "temporal": s(0.6), "paper": s(1.0), "ink": .color(SIMD4(0.22, 0.21, 0.23, 1)), "paperTint": .color(SIMD4(0.95, 0.93, 0.87, 1))]),
-        ]),
+            // A graphite contour drawing on warm paper: the shared full-res line extractor in paper
+            // mode with a dark-grey lead and crisp lines (sharpness 1.0), stable via temporal hold.
+            fx("style.lineart", ["lineScale": s(0.5), "strength": s(1.0), "threshold": s(0.0), "sharpness": s(1.0), "temporal": s(0.4), "paper": s(1.0), "ink": .color(SIMD4(0.22, 0.21, 0.23, 1)), "paperTint": .color(SIMD4(0.95, 0.93, 0.87, 1))]),
+            // MAOE: a warm paper vignette per window.
+            fx("chrome.windowVignette", ["color": c4(0.2, 0.18, 0.13), "strength": s(0.35), "size": s(0.07)]),
+            // Draw-on-screen: drag to sketch graphite lines (width inverse to speed), right-click clears.
+            fx("interaction.pencilDraw"),
+            // A second warm washi-paper grain over the whole sketch (drift 0.35 = lightly animated tooth).
+            fx("style.paper", ["intensity": s(0.25), "scale": s(3.55), "drift": s(0.35), "tint": .color(SIMD4(0.96, 0.94, 0.88, 1))]),
+        ], world: WorldSpec(cursor: cursor(.sprite(.pencilTip)))),
 
         // MARK: Utility
 
@@ -265,7 +338,7 @@ enum BuiltInPresets {
             fx("color.shadows", ["amount": s(0.07)]),                 // lift black toward charcoal, de-glare dark UI
             fx("color.contrast", ["amount": s(-0.06)]),               // pull peak white off the glare ceiling
             fx("sharpen.unsharpMask", ["amount": s(0.45), "radius": s(2)]),  // radius is device px at renderScale 1.0
-        ]),
+        ], world: WorldSpec(cursor: cursor(.sprite(.typewriter)))),
 
         preset(25, "Night Light", icon: "moon.stars.fill", .utility, "Warm, blue-light-reduced screen for late-night use: a strong amber shift with a gently dimmed, softened white point.", ["night", "blue light", "warm", "evening", "night shift", "f.lux", "sleep"], [
             // Not a yellow overlay: shift the white point warm (which is what cuts blue),
@@ -274,7 +347,7 @@ enum BuiltInPresets {
             fx("color.tint", ["amount": s(-0.03)]),                   // trace green → neutral warm, not pink
             fx("color.brightness", ["amount": s(-0.05)]),             // ease luminance for low-light rooms
             fx("color.contrast", ["amount": s(-0.05)]),               // pull peak white off the glare ceiling
-        ]),
+        ], world: WorldSpec(cursor: cursor(.sprite(.nightWarm)))),
 
         preset(26, "Crisp Text", icon: "textformat", .utility, "Razor-sharp UI text: edge sharpening plus midtone clarity with no colour change, so small type and hairlines read cleanly.", ["crisp", "sharp", "text", "clarity", "legibility", "retina", "focus"], [
             // Pure acuity, no restyle: an unsharp mask crisps text edges. (Dropped sharpen.clarity:
@@ -286,10 +359,10 @@ enum BuiltInPresets {
 
     private static func preset(
         _ n: Int, _ name: String, icon: String? = nil, _ category: PresetCategory, _ summary: String,
-        _ tags: [String], _ effects: [EffectInstance]
+        _ tags: [String], _ effects: [EffectInstance], world: WorldSpec? = nil
     ) -> Preset {
-        Preset(id: uuid(n), name: name, category: category, icon: icon, summary: summary, author: "Spectra",
-               tags: tags, chain: chain(effects), isBuiltIn: true)
+        Preset(id: uuid(n), name: name, category: category.rawValue, icon: icon, summary: summary,
+               author: "Spectra", tags: tags, chain: chain(effects), isBuiltIn: true, world: world)
     }
 
     /// Stable, deterministic ids so recents survive launches.

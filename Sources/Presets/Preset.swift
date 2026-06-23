@@ -1,10 +1,10 @@
 import Foundation
 
-/// Curated grouping for the preset browser. Only the categories the shipped
-/// built-ins actually populate are kept; `.experimental` is retained as the
-/// tolerant-decode landing spot, and `.user` is the operational home for chains
-/// the user saves. `PresetLibrary` only surfaces categories with presets present.
-enum PresetCategory: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+/// The fixed, built-in preset categories. `Preset.category` is a free-form `String`
+/// (so users can add/rename/delete their own categories at runtime); this enum is the
+/// catalog of the shipped built-ins — their canonical order, icons, and the default
+/// "My Presets" bucket. Built-in names can't be renamed or deleted; custom ones can.
+enum PresetCategory: String, CaseIterable, Hashable, Identifiable, Sendable {
     case cinematic = "Cinematic"
     case retro = "Retro"
     case artistic = "Artistic"
@@ -26,11 +26,21 @@ enum PresetCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
         }
     }
 
-    /// Tolerant decode: presets authored against a removed category (e.g. an old
-    /// "Horror", "Gaming", or "Sci-Fi") still load, landing in Experimental.
-    init(from decoder: Decoder) throws {
-        let raw = try decoder.singleValueContainer().decode(String.self)
-        self = PresetCategory(rawValue: raw) ?? .experimental
+    /// Built-in category names in canonical order — the fixed spine the dynamic
+    /// category list is built around.
+    static var builtInNames: [String] { allCases.map(\.rawValue) }
+
+    /// The default bucket user-saved presets land in (and where presets orphaned by a
+    /// deleted custom category go).
+    static var userName: String { user.rawValue }
+
+    /// Whether a category name is a fixed built-in (built-ins can't be renamed/deleted).
+    static func isBuiltIn(_ name: String) -> Bool { PresetCategory(rawValue: name) != nil }
+
+    /// SF Symbol for any category name: the built-in's own icon, or a generic folder for
+    /// a user-created custom category.
+    static func icon(for name: String) -> String {
+        PresetCategory(rawValue: name)?.iconSystemName ?? "folder"
     }
 }
 
@@ -38,7 +48,10 @@ enum PresetCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
 struct Preset: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
     var name: String
-    var category: PresetCategory
+    /// Free-form category name (a built-in like "Cinematic"/"My Presets" or a user-created
+    /// one). A plain `String` so users can add their own categories. Wire-compatible with
+    /// the old `PresetCategory` enum, whose raw value was this same display string.
+    var category: String
     var icon: String?
     var summary: String
     var author: String
@@ -46,18 +59,23 @@ struct Preset: Identifiable, Codable, Hashable, Sendable {
     var chain: EffectChain
     var isBuiltIn: Bool
     var createdAt: Date
+    /// The world behaviour bundle (cursor, system-UI, motion — MAOE §5.3). Optional, so all
+    /// existing built-in and user-preset JSON decodes unchanged (absent key → nil). Does not
+    /// affect preset identity: `matchesPreset` compares chain contents only, never metadata.
+    var world: WorldSpec?
 
     init(
         id: UUID = UUID(),
         name: String,
-        category: PresetCategory,
+        category: String,
         icon: String? = nil,
         summary: String = "",
         author: String = "Spectra",
         tags: [String] = [],
         chain: EffectChain,
         isBuiltIn: Bool = false,
-        createdAt: Date = Date(timeIntervalSinceReferenceDate: 0)
+        createdAt: Date = Date(timeIntervalSinceReferenceDate: 0),
+        world: WorldSpec? = nil
     ) {
         self.id = id
         self.name = name
@@ -69,8 +87,9 @@ struct Preset: Identifiable, Codable, Hashable, Sendable {
         self.chain = chain
         self.isBuiltIn = isBuiltIn
         self.createdAt = createdAt
+        self.world = world
     }
 
     /// The preset's own SF Symbol; falls back to the category icon when unset.
-    var displayIcon: String { icon ?? category.iconSystemName }
+    var displayIcon: String { icon ?? PresetCategory.icon(for: category) }
 }

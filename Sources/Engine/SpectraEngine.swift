@@ -241,6 +241,10 @@ final class SpectraEngine {
         renderEngine = RenderEngine(context: context)
         displayManager = DisplayManager()
         settings = SettingsStore()
+        // The menu-bar Glass switch is a master gate the user opens deliberately; it must
+        // never silently re-apply window effects on boot. Force it off every launch (the
+        // per-element sub-switch choices persist and reactivate only when it's reopened).
+        settings.glassEnabled = false
         presets = PresetLibrary()
         performance = PerformanceMonitor()
         compiler = ShaderCompiler(context: context)
@@ -1299,8 +1303,11 @@ final class SpectraEngine {
     /// The menu-bar Glass toggle: window transparency + the adaptive tint, applied directly
     /// (no preset, and no need to Start the main effects pipeline).
     func setGlassEnabled(_ on: Bool) {
-        // Glass (window transparency + desktop tint) is a paid feature.
-        if on && !license.isLicensed { license.promptGate(); return }
+        // The master gate itself is free to open: it activates nothing on its own. The one
+        // paid element (Window Transparency) is gated at its own sub-switch
+        // (`setGlassTransparency`), and tiling / tint are free. Turning the gate off
+        // suppresses every Glass effect (reconcile tears them down) but leaves the
+        // sub-switch choices stored, so re-enabling restores exactly what was on.
         settings.glassEnabled = on
         // Arm the SIP check on enable; disarm (and dismiss any open guide) on disable.
         pendingGlassSIPCheck = on
@@ -1355,17 +1362,6 @@ final class SpectraEngine {
         reconcileSystemEffects()
     }
 
-    /// Menu-bar / Dock treatment (index into `MenuBarStyle` / `DockStyle`; 0 = None = off).
-    func setGlassMenuBarStyle(index: Int) {
-        settings.glassMenuBarStyleIndex = index
-        reconcileSystemEffects()
-    }
-
-    func setGlassDockStyle(index: Int) {
-        settings.glassDockStyleIndex = index
-        reconcileSystemEffects()
-    }
-
     /// The desired aggregate system-effect state. Two sources, deduplicated (first wins):
     /// per-effect rows in a display's stack (only while the main pipeline is enabled), and
     /// the standalone menu-bar Glass toggle (transparency + tint, independent of the master
@@ -1401,21 +1397,14 @@ final class SpectraEngine {
             // `.dockStyle` controllerKind rows above still drive the overlays for a manual stack
             // edit (the exposed-chrome case), so they remain wired.
         }
+        // The menu-bar Glass switch is a master gate: only when it's on do the Studio
+        // Glass tab's per-element sub-switches take effect. Their on/off choices persist
+        // across re-enabling and quits; the gate just suppresses them while it's off.
+        // (`glassEnabled` is forced off at launch, so glass starts off every boot.)
         if settings.glassEnabled {
-            if state.transparency == nil { state.transparency = .glass }
-            if state.tint == nil { state.tint = .glass }
-        }
-        // Per-element Glass tab toggles: a third source, independent of the master switch
-        // and the stack, layered after stack rows + the menu-bar quick toggle (first-wins
-        // per field). A style index of 0 means None = off.
-        if settings.glassTransparency, state.transparency == nil { state.transparency = .glass }
-        if settings.glassTiling, state.layout == nil { state.layout = .glass }
-        if settings.glassTint, state.tint == nil { state.tint = .glass }
-        if settings.glassMenuBarStyleIndex > 0, state.menuBarStyle == nil {
-            state.menuBarStyle = MenuBarStyle(rawIndex: settings.glassMenuBarStyleIndex)
-        }
-        if settings.glassDockStyleIndex > 0, state.dockStyle == nil {
-            state.dockStyle = DockStyle(rawIndex: settings.glassDockStyleIndex)
+            if settings.glassTransparency, state.transparency == nil { state.transparency = .glass }
+            if settings.glassTiling, state.layout == nil { state.layout = .glass }
+            if settings.glassTint, state.tint == nil { state.tint = .glass }
         }
         return state
     }

@@ -51,6 +51,11 @@ final class SpaceManager {
     /// Our created elevated Space (made once, reused for every overlay window).
     private var elevatedSpaceID: UInt64?
 
+    /// Whether a real elevated Space has been created (the SkyLight SPIs resolved and a Space was
+    /// made). When false, elevation is a no-op and callers must keep using the AppKit carry to
+    /// follow Spaces rather than the cheap show-state re-assert.
+    var isElevationActive: Bool { elevatedSpaceID != nil }
+
     init() {
         let rtld = UnsafeMutableRawPointer(bitPattern: -2)   // RTLD_DEFAULT
         func resolve(_ names: [String]) -> UnsafeMutableRawPointer? {
@@ -109,6 +114,17 @@ final class SpaceManager {
         let userSid = currentSpace(cid, uuid)
         guard userSid != 0 else { return }
         addWindows(cid, userSid, [windowNumber] as CFArray, Self.addAndRemoveSelector)
+    }
+
+    /// Re-assert that our elevated Space is shown, WITHOUT re-ordering the overlay window or
+    /// re-adding it to the Space. A cheap SkyLight show-state refresh for an ordinary Space switch
+    /// where the overlay is already a member of the elevated Space: it guards against the show-state
+    /// being reset by the transition (the same case `placeWindowAboveFullscreen` re-shows for) while
+    /// avoiding the `orderFrontRegardless` + add-and-remove that kill the render clock and perturb
+    /// the capture stream. No-ops until the elevated Space exists (i.e. after the first real placement).
+    func reassertElevatedSpaceShown() {
+        guard let mainConnection, let showSpaces, let sid = elevatedSpaceID else { return }
+        showSpaces(mainConnection(), [sid] as CFArray)
     }
 
     private func ensureElevatedSpace() -> UInt64? {

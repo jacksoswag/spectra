@@ -22,44 +22,6 @@ final class ThumbnailRenderer {
         self.chainRenderer = EffectChainRenderer(context: context, shaders: shaders, pool: pool)
     }
 
-    /// Render the chain and return a base64-encoded PNG, or nil on failure.
-    ///
-    /// - Important: This overload blocks the calling thread on GPU completion via
-    ///   `waitUntilCompleted`. Call `renderBase64PNGAsync` instead to avoid stalling
-    ///   the main thread — this method is retained only for call sites that have not
-    ///   yet been migrated (see crossFileNeeds in the task record).
-    func renderBase64PNG(chain: [ResolvedEffect]) -> String? {
-        guard let input = makeSampleTexture(),
-              let readback = makeReadbackTexture(),
-              let commandBuffer = context.commandQueue.makeCommandBuffer() else { return nil }
-
-        let frame = FrameContext(time: 1.2, frameIndex: 72)   // mid-animation, stable
-        let result = chainRenderer.encode(into: commandBuffer, input: input, chain: chain, frame: frame)
-
-        guard let pipeline = try? shaders.pipeline(
-            fragment: "passthrough_fragment", pixelFormat: readback.pixelFormat) else { return nil }
-        let descriptor = MTLRenderPassDescriptor()
-        descriptor.colorAttachments[0].texture = readback
-        descriptor.colorAttachments[0].loadAction = .clear
-        descriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        descriptor.colorAttachments[0].storeAction = .store
-        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else { return nil }
-        encoder.setRenderPipelineState(pipeline)
-        encoder.setFragmentTexture(result.outputTexture, index: 0)
-        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-        encoder.endEncoding()
-
-        if let blit = commandBuffer.makeBlitCommandEncoder() {
-            blit.synchronize(resource: readback)
-            blit.endEncoding()
-        }
-        commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
-        pool.release(result.transientTextures)
-
-        return encodePNG(from: readback)
-    }
-
     /// Async variant: encodes the render pass on the main actor, then suspends
     /// while the GPU runs (via Metal's completion handler — no thread is blocked),
     /// and resumes on the main actor to read back and encode the PNG.

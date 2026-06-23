@@ -82,27 +82,16 @@ final class YabaiBridge: @unchecked Sendable {
         }
     }
 
-    /// Hand windows back fully opaque.
+    /// Hand windows back fully opaque on the transparency on->off transition. Forces
+    /// opacity off rather than replaying the pre-Spectra snapshot: that snapshot can be
+    /// a stale value left by the retired Glass.app agent (window_opacity on at ~0.9),
+    /// which would otherwise leave windows transparent after the toggle is turned off.
     func restoreTransparency() {
         queue.async {
             guard self.binaryPath != nil else { return }
-            self.restoreOpacity()
+            self.clearOpacity()
             self.pendingRestores.remove("transparency")
             self.clearSnapshotIfFullyRestored()
-        }
-    }
-
-    /// Put window opacity/blur back the way the user had them before Spectra changed them,
-    /// from the captured `snapshot`, on a clean exit. With no snapshot, clear opacity so a
-    /// dead Spectra can't leave windows stuck dimmed.
-    private func restoreOpacity() {
-        guard let snap = snapshot else { clearOpacity(); return }
-        setConfig("window_opacity", snap.windowOpacityEnabled ? "on" : "off")
-        setConfig("active_window_opacity", String(format: "%.4f", snap.activeOpacity))
-        setConfig("normal_window_opacity", String(format: "%.4f", snap.normalOpacity))
-        setConfig("window_blur", snap.blurEnabled ? "on" : "off")
-        if snap.blurEnabled {
-            setConfig("window_blur_radius", String(snap.blurRadius))
         }
     }
 
@@ -134,12 +123,16 @@ final class YabaiBridge: @unchecked Sendable {
         }
     }
 
-    /// Restore the Space layout and gap/padding to the snapshot (or float if none).
+    /// Stop tiling on the Space when Window Tiling is toggled off. Forces `float` rather
+    /// than replaying `snap.spaceLayout`: that snapshot can itself be `bsp` (the user's
+    /// yabai default, or a value captured while tiling was already on), which would leave
+    /// windows still snapping after the toggle is off. Gap/padding are put back from the
+    /// snapshot for cleanliness; they're inert in float.
     func restoreLayout() {
         queue.async {
             guard self.binaryPath != nil else { return }
             let snap = self.snapshot
-            self.run(["-m", "space", "--layout", Self.validLayout(snap?.spaceLayout ?? "float")])
+            self.run(["-m", "space", "--layout", "float"])
             if let gap = snap?.windowGap { self.setConfig("window_gap", String(gap)) }
             if let snap {
                 self.setConfig("top_padding", String(snap.topPadding))
@@ -152,13 +145,15 @@ final class YabaiBridge: @unchecked Sendable {
         }
     }
 
-    /// Synchronously restore opacity/blur and the Space layout from the snapshot, for
-    /// quit time when an async restore might not run before the process exits. A no-op
-    /// when nothing was changed (no snapshot taken).
+    /// Synchronously force opacity/blur off and restore the Space layout from the
+    /// snapshot, for quit time when an async restore might not run before the process
+    /// exits. Opacity is forced off (not replayed from the snapshot) so a stale value
+    /// left by the retired Glass.app agent can't leave windows transparent after quit.
+    /// A no-op when nothing was changed (no snapshot taken).
     func shutdownRestore() {
         queue.sync {
             guard binaryPath != nil, let snap = snapshot else { return }
-            restoreOpacity()
+            clearOpacity()
             run(["-m", "space", "--layout", Self.validLayout(snap.spaceLayout)])
             setConfig("window_gap", String(snap.windowGap))
             setConfig("top_padding", String(snap.topPadding))
