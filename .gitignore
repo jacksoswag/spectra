@@ -37,11 +37,13 @@ target/
 .next/
 
 # ---- Unity (defensive; not used here but per policy) ----
-Library/
-Temp/
-Obj/
-Logs/
-UserSettings/
+# Anchored to the repo root: unanchored, `Library/` also matched Sources/UI/Library/,
+# silently excluding LibraryView.swift from git and breaking clean-checkout builds.
+/Library/
+/Temp/
+/Obj/
+/Logs/
+/UserSettings/
 
 # ---- Compiled binaries / Mach-O artifacts ----
 # Top-level scratch executables (rebuildable)
