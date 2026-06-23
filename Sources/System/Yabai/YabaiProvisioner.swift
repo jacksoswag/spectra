@@ -118,6 +118,14 @@ final class YabaiProvisioner: @unchecked Sendable {
     private func installScriptingAddition(yabai: String) -> Bool {
         guard let hash = sha256(of: yabai) else { return false }
         let user = NSUserName()
+        // The username is interpolated into a root shell line below; a stray quote or
+        // shell metacharacter would inject commands as root. Require the whole name to be
+        // safe characters (whole-range match, so a trailing newline can't slip past `$`).
+        guard user.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression)
+                == user.startIndex..<user.endIndex else {
+            Log.app.error("Refusing to provision yabai: username contains unexpected characters.")
+            return false
+        }
         // One root shell line: write + lock + validate + re-hash guard + load. No inner double
         // quotes, so AppleScript escaping reduces to the printf newline.
         let shell = "HASH=$(/usr/bin/shasum -a 256 \(yabai)|/usr/bin/cut -d' ' -f1); "

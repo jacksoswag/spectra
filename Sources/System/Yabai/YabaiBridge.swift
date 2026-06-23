@@ -86,15 +86,30 @@ final class YabaiBridge: @unchecked Sendable {
     func restoreTransparency() {
         queue.async {
             guard self.binaryPath != nil else { return }
-            self.restoreOpaque()
+            self.restoreOpacity()
             self.pendingRestores.remove("transparency")
             self.clearSnapshotIfFullyRestored()
         }
     }
 
-    /// Turn window opacity off and reset both values to 1.0. Always restores to fully opaque
-    /// rather than a captured value, so a prior unclean exit can't leave windows stuck dimmed.
-    private func restoreOpaque() {
+    /// Put window opacity/blur back the way the user had them before Spectra changed them,
+    /// from the captured `snapshot`, on a clean exit. With no snapshot, clear opacity so a
+    /// dead Spectra can't leave windows stuck dimmed.
+    private func restoreOpacity() {
+        guard let snap = snapshot else { clearOpacity(); return }
+        setConfig("window_opacity", snap.windowOpacityEnabled ? "on" : "off")
+        setConfig("active_window_opacity", String(format: "%.4f", snap.activeOpacity))
+        setConfig("normal_window_opacity", String(format: "%.4f", snap.normalOpacity))
+        setConfig("window_blur", snap.blurEnabled ? "on" : "off")
+        if snap.blurEnabled {
+            setConfig("window_blur_radius", String(snap.blurRadius))
+        }
+    }
+
+    /// Force window opacity/blur fully off: the safe default that never strands windows
+    /// dimmed. Used for crash recovery (where reapplying a possibly-stale snapshot would be
+    /// risky) and as the no-snapshot fallback for the startup stale-opacity sweep.
+    private func clearOpacity() {
         setConfig("window_opacity", "off")
         setConfig("active_window_opacity", "1.0000")
         setConfig("normal_window_opacity", "1.0000")
@@ -143,7 +158,7 @@ final class YabaiBridge: @unchecked Sendable {
     func shutdownRestore() {
         queue.sync {
             guard binaryPath != nil, let snap = snapshot else { return }
-            restoreOpaque()
+            restoreOpacity()
             run(["-m", "space", "--layout", snap.spaceLayout])
             setConfig("window_gap", String(snap.windowGap))
             setConfig("top_padding", String(snap.topPadding))
@@ -166,7 +181,7 @@ final class YabaiBridge: @unchecked Sendable {
                   let snap = JSONStore.load(Snapshot.self, from: Self.snapshotFile) else { return }
             self.snapshot = snap
             guard self.availabilityNow().isReady else { return }   // can't restore now; keep the file for next launch
-            self.restoreOpaque()
+            self.clearOpacity()
             self.run(["-m", "space", "--layout", snap.spaceLayout])
             self.snapshot = nil
             try? FileManager.default.removeItem(at: Self.snapshotFile)
@@ -220,10 +235,11 @@ final class YabaiBridge: @unchecked Sendable {
     }
 
     private func querySpaceLayout() -> String? {
+        struct SpaceInfo: Decodable { let type: String }
         let r = run(["-m", "query", "--spaces", "--space"])
         guard r.status == 0, let data = r.out.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return obj["type"] as? String
+              let info = try? JSONDecoder().decode(SpaceInfo.self, from: data) else { return nil }
+        return info.type
     }
 
     @discardableResult

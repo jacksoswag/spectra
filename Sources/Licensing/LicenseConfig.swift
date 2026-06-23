@@ -22,9 +22,14 @@ enum LicenseConfig {
     /// TODO: set to the Lemon Squeezy product checkout URL once the store exists.
     static let purchaseURL = URL(string: "https://spectra.app/buy")!
 
-    /// Which backend validates keys. `.stub` accepts well-formed test keys offline;
-    /// switch to `.lemonSqueezy` when real keys exist (no other code changes needed).
+    /// Which backend validates keys. Debug builds use `.stub`, which accepts well-formed
+    /// test keys offline so the activation flow can be exercised without a store. Release
+    /// builds always resolve `.lemonSqueezy` so a stub can never ship and bypass licensing.
+    #if DEBUG
     static let backend: LicenseBackendKind = .stub
+    #else
+    static let backend: LicenseBackendKind = .lemonSqueezy
+    #endif
 }
 
 enum LicenseBackendKind {

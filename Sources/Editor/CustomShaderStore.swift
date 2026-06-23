@@ -53,7 +53,7 @@ final class CustomShaderStore {
     // MARK: - Persistence
 
     private func fileURL(for id: String) -> URL {
-        AppPaths.shadersDirectory.appendingPathComponent("\(id).json")
+        AppPaths.shadersDirectory.appendingPathComponent("\(AppPaths.safeComponent(id)).json")
     }
 
     private func persist(_ shader: CustomShader) {
