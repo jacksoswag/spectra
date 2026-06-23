@@ -20,8 +20,11 @@ enum RetroEffects {
             .slider("mask", "Mask", 0...1, default: 0.4),
             .slider("curvature", "Curvature", 0...0.5, default: 0.12),
             .slider("brightness", "Brightness", 0.5...2, default: 1.25),
+            .slider("linePressWarp", "Press Line Warp", 0...0.3, default: 0,
+                    group: "Interaction", help: "Bend the scanlines toward the cursor while a button is held (MAOE §7.2)."),
+            .slider("warpRadius", "Warp Radius", 0.05...0.5, default: 0.18, group: "Interaction"),
         ],
-        tags: ["crt", "tube", "scanline"])
+        tags: ["crt", "tube", "scanline"], consumesPointer: true)
 
     static let crtAdvanced = EffectDescriptor(
         id: "retro.crtAdvanced", name: "CRT Advanced", category: .retro,
@@ -33,8 +36,11 @@ enum RetroEffects {
             .slider("curvature", "Curvature", 0...0.5, default: 0.14),
             .slider("bloom", "Bloom", 0...1, default: 0.4),
             .slider("vignette", "Vignette", 0...1, default: 0.5),
+            .slider("linePressWarp", "Press Line Warp", 0...0.3, default: 0,
+                    group: "Interaction", help: "Bend the scanlines toward the cursor while a button is held (MAOE §7.2)."),
+            .slider("warpRadius", "Warp Radius", 0.05...0.5, default: 0.18, group: "Interaction"),
         ],
-        tags: ["crt", "tube", "bloom", "vignette"])
+        tags: ["crt", "tube", "bloom", "vignette"], consumesPointer: true)
 
     static let scanlines = EffectDescriptor(
         id: "retro.scanlines", name: "Scanlines", category: .retro,
@@ -43,8 +49,11 @@ enum RetroEffects {
         parameters: [
             .slider("count", "Count", 80...1080, default: 480, step: 1),
             .slider("strength", "Strength", 0...1, default: 0.5),
+            .slider("linePressWarp", "Press Line Warp", 0...0.3, default: 0,
+                    group: "Interaction", help: "Bend the scanlines toward the cursor while a button is held (MAOE §7.2)."),
+            .slider("warpRadius", "Warp Radius", 0.05...0.5, default: 0.18, group: "Interaction"),
         ],
-        tags: ["scanline", "lines"])
+        tags: ["scanline", "lines"], consumesPointer: true)
 
     static let shadowMask = EffectDescriptor(
         id: "retro.shadowMask", name: "Shadow Mask", category: .retro,
@@ -169,7 +178,10 @@ enum RetroEffects {
             .slider("bleed", "Bleed", 0...1, default: 0.4),
             .slider("vignette", "Vignette", 0...1, default: 0.45),
             .slider("noise", "Noise", 0...1, default: 0.25),
+            .slider("linePressWarp", "Press Line Warp", 0...0.3, default: 0,
+                    group: "Interaction", help: "Bend the scanlines toward the cursor while a button is held (MAOE §7.2)."),
+            .slider("warpRadius", "Warp Radius", 0.05...0.5, default: 0.18, group: "Interaction"),
         ],
         tags: ["analog", "television", "vintage"],
-        isAnimated: true)
+        isAnimated: true, consumesPointer: true)
 }

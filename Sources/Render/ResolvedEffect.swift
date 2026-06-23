@@ -105,6 +105,11 @@ struct ResolvedEffect {
             uniforms.setParams(at: slot, value.floats)
             slot += value.componentCount
         }
+        // The interaction/injection block begins at param slot `pointerSlotBase`. An effect whose
+        // own params reach into it would silently clobber injected pointer/event state (and read
+        // garbage). Trip in debug so a too-wide descriptor is caught at first run, not in the field.
+        assert(slot <= EffectChainRenderer.pointerSlotBase,
+               "Effect \(descriptor.id) declares \(slot) param floats; max is \(EffectChainRenderer.pointerSlotBase) before the interaction block at slot \(EffectChainRenderer.pointerSlotBase).")
     }
 
     /// Apply this instance's universal parameters to the uniform header.
@@ -149,4 +154,20 @@ enum ColorFusion {
     /// Neutral instance for the synthetic effect (its buffer-0 uniforms are unused
     /// by the interpreter, which reads per-op universals from the op buffer).
     static let instance = EffectInstance(descriptorID: "internal.colorFused")
+
+    #if DEBUG
+    /// Number of opcodes the Metal `spectra_colorproc` switch handles (its highest `case N:`
+    /// plus one, in Color.metal). MUST stay in lock-step with that switch and with `opcodes`.
+    static let metalOpcodeCount = 23
+
+    /// Startup self-check (debug only): the Swift `opcodes` table and the Metal switch must not
+    /// drift. Asserts the opcode values are contiguous `0..<count` and that count matches the
+    /// Metal switch, so adding an op on one side without the other trips at first run.
+    static func assertOpcodesMatchMetal() {
+        assert(opcodes.count == metalOpcodeCount,
+               "ColorFusion.opcodes has \(opcodes.count) entries but spectra_colorproc handles \(metalOpcodeCount); keep them in lock-step.")
+        assert(Set(opcodes.values) == Set(0..<opcodes.count),
+               "ColorFusion.opcodes values must be contiguous 0..<\(opcodes.count) with no gaps or duplicates.")
+    }
+    #endif
 }

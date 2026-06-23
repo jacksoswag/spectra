@@ -10,6 +10,29 @@ enum EffectControllerKind: String, Codable, Hashable, Sendable {
     case windowTransparency
     case windowLayout
     case adaptiveTint
+    case menuBarStyle
+    case dockStyle
+    /// Sets the active cursor (a custom sprite or a restyle) while its stack row is enabled.
+    /// Carries no GPU pass; `SpectraEngine.resolveCursorSpec` maps the row's id to a `CursorSpec`.
+    case cursorStyle
+}
+
+/// What drives an effect's render (MAOE §10). `continuous` effects animate every frame;
+/// the rest fire only off a discrete event and self-decay, so the renderer can skip them
+/// entirely while the §5.2 decay gate is idle (no recent event), reclaiming the cost of a
+/// no-op event pass inside an otherwise-animated world. `nil` ≡ a plain static/graded effect
+/// that renders only on change.
+enum EffectTriggerKind: String, Codable, Hashable, Sendable {
+    case continuous
+    case onClick
+    case onScroll
+    case onSpaceSwitch
+    case onPress
+    case onMove
+    case onLifecycle
+
+    /// True for the discrete-event kinds the renderer may skip while the decay gate is idle.
+    var isEventDriven: Bool { self != .continuous }
 }
 
 /// A single GPU pass within an effect.
@@ -39,15 +62,45 @@ struct EffectPass: Hashable, Sendable {
     /// instead of recycling it. Lets a late pass reuse an intermediate result (e.g. the oil
     /// combine reusing the smoothed structure tensor) rather than recomputing it.
     var tapPass: Int?
+    /// When true the renderer binds the live window-geometry buffer (`WindowGeometry`, MAOE
+    /// §5.1) at fragment/compute buffer index 2 for this pass, and the engine engages the
+    /// `WindowGeometryProvider`. Default false, so ordinary effects pay nothing and never see
+    /// the binding. Chrome and window-aware generative effects set this.
+    var requiresWindowRects: Bool
+    /// When true the renderer injects the live interactive pointer block (slots 16–45: click,
+    /// press, release, trail) into this pass. Replaces the old fragment-name allowlist, so a
+    /// Metal rename can't silently disconnect the injection. Set on §7.1 pointer effects and the
+    /// §7.2 press-hold CRT/VHS line-warp passes.
+    var consumesPointer: Bool
+    /// When true the renderer injects the discrete-event block (slots 46–62: scroll / space /
+    /// press / move / lifecycle). Set on the §7 event-driven interaction effects.
+    var consumesEvent: Bool
+    /// When true the renderer injects the ambient global block (slots 64+: audio + keyboard, §15.1).
+    var consumesAmbient: Bool
+    /// When true the renderer injects the menu-bar height (display UV) into free param slot 7, so
+    /// the Noir ornate border can clear the menu-bar strip. Replaces a fragment-name string match.
+    var injectsMenuBarHeight: Bool
+    /// When true the renderer injects the live REC-OSD system values (battery into slot 11, and
+    /// today's date into slots 5/6/7 when the pass's live-mode param is on). Replaces a string match.
+    var injectsRecOSD: Bool
 
     init(_ fragmentFunction: String, scale: Float = 1.0, direction: SIMD2<Float> = .zero,
-         isCompute: Bool = false, scaleParam: Int? = nil, tapPass: Int? = nil) {
+         isCompute: Bool = false, scaleParam: Int? = nil, tapPass: Int? = nil,
+         requiresWindowRects: Bool = false, consumesPointer: Bool = false,
+         consumesEvent: Bool = false, consumesAmbient: Bool = false,
+         injectsMenuBarHeight: Bool = false, injectsRecOSD: Bool = false) {
         self.fragmentFunction = fragmentFunction
         self.scale = scale
         self.direction = direction
         self.isCompute = isCompute
         self.scaleParam = scaleParam
         self.tapPass = tapPass
+        self.requiresWindowRects = requiresWindowRects
+        self.consumesPointer = consumesPointer
+        self.consumesEvent = consumesEvent
+        self.consumesAmbient = consumesAmbient
+        self.injectsMenuBarHeight = injectsMenuBarHeight
+        self.injectsRecOSD = injectsRecOSD
     }
 }
 
@@ -80,6 +133,9 @@ struct EffectDescriptor: Identifiable, Hashable, Sendable {
     /// enabled, and carries no GPU `passes`. The resolver excludes it from the render
     /// chain; the engine reconciles it through `SystemEffectsController`.
     let controllerKind: EffectControllerKind?
+    /// What drives this effect's render (MAOE §10). Event-driven kinds let the renderer skip
+    /// the pass while the decay gate is idle. `nil` for plain static/graded effects.
+    let triggerKind: EffectTriggerKind?
 
     init(
         id: String,
@@ -94,7 +150,8 @@ struct EffectDescriptor: Identifiable, Hashable, Sendable {
         isAnimated: Bool = false,
         needsHistory: Bool = false,
         animatedParam: String? = nil,
-        controllerKind: EffectControllerKind? = nil
+        controllerKind: EffectControllerKind? = nil,
+        triggerKind: EffectTriggerKind? = nil
     ) {
         self.id = id
         self.name = name
@@ -109,6 +166,7 @@ struct EffectDescriptor: Identifiable, Hashable, Sendable {
         self.needsHistory = needsHistory
         self.animatedParam = animatedParam
         self.controllerKind = controllerKind
+        self.triggerKind = triggerKind
     }
 
     /// Whether this descriptor is a system effect (drives a controller, not a GPU pass).
@@ -127,30 +185,23 @@ struct EffectDescriptor: Identifiable, Hashable, Sendable {
         isCustom: Bool = false,
         isAnimated: Bool = false,
         needsHistory: Bool = false,
-        animatedParam: String? = nil
+        animatedParam: String? = nil,
+        triggerKind: EffectTriggerKind? = nil,
+        consumesPointer: Bool = false,
+        consumesEvent: Bool = false,
+        consumesAmbient: Bool = false,
+        injectsMenuBarHeight: Bool = false,
+        injectsRecOSD: Bool = false
     ) {
         self.init(
             id: id, name: name, category: category, subtitle: subtitle, icon: icon,
-            parameters: parameters, passes: [EffectPass(function)],
+            parameters: parameters,
+            passes: [EffectPass(function, consumesPointer: consumesPointer, consumesEvent: consumesEvent,
+                                consumesAmbient: consumesAmbient, injectsMenuBarHeight: injectsMenuBarHeight,
+                                injectsRecOSD: injectsRecOSD)],
             tags: tags, isCustom: isCustom, isAnimated: isAnimated, needsHistory: needsHistory,
-            animatedParam: animatedParam
+            animatedParam: animatedParam, triggerKind: triggerKind
         )
-    }
-
-    /// Base index into the GPU `params[]` array for a given parameter, derived
-    /// from declaration order and each parameter's component count.
-    func slot(for parameterID: String) -> Int {
-        var offset = 0
-        for parameter in parameters {
-            if parameter.id == parameterID { return offset }
-            offset += parameter.componentCount
-        }
-        return offset
-    }
-
-    /// Total number of GPU float slots consumed by this effect's parameters.
-    var totalSlots: Int {
-        parameters.reduce(0) { $0 + $1.componentCount }
     }
 
     /// Default value map for a fresh instance.

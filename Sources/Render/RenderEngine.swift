@@ -19,6 +19,22 @@ final class RenderEngine {
     let pointerSampler: PointerInputSampler
     /// Displays whose current chain contains a pointer effect; the sampler runs iff non-empty.
     private var pointerDisplayIDs: Set<CGDirectDisplayID> = []
+    /// Shared across every display: publishes per-display window rectangles (CGWindowList →
+    /// display-local UV) for window-aware effects. Engaged only while a rect-consuming effect
+    /// (chrome §12, generative §15.2) is in a live chain, so plain presets cost nothing.
+    let windowGeometry = WindowGeometryProvider()
+    /// Displays whose current chain consumes window rects; the provider runs iff non-empty.
+    private var geometryDisplayIDs: Set<CGDirectDisplayID> = []
+    /// Shared Space-switch clock (MAOE §5.2): stamped once a switch settles, read by every
+    /// renderer on the link thread to derive `spaceAge` for the space-transition effects.
+    let spaceClock = SpaceClock()
+    /// Shared audio reactor (MAOE §15.1): publishes a level + bands for the audio-reactive
+    /// effects. Engaged by the engine when the global toggle is on and a world opts in.
+    let audioReactor = AudioReactor()
+    /// Longest single decay window any one event arms (the space transition), so a burst always
+    /// plays fully before the clock idles.
+    private static let eventDecaySeconds = 1.3
+    private static let spaceDecaySeconds = 1.6
 
     private var renderers: [CGDirectDisplayID: DisplayRenderer] = [:]
     private var overlays: [CGDirectDisplayID: OverlayWindow] = [:]
@@ -74,8 +90,13 @@ final class RenderEngine {
     /// their Space. So the flag is stripped while a transition is in flight and restored
     /// once it settles (`activeSpaceDidChange` / `followActiveSpace`).
     var controlWindowsProvider: () -> [NSWindow] = { [] }
-    /// Called once a Space transition has settled, so the engine can re-issue the capture
-    /// filter and wake ScreenCaptureKit (a hidden overlay can't self-dirty the new Space).
+    /// Called the INSTANT a Space change lands (top of `activeSpaceDidChange`, before the carry
+    /// debounce), so the engine can wake ScreenCaptureKit and arm the fast stall check immediately —
+    /// the frozen frame then clears as fast as the stream can deliver, with the overlay staying
+    /// opaque throughout (it never exposes the raw desktop).
+    var onActiveSpaceLanded: () -> Void = {}
+    /// Called once a Space transition has settled (after the carry), so the engine can re-issue the
+    /// capture filter again — the full-carry path reorders the window, which can re-stall the stream.
     var onActiveSpaceSettled: () -> Void = {}
 
     init(context: MetalContext) {
@@ -83,6 +104,32 @@ final class RenderEngine {
         self.shaders = ShaderLibrary(context: context)
         self.cursorSampler = CursorSampler(device: context.device)
         self.pointerSampler = PointerInputSampler()
+        // A discrete pointer event (any-button down, scroll) or a held button arms the §5.2
+        // decay clock on every renderer and boosts the geometry provider, so the burst renders
+        // then idles. Fires on the main thread (the sampler's monitors/timer), so hop safely.
+        pointerSampler.onEvent = { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.armDecayAll(Self.eventDecaySeconds)
+                self.windowGeometry.boost()
+            }
+        }
+        // Route window-lifecycle transitions (§5.4) to the affected display's renderer, which
+        // fires the close/minimize/open burst at the window's last rect. The provider emits on
+        // its background queue; hop to main to read `renderers`, and boost the provider so the
+        // alpha-ramp + burst sample smoothly.
+        windowGeometry.onLifecycleEvent = { [weak self] event in
+            let kind: Float
+            switch event.kind { case .opened: kind = 1; case .closed: kind = 2; case .minimized: kind = 3 }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.windowGeometry.boost()
+                    self.renderers[event.displayID]?.emitLifecycleEvent(
+                        kind: kind, rectUV: event.rectUV, dockDir: event.dockDirection)
+                }
+            }
+        }
         // Follow the user across Spaces. When the active Space changes, pull the
         // visible overlays onto it (each is a single-Space window, so ordering it
         // front moves it to the now-active Space) — this gives "shader on every
@@ -117,6 +164,9 @@ final class RenderEngine {
         spaceCarryGeneration += 1
         let generation = spaceCarryGeneration
         Log.render.debug("activeSpaceDidChange gen=\(generation, privacy: .public) visible=\(self.visibleDisplayIDs.count, privacy: .public)")
+        // Kick capture recovery immediately on landing (before the carry debounce below), so a
+        // frozen frame from a silently-stalled stream clears as fast as the stream can deliver.
+        onActiveSpaceLanded()
         // Make the overlay TRANSPARENT (not hidden) for the duration of the swipe, and
         // reveal it again once the swipe settles (`ensureOverlaysOnActiveSpace`). During a
         // swipe the opaque overlay slides out with the outgoing Space while it keeps
@@ -156,8 +206,18 @@ final class RenderEngine {
     /// on one Space"); `carryToActiveSpace` momentarily joins all Spaces to land it
     /// reliably, then reverts. Cheap and idempotent when already on the active Space.
     /// Only called once a Space transition has settled (see `activeSpaceDidChange`).
+    /// Arm the §5.2 decay render clock on every active renderer (event fan-out).
+    func armDecayAll(_ seconds: Double) {
+        for renderer in renderers.values { renderer.armDecay(seconds) }
+    }
+
     private func followActiveSpace() {
-        for id in visibleDisplayIDs { carryAndRebuild(id) }
+        // The swipe has settled: stamp the Space-switch clock (MAOE §5.2) so the space-
+        // transition effects (iris, hyperspace, film squares, glyph rain) read a fresh
+        // `spaceAge`, and arm the decay clock so their burst actually renders.
+        spaceClock.stamp()
+        armDecayAll(Self.spaceDecaySeconds)
+        for id in visibleDisplayIDs { carryAndRebuild(id, reassertOnly: true) }
         // The swipe has settled. The controls live in the overlay's elevated Space, so re-assert
         // them above the overlay there rather than migrating onto the user's now-active Space.
         raiseControlWindowsAboveOverlay()
@@ -239,12 +299,28 @@ final class RenderEngine {
     /// Engine-tick safety net: rebuild any render clock that has silently stalled (the
     /// window-tied link dies on some carries), so the overlay never stays frozen on a stale
     /// frame until a manual re-swipe.
-    func restartStalledDisplayLinks() {
-        for renderer in renderers.values { renderer.restartDisplayLinkIfStalled() }
+    func restartStalledDisplayLinks(stallThreshold: Double = 0.75, cooldown: Double = 1.0) {
+        for renderer in renderers.values {
+            renderer.restartDisplayLinkIfStalled(stallThreshold: stallThreshold, cooldown: cooldown)
+        }
     }
 
-    private func carryAndRebuild(_ id: CGDirectDisplayID) {
+    private func carryAndRebuild(_ id: CGDirectDisplayID, reassertOnly: Bool = false) {
         guard let overlay = overlays[id] else { return }
+        // Fast path for an ordinary Space switch when the overlay is ALREADY anchored in the
+        // elevated Space (alwaysElevateOverlay). The elevated Space sits above the carousel, so the
+        // overlay is already present on the now-active Space — re-running the full carry there is
+        // redundant churn whose `orderFrontRegardless` kills the window-tied display link (forcing a
+        // rebuild + a render gap) and whose window reorder perturbs WindowServer compositing enough
+        // to silently stall the capture stream — the ~1s post-switch freeze. So just re-assert the
+        // Space's show-state (guards the documented reset) and leave the window, the link, and the
+        // capture untouched. Only the normal swipe-follow path passes `reassertOnly`; a fresh show
+        // (not yet elevated) and the occlusion-recovery net still take the full path below.
+        if reassertOnly, Self.alwaysElevateOverlay, spaceManager.isElevationActive,
+           elevatedDisplays.contains(id), !spaceManager.activeSpaceNeedsExplicitPlacement(displayID: id) {
+            spaceManager.reassertElevatedSpaceShown()
+            return
+        }
         Log.render.debug("carryAndRebuild id=\(id, privacy: .public) wasElevated=\(self.elevatedDisplays.contains(id) ? 1 : 0, privacy: .public)")
         if Self.alwaysElevateOverlay || spaceManager.activeSpaceNeedsExplicitPlacement(displayID: id) {
             // Lift the overlay into our OWN elevated Space (SpaceManager): macOS allows adding the
@@ -309,7 +385,8 @@ final class RenderEngine {
         overlay.setVisibleToScreenshots(overlaysVisibleToScreenshots)
         let renderer = DisplayRenderer(
             displayID: display.id, overlay: overlay, context: context, shaders: shaders,
-            cursorSampler: cursorSampler, pointerSampler: pointerSampler)
+            cursorSampler: cursorSampler, pointerSampler: pointerSampler,
+            windowGeometry: windowGeometry, spaceClock: spaceClock, audioReactor: audioReactor)
         renderer.setOverlayFramePoints(display.frame)
         overlays[display.id] = overlay
         renderers[display.id] = renderer
@@ -329,6 +406,8 @@ final class RenderEngine {
         visibleDisplayIDs.remove(displayID)
         pointerDisplayIDs.remove(displayID)
         pointerSampler.setEnabled(!pointerDisplayIDs.isEmpty)
+        geometryDisplayIDs.remove(displayID)
+        windowGeometry.setEnabled(!geometryDisplayIDs.isEmpty, displays: activeDisplayIDs)
     }
 
     /// Raise/lower every overlay relative to the menu bar and Dock. Stored so a
@@ -393,6 +472,13 @@ final class RenderEngine {
         for renderer in renderers.values { renderer.setCustomCursorEnabled(on) }
     }
 
+    /// Push the active cursor styling (MAOE §6) to the shared sampler (which decides sprite vs.
+    /// system art) and every display's compositor (which applies the restyle shader).
+    func setCursorSpec(_ spec: CursorSpec) {
+        cursorSampler.setSpec(spec)
+        for renderer in renderers.values { renderer.setCursorSpec(spec) }
+    }
+
     // MARK: - Crisp control windows (Studio/Settings above the overlay)
 
     /// Lift one control window into the overlay's elevated Space at a level just above the
@@ -443,11 +529,22 @@ final class RenderEngine {
         // Engage the pointer sampler only while an interactive effect (water splash, bubble pop)
         // is somewhere in a live chain. Tracked per display so one display's plain preset can't
         // disengage it while another still needs it.
+        // The sampler feeds both the pointer block (splash/bubbles, line warp) and the event
+        // block's scroll/press signals, so engage it whenever either a pointer- or event-
+        // consuming effect is present.
         let needsPointer = renderers[displayID] != nil && resolved.contains { effect in
-            effect.descriptor.passes.contains { EffectChainRenderer.pointerEffectFunctions.contains($0.fragmentFunction) }
+            effect.descriptor.passes.contains { $0.consumesPointer || $0.consumesEvent }
         }
         if needsPointer { pointerDisplayIDs.insert(displayID) } else { pointerDisplayIDs.remove(displayID) }
         pointerSampler.setEnabled(!pointerDisplayIDs.isEmpty)
+        // Engage the window-geometry provider only while a rect-consuming effect (chrome §12,
+        // generative §15.2) is in a live chain. Per display so one plain preset can't disengage
+        // it while another still needs it.
+        let needsGeometry = renderers[displayID] != nil && resolved.contains { effect in
+            effect.descriptor.passes.contains { $0.requiresWindowRects }
+        }
+        if needsGeometry { geometryDisplayIDs.insert(displayID) } else { geometryDisplayIDs.remove(displayID) }
+        windowGeometry.setEnabled(!geometryDisplayIDs.isEmpty, displays: activeDisplayIDs)
     }
 
     /// Warm exactly the effect pipelines a resolved chain will render: each built-in
