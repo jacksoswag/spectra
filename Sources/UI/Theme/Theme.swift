@@ -6,8 +6,6 @@ import simd
 enum Theme {
     static let accent = Color.accentColor
     static let positive = Color.green
-    static let warning = Color.orange
-    static let danger = Color.red
 
     enum Spacing {
         static let xs: CGFloat = 4
@@ -20,7 +18,6 @@ enum Theme {
     enum Radius {
         static let sm: CGFloat = 6
         static let md: CGFloat = 10
-        static let lg: CGFloat = 16
     }
 
     static func categoryTint(_ category: EffectCategory) -> Color {
@@ -38,6 +35,9 @@ enum Theme {
         case .glitch: .red
         case .environment: .blue
         case .artistic: .brown
+        case .interaction: .yellow
+        case .cursor: .purple
+        case .chrome: .teal
         case .system: .blue
         case .custom: accent
         }
