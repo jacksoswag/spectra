@@ -40,7 +40,7 @@ final class ComposedEffectStore {
     // MARK: - Persistence
 
     private func fileURL(for id: String) -> URL {
-        AppPaths.composedDirectory.appendingPathComponent("\(id).json")
+        AppPaths.composedDirectory.appendingPathComponent("\(AppPaths.safeComponent(id)).json")
     }
 
     private func persist(_ effect: ComposedEffect) {
