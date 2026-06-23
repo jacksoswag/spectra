@@ -15,22 +15,15 @@ struct SettingsView: View {
 private struct SettingsForm: View {
     let engine: SpectraEngine
     @Bindable var settings: SettingsStore
-    @State private var a11y = SystemAccessibility()
     @State private var showingResetConfirm = false
 
     var body: some View {
         Form {
             Section("Behaviour") {
                 Toggle("Enable Spectra on launch", isOn: $settings.startEnabledOnLaunch)
-                Toggle("Show performance in menu bar", isOn: $settings.menuBarShowsPerformance)
                 Toggle("Reduce motion in animated effects", isOn: Binding(
                     get: { settings.reduceMotion },
                     set: { engine.setReduceMotion($0) }))
-                Toggle("Cover menu bar & Dock", isOn: Binding(
-                    get: { settings.coverMenuBarAndDock },
-                    set: { engine.setCoverMenuBarAndDock($0) }))
-                Text("Raise effects over the menu bar, status items, and Dock so the whole screen is processed (needed for warps to reach the edges). They stay clickable underneath. Press \(GlobalHotKey.panicSwitchLabel) at any time — even from another app — to turn Spectra off if the controls get hidden.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Capture") {
@@ -49,20 +42,6 @@ private struct SettingsForm: View {
                     ForEach(CursorOverrideOption.allCases) { Text($0.label).tag($0) }
                 }
                 Text("Overrides each world's cursor. “Use world default” lets the active world choose; the others draw the cursor through the effect chain.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section("Reactive (engine capabilities)") {
-                Toggle("Audio-reactive worlds", isOn: Binding(
-                    get: { settings.audioReactiveEnabled },
-                    set: { engine.setAudioReactive($0) }))
-                Toggle("Keyboard-reactive worlds", isOn: Binding(
-                    get: { settings.keyboardReactiveEnabled },
-                    set: { engine.setKeyboardReactive($0) }))
-                Toggle("Focus spotlight (dim background windows)", isOn: Binding(
-                    get: { settings.focusSpotlightEnabled },
-                    set: { engine.setFocusSpotlight($0) }))
-                Text("Each capability also requires the active world to opt in. Audio uses the Screen Recording grant; keyboard needs Input Monitoring (it degrades gracefully if denied).")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -97,32 +76,6 @@ private struct SettingsForm: View {
                 Text("Merges back-to-back colour adjustments into one GPU pass. Output is identical; turn off only if a graded look ever appears different.")
                     .font(.caption).foregroundStyle(.secondary)
                 LabeledContent("VRAM in use", value: String(format: "%.0f MB", engine.performance.vramMegabytes))
-            }
-
-            Section("Accessibility") {
-                Text("These use the real macOS accessibility settings — applied to your whole screen, not just Spectra.")
-                    .font(.caption).foregroundStyle(.secondary)
-                ForEach(a11y.features) { feature in
-                    LabeledContent {
-                        HStack(spacing: 10) {
-                            if let isOn = feature.isOn {
-                                Text(isOn ? "On" : "Off")
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(isOn ? Color.green : Color.secondary)
-                            }
-                            Button("Open") { a11y.open(feature) }
-                        }
-                    } label: {
-                        Label {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(feature.name)
-                                Text(feature.detail).font(.caption).foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: feature.icon)
-                        }
-                    }
-                }
             }
 
             Section("Screen Recording") {

@@ -597,12 +597,6 @@ final class SpectraEngine {
         updatePipelines()
     }
 
-    // MARK: - Engine capabilities (MAOE §15.1)
-
-    func setAudioReactive(_ on: Bool) { settings.audioReactiveEnabled = on; applyAmbientState() }
-    func setKeyboardReactive(_ on: Bool) { settings.keyboardReactiveEnabled = on; applyAmbientState() }
-    func setFocusSpotlight(_ on: Bool) { settings.focusSpotlightEnabled = on; updatePipelines() }
-
     // MARK: - Interface control (MAOE §16.3)
 
     /// Whether the focused window is currently punched out of the effect (the filter-window
@@ -804,13 +798,6 @@ final class SpectraEngine {
             (studioWindow?.isVisible ?? false) ? .regular : .accessory
         guard NSApp.activationPolicy() != target else { return }
         NSApp.setActivationPolicy(target)
-    }
-
-    /// Toggle whether effects cover the menu bar and Dock. Applies the new overlay
-    /// level live; control windows sit below the overlay and need no re-pegging.
-    func setCoverMenuBarAndDock(_ on: Bool) {
-        settings.coverMenuBarAndDock = on
-        renderEngine.setCoversMenuBarAndDock(on)
     }
 
     /// Toggle whether the overlay is visible to external screen capture (the system
@@ -1386,6 +1373,16 @@ final class SpectraEngine {
         reconcileSystemEffects()
     }
 
+    /// Live Glass window opacity from the Glass tab sliders: the focused window and every
+    /// other window. The value is stored (and persisted) but not pushed to yabai mid-drag;
+    /// `commitGlassTransparency` re-applies on drag-release so the serial yabai command queue
+    /// isn't flooded with every intermediate value.
+    func setGlassActiveOpacity(_ value: Double) { settings.glassActiveOpacity = value }
+    func setGlassNormalOpacity(_ value: Double) { settings.glassNormalOpacity = value }
+
+    /// Re-apply the current Glass window opacity to yabai (called when a slider drag ends).
+    func commitGlassTransparency() { reconcileSystemEffects() }
+
     /// The desired aggregate system-effect state. Two sources, deduplicated (first wins):
     /// per-effect rows in a display's stack (only while the main pipeline is enabled), and
     /// the standalone menu-bar Glass toggle (transparency + tint, independent of the master
@@ -1426,7 +1423,10 @@ final class SpectraEngine {
         // across re-enabling and quits; the gate just suppresses them while it's off.
         // (`glassEnabled` is forced off at launch, so glass starts off every boot.)
         if settings.glassEnabled {
-            if settings.glassTransparency, state.transparency == nil { state.transparency = .glass }
+            if settings.glassTransparency, state.transparency == nil {
+                state.transparency = TransparencySettings(activeOpacity: settings.glassActiveOpacity,
+                                                          normalOpacity: settings.glassNormalOpacity, blur: 0)
+            }
             if settings.glassTiling, state.layout == nil { state.layout = .glass }
             if settings.glassTint, state.tint == nil { state.tint = .glass }
         }
