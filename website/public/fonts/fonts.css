@@ -1,0 +1,16 @@
+/* Self-hosted brand fonts (latin subset, variable). Space Grotesk for display,
+   DM Sans for body. font-display: swap so text paints immediately. */
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("./space-grotesk.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 100 1000;
+  font-display: swap;
+  src: url("./dm-sans.woff2") format("woff2");
+}

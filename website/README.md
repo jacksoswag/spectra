@@ -1,62 +1,61 @@
 # Spectra website
 
-A single-frame, looping **cinematic** in the spirit of Alan Becker's "Animator vs.
-Animation": two stick figures — a cyan hero and a greedy magenta rival — fight over a
-prism that re-shades the whole desktop. Each time it changes hands the surface morphs to
-a different real app (macOS desktop, Spotify, YouTube, Google Docs, Terminal, Photos,
-Figma) and re-shades into the preset that fits it. The presets are WebGL ports of the
-app's real shaders, so the page is literally a desktop being shaded in real time. The
-marketing facts are delivered through the scene as it loops. Vanilla, zero dependencies.
-
-## Preview
-
-```sh
-cd website
-python3 -m http.server     # then open the printed URL
-```
+The marketing site for Spectra. A static, single-page build with no framework and
+no live engine: the proof is real before/after captures of everyday apps run
+through the presets, presented as an editorial sequence of full-bleed
+drag-to-compare reveals.
 
 ## Structure
 
-- `index.html` / `css/cinematic.css` — the shaded stage, the character overlay canvas,
-  and the floating UI (brand, CTA, subtitle, fact chip, play/pause · 2× · scrubber).
-- `js/shaders.js` — the 16 real preset worlds (faithful to
-  `Sources/Presets/BuiltInPresets.swift`) plus the prism-beam transition. One source of
-  truth for the shaders.
-- `js/engine.js` — WebGL: uploads a 2D scene, shades it through the current preset, and
-  fires the radial colour beam on a switch.
-- `js/rig.js` — the stick-figure skeleton, a named pose library, and keyframe
-  interpolation with a dark contour pass for legibility over any shader.
-- `js/scenes.js` — `SceneKit` chrome helpers + each app surface's `draw(x, t, W, H)`.
-- `js/story.js` — the 13-shot timeline: per shot a scene + preset + duration + the
-  cyan/magenta keyframes + prop flags (wall, POW, paused bar, blinds, magnifier, fade).
-- `js/cinematic.js` — the director: the clock, play/pause, 2× speed, scrubber, the orb,
-  the props, and the UI.
-- `assets/` — `logo.svg`, `favicon.svg`, `icon.svg` (app-icon art), `og.svg` (social card).
+- **`src/main.ts`** mounts the page and wires the scroll reveal.
+- **`src/ui/page.ts`** builds every section with a tiny `h()` element helper
+  (`src/ui/dom.ts`). No framework.
+- **`src/ui/compare.ts`** is the before/after drag slider (pointer drag plus a
+  keyboard range input, one CSS custom property; `fill` mode for the full-bleed
+  hero).
+- **`src/looks.ts`** lists the captured looks; each has a matched
+  `-before` / `-after` WebP in `public/looks/`.
+- **`src/presets.ts`** mirrors the 16 presets from
+  `Sources/Presets/BuiltInPresets.swift` for the catalogue.
+- **`src/styles.css`** is the whole design system: dark instrument chrome, the
+  prism spectrum used only as a brand signature, one cyan accent.
 
-## Editing the sequence
+## Assets
 
-The whole loop is data. To re-choreograph, edit the `SHOTS` array in `js/story.js` (each
-shot's `scene`, `preset`, `dur`, and the `cyan`/`magenta` keyframes built from the poses
-in `js/rig.js`). Add an app surface by adding a `draw()` to `js/scenes.js`. Add a look by
-adding a shader to `js/shaders.js` that mirrors the matching Swift preset.
+`public/looks/` holds web-optimised WebP exported from the full-res desktop
+captures. To regenerate from new screenshots:
 
-## Deploy
+```sh
+ffmpeg -i shot.png -vf "scale=1600:-1:flags=lanczos" -c:v libwebp -quality 82 out.webp
+```
 
-Plain static folder, no build step. Point Vercel / Netlify / Cloudflare Pages / GitHub
-Pages at `website/`. Update the `og:image` host once the domain is live.
+before/after pairs share the same capture geometry, so they align in the slider
+without extra cropping.
+
+## Develop
+
+```sh
+npm install
+npm run dev      # http://localhost:5173
+```
+
+## Build and deploy
+
+```sh
+npm run build    # type-checks, then writes dist/
+npm run preview
+```
+
+`dist/` is a static folder with no server requirement. Point Vercel, Netlify,
+Cloudflare Pages, or GitHub Pages at it. Update the `og:image` host once the
+domain is live.
 
 ## Brand
 
-- **Name / mark**: Spectra — a prism splitting a white beam into the spectrum.
+- **Mark**: a prism splitting a white beam into the spectrum.
 - **Tagline**: "Your whole desktop, shaded."
-- **Palette**: near-black base; spectral accent magenta `#ff3df0` → violet `#8b5cff` →
-  cyan `#2fd9ff` → lime `#b6ff3d`. **Type**: Space Grotesk (display) + Inter (body).
-
-## Assets that need converting
-
-The brand art is SVG (source). Two outputs need raster/native formats:
-
-- **App icon** — convert `assets/icon.svg` to the `.icns` set (`AppIcon.appiconset`):
-  render PNGs at 16…1024 with `rsvg-convert`/`sips`, then `iconutil -c icns`.
-- **Social image** — render `assets/og.svg` to a 1200×630 PNG and point `og:image` at it
-  once hosted (some platforms require a raster card).
+- **Palette**: near-black graphite base; the screenshots carry the colour. The
+  spectral accent (magenta `#ff3df0`, violet `#8b5cff`, cyan `#2fd9ff`, lime
+  `#b6ff3d`) appears only on the mark, the word "shaded", and the primary button.
+  Interactive state uses a single cyan `#38e0ff`.
+- **Type**: Space Grotesk (display), Inter (body), a mono stack for figures.

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy — Spectra</title>
+  <meta name="theme-color" content="#07060c" />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: #07060c; color: #e7e5ee;
+      font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 3.5rem 1.5rem 6rem; }
+    .brand { display: inline-flex; align-items: center; gap: .5rem; margin-bottom: 3rem;
+      color: #e7e5ee; text-decoration: none; font-weight: 700; letter-spacing: -.01em; }
+    h1 { font-size: 1.9rem; line-height: 1.2; letter-spacing: -.02em; margin: 0 0 .35rem; }
+    .meta { color: #84818f; font-size: .85rem; margin: 0 0 2.5rem; }
+    .lede { color: #c6c3d2; }
+    h2 { font-size: 1.05rem; margin: 2.5rem 0 .6rem; letter-spacing: -.01em; }
+    p, li { color: #c6c3d2; }
+    a { color: #8b9bff; }
+    ul { padding-left: 1.2rem; margin: .5rem 0; }
+    li { margin: .35rem 0; }
+    .back { display: inline-block; margin-top: 3.5rem; color: #84818f; text-decoration: none; font-size: .9rem; }
+    .back:hover { color: #e7e5ee; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <a class="brand" href="./">
+      <svg viewBox="0 0 30 30" width="20" height="20" fill="none" aria-hidden="true"><defs><linearGradient id="pm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff3df0"/><stop offset=".4" stop-color="#8b5cff"/><stop offset=".7" stop-color="#2fd9ff"/><stop offset="1" stop-color="#b6ff3d"/></linearGradient></defs><path d="M15 4 L26 23 L4 23 Z" stroke="url(#pm)" stroke-width="1.8" stroke-linejoin="round"/><path d="M0 14 L11 14" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><path d="M19.5 14 L30 10.5" stroke="#ff3df0" stroke-width="1.4" stroke-linecap="round"/><path d="M20 16 L30 16" stroke="#8b5cff" stroke-width="1.4" stroke-linecap="round"/><path d="M19.5 18 L30 21.5" stroke="#2fd9ff" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <span>Spectra</span>
+    </a>
+
+    <h1>Privacy Policy</h1>
+    <p class="meta">Effective date: [DATE] · Last updated: 2026-06-21</p>
+
+    <p class="lede">Spectra is built to keep your screen private. It processes what it captures on your Mac and sends nothing about your screen anywhere. This policy explains the little data that is involved and how it is handled. It applies to the Spectra macOS application provided by [LEGAL NAME OR ENTITY] ("we", "us").</p>
+
+    <h2>The short version</h2>
+    <ul>
+      <li>Your screen is processed entirely on your Mac. Spectra never records, stores, or uploads your screen contents.</li>
+      <li>Spectra has no account, no analytics, and no telemetry.</li>
+      <li>The only time Spectra talks to a server is to verify a license key you enter.</li>
+      <li>Purchases are handled by Lemon Squeezy, our Merchant of Record. We never see your card details.</li>
+    </ul>
+
+    <h2>Screen capture</h2>
+    <p>To render effects across your desktop, Spectra uses the macOS Screen Recording permission to capture your displays in real time. Captured frames are converted to GPU textures, processed by the effect pipeline, and drawn back to the screen. Frames are held in memory only for the moment they are processed and are then discarded. Spectra does not write your screen to disk, does not keep a history of it, and does not transmit it. Capture only runs while you have effects turned on.</p>
+
+    <h2>License validation</h2>
+    <p>When you enter a license key to unlock the paid features, Spectra sends that key to our licensing provider to check whether it is valid. The request contains the license key and basic request metadata (such as your IP address, which any web request includes). It does not contain your screen contents or any of your files. Spectra stores your license key and the result of the last check locally on your Mac so it keeps working offline. If you never enter a license key, Spectra makes no such request.</p>
+
+    <h2>Purchases</h2>
+    <p>Purchases and license issuance are handled by Lemon Squeezy, acting as the Merchant of Record. When you buy Spectra, the payment and billing information you provide goes to Lemon Squeezy and is governed by <a href="https://www.lemonsqueezy.com/privacy" target="_blank" rel="noopener">Lemon Squeezy's privacy policy</a>. We receive order and license information from Lemon Squeezy (such as your email and license key) so we can support your purchase. We do not receive or store your full payment-card details.</p>
+
+    <h2>Problem reports</h2>
+    <p>The "Report a Problem" feature is manual and opt-in. When you use it, Spectra opens a prefilled email in your mail app that includes the app version and basic system information (your macOS version and Mac model), and it reveals the most recent Spectra crash report in Finder so you can choose to attach it. Nothing is sent automatically; you decide whether to send the email and what to attach. If you email us, we use that information only to respond to and resolve your issue.</p>
+
+    <h2>Local data Spectra stores on your Mac</h2>
+    <p>Spectra saves the following under <code>~/Library/Application Support/Spectra</code>, on your Mac only: your settings, your per-display effect stacks and active presets, your saved presets and composed effects, and your license record. This data stays on your device and is never uploaded by Spectra. You can remove it by deleting that folder.</p>
+
+    <h2>Third parties</h2>
+    <ul>
+      <li><strong>Lemon Squeezy</strong> processes purchases and issues license keys (Merchant of Record).</li>
+      <li><strong>Apple</strong> provides macOS and the frameworks Spectra runs on.</li>
+      <li>The optional Glass feature can install <strong>yabai</strong> through the <strong>Homebrew</strong> package manager. Those are run locally on your Mac at your choice and are governed by their own terms.</li>
+    </ul>
+    <p>We do not use advertising networks, analytics SDKs, or third-party trackers.</p>
+
+    <h2>Your rights</h2>
+    <p>Because Spectra collects no personal data through normal use, there is little for us to hold. For any information you send us by email, or order information we receive from Lemon Squeezy, you may contact us to ask what we hold, to correct it, or to delete it, subject to applicable law (including the GDPR and CCPA where they apply). Lemon Squeezy handles data-subject requests for the payment information it processes.</p>
+
+    <h2>Children</h2>
+    <p>Spectra is not directed to children under 13 (or the minimum age in your country) and we do not knowingly collect their personal data.</p>
+
+    <h2>Changes</h2>
+    <p>We may update this policy as the app changes. We will update the effective date above, and material changes will be described here.</p>
+
+    <h2>Contact</h2>
+    <p>Privacy questions: <a href="mailto:jacksoswag@proton.me">jacksoswag@proton.me</a>.</p>
+
+    <a class="back" href="./">← Back to Spectra</a>
+  </main>
+</body>
+</html>
