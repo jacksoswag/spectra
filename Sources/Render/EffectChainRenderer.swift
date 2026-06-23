@@ -181,33 +181,10 @@ final class EffectChainRenderer {
         return tex
     }
 
-    /// Fragment functions that consume the system-injected interactive pointer block (slots
-    /// 16–45). Shared with `RenderEngine`, which engages `PointerInputSampler` only while one is
-    /// in the chain. Includes the §7.1 pointer-driven effects and the §7.2 press-hold line-warp
-    /// CRT/VHS functions.
-    static var pointerEffectFunctions: Set<String> = [
-        "fx_env_splash", "fx_env_bubbles",
-        "fx_int_clickPulse", "fx_int_clickRipple", "fx_int_glyphBurst", "fx_int_inkRipple",
-        "fx_int_powBurst", "fx_int_powSprite", "fx_int_dragTrail", "fx_int_liquidTrail", "fx_int_glyphTrail",
-        "fx_int_shadowDeform", "fx_int_lightLeak", "fx_int_pencilDraw",
-        "fx_style_oil_cells", "fx_style_oil_combine",   // Painting's held-cursor van-Gogh ripple
-        "fx_crt_crt", "fx_crt_crtAdvanced", "fx_crt_scanlines", "fx_crt_analogTV", "fx_vhs_tracking",
-    ]
-
-    /// Fragment functions that consume the system-injected EVENT block (slots 46–62: scroll /
-    /// space / press / move / lifecycle). The §5.2 event clock gates injection on this set,
-    /// mirroring `pointerEffectFunctions`. An effect may be in both sets (disjoint slot ranges).
-    static var eventEffectFunctions: Set<String> = [
-        "fx_int_scrollDrift", "fx_int_cmykShift", "fx_int_speedLines",
-        "fx_int_hyperspaceStreak", "fx_int_spaceGlyphRain", "fx_int_iris", "fx_int_filmSquares",
-        "fx_int_bubblePop", "fx_int_bubbleTrail", "fx_int_windowGlitch", "fx_int_shadowCollapse",
-        "fx_int_captionCollapse", "fx_int_decode",
-    ]
-
     /// Base parameter slot of the injected pointer block. Sits above any pointer effect's own
     /// params (bubbles 0…5, splash 0…4), so the block never clobbers them: 16 clickX, 17 clickY,
     /// 18 clickAge, 19 pressActive, 20 releaseAge, 21 trailCount, then 22… trail UV pairs.
-    private static let pointerSlotBase = 16
+    static let pointerSlotBase = 16
 
     /// First free slot after the pointer/trail block — the event block's base. Recomputed from
     /// `trailCount` (16 + 6 named + trailCount×2 = 46 today) so changing the trail length shifts
@@ -217,9 +194,10 @@ final class EffectChainRenderer {
     static let eventSlotBase = pointerSlotBase + 6 + PointerInputSampler.trailCount * 2
 
     /// Inject the live pointer state into a pointer effect's reserved high slots, after
-    /// `writeParameters` (which clears all 64 slots). A no-op for every other effect.
-    private func injectPointer(into uniforms: inout SpectraUniforms, function: String, frame: FrameContext) {
-        guard Self.pointerEffectFunctions.contains(function) else { return }
+    /// `writeParameters` (which clears all 64 slots). Gated on the pass's `consumesPointer`
+    /// flag (set at the descriptor authoring site); a no-op for every other pass.
+    private func injectPointer(into uniforms: inout SpectraUniforms, pass: EffectPass, frame: FrameContext) {
+        guard pass.consumesPointer else { return }
         let base = Self.pointerSlotBase
         uniforms.setParam(base + 0, frame.clickPoint.x)
         uniforms.setParam(base + 1, frame.clickPoint.y)
@@ -239,17 +217,14 @@ final class EffectChainRenderer {
         }
     }
 
-    /// Fragment functions that consume the ambient global block (slots 64+: audio + keyboard).
-    /// Populated by the §15 ambient-reactive effects.
-    static var ambientEffectFunctions: Set<String> = ["fx_int_audioPulse", "fx_int_keyGlyph"]
-
     /// Base slot of the ambient global block (above the 0–63 effect/injection range).
     /// 64 audioLevel, 65/66/67 audioBands, 68 keyAge, 69 keyChar.
     private static let ambientSlotBase = 64
 
-    /// Inject the ambient global block (audio + keyboard, MAOE §15.1) for an ambient effect.
-    private func injectAmbient(into uniforms: inout SpectraUniforms, function: String, frame: FrameContext) {
-        guard Self.ambientEffectFunctions.contains(function) else { return }
+    /// Inject the ambient global block (audio + keyboard, MAOE §15.1). Gated on the pass's
+    /// `consumesAmbient` flag (set at the descriptor authoring site); a no-op otherwise.
+    private func injectAmbient(into uniforms: inout SpectraUniforms, pass: EffectPass, frame: FrameContext) {
+        guard pass.consumesAmbient else { return }
         let base = Self.ambientSlotBase
         uniforms.setParam(base + 0, frame.audioLevel)
         uniforms.setParam(base + 1, frame.audioBands.x)
@@ -259,11 +234,11 @@ final class EffectChainRenderer {
         uniforms.setParam(base + 5, frame.keyChar)
     }
 
-    /// Inject the live event block (scroll / space / press / lifecycle) for an event effect,
-    /// after `writeParameters`. A no-op for every other effect. Disjoint from the pointer block,
-    /// so an effect may consume both.
-    private func injectEvent(into uniforms: inout SpectraUniforms, function: String, frame: FrameContext) {
-        guard Self.eventEffectFunctions.contains(function) else { return }
+    /// Inject the live event block (scroll / space / press / lifecycle), after `writeParameters`.
+    /// Gated on the pass's `consumesEvent` flag (set at the descriptor authoring site); a no-op
+    /// otherwise. Disjoint from the pointer block, so a pass may set both flags.
+    private func injectEvent(into uniforms: inout SpectraUniforms, pass: EffectPass, frame: FrameContext) {
+        guard pass.consumesEvent else { return }
         let base = Self.eventSlotBase
         uniforms.setParam(base + 0, frame.scrollAge)
         uniforms.setParam(base + 1, frame.scrollDelta.x)
@@ -429,9 +404,9 @@ final class EffectChainRenderer {
                         effect.writeUniversal(into: &uniforms)
                         uniforms.strength *= frame.intensityScale
                         effect.writeParameters(into: &uniforms)
-                        injectPointer(into: &uniforms, function: pass.fragmentFunction, frame: frame)
-                        injectEvent(into: &uniforms, function: pass.fragmentFunction, frame: frame)
-                        injectAmbient(into: &uniforms, function: pass.fragmentFunction, frame: frame)
+                        injectPointer(into: &uniforms, pass: pass, frame: frame)
+                        injectEvent(into: &uniforms, pass: pass, frame: frame)
+                        injectAmbient(into: &uniforms, pass: pass, frame: frame)
 
                         encoder.setTexture(passSource, index: 0)
                         encoder.setTexture(effectInput, index: 1)
@@ -514,16 +489,16 @@ final class EffectChainRenderer {
                     // strength directly, it scales the displacement.
                     uniforms.strength *= frame.intensityScale
                     effect.writeParameters(into: &uniforms)
-                    injectPointer(into: &uniforms, function: pass.fragmentFunction, frame: frame)
-                    injectEvent(into: &uniforms, function: pass.fragmentFunction, frame: frame)
-                    injectAmbient(into: &uniforms, function: pass.fragmentFunction, frame: frame)
+                    injectPointer(into: &uniforms, pass: pass, frame: frame)
+                    injectEvent(into: &uniforms, pass: pass, frame: frame)
+                    injectAmbient(into: &uniforms, pass: pass, frame: frame)
                     // Noir's ornate border (params 0..6) reads the menu-bar height from the free slot 7
                     // so it can clear the menu-bar strip; harmless for any other pass.
-                    if pass.fragmentFunction == "fx_chrome_spriteBorder" {
+                    if pass.injectsMenuBarHeight {
                         uniforms.setParam(7, frame.menuBarHeightUV)
                     }
                     // REC OSD system-injected values. Runs for every recOSD pass.
-                    if pass.fragmentFunction == "fx_cam_recOSD" {
+                    if pass.injectsRecOSD {
                         // recOSD declares params 0..10, leaving slot 11 free for a
                         // system-injected value — used here to feed the real battery
                         // fraction to the icon. Unconditional (not gated on liveClock) so

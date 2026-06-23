@@ -71,7 +71,7 @@ enum EnvironmentEffects {
             .toggle("foam", "Foam", default: true, help: "A fine layer of tiny white floaters."),
         ],
         tags: ["bubbles", "bokeh", "frutiger aero", "glossy", "water"],
-        isAnimated: true)
+        isAnimated: true, consumesPointer: true)
 
     static let splash = EffectDescriptor(
         id: "environment.splash", name: "Splash", category: .environment,
@@ -85,7 +85,7 @@ enum EnvironmentEffects {
             .slider("opacity", "Opacity", 0...1, default: 0.9),
         ],
         tags: ["splash", "water", "frutiger aero", "interactive", "pointer", "glossy", "ripple"],
-        isAnimated: true)
+        isAnimated: true, consumesPointer: true)
 
     static let underwater = EffectDescriptor(
         id: "environment.underwater", name: "Underwater", category: .environment,

@@ -252,8 +252,8 @@ final class DisplayRenderer: NSObject {
                   Float((frame.height - (p.y - frame.minY)) / frame.height))   // flip to top-left
         }
         // Event ages (MAOE §5.2). Display-agnostic — scroll/space/press are global signals — so
-        // they are always folded in; the injection allowlist (`eventEffectFunctions`) decides
-        // which effects actually read them.
+        // they are always folded in; each pass's `consumesEvent` flag decides which effects
+        // actually read them.
         if snapshot.lastScrollTime >= 0 {
             ctx.scrollAge = Float(now - snapshot.lastScrollTime)
             ctx.scrollDelta = SIMD2(Float(snapshot.scrollDelta.dx), Float(snapshot.scrollDelta.dy))

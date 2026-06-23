@@ -253,6 +253,10 @@ final class SpectraEngine {
         resolver.fuseColorPasses = settings.fuseColorPasses
 
         performance.device = context.device
+
+        #if DEBUG
+        ColorFusion.assertOpcodesMatchMetal()
+        #endif
     }
 
     /// Toggle pointwise colour-pass fusion. Re-resolves every chain so the change

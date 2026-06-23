@@ -114,8 +114,8 @@ enum StyleEffects {
             // Cells paint at reduced res (driven by Render Scale, slot 5); the combine brings them
             // back to full res, sharpens complex areas, and taps the smoothed structure tensor
             // (pass 2) for a stable flow field instead of recomputing a raw Sobel.
-            EffectPass("fx_style_oil_cells", scale: 0.6, scaleParam: 4),
-            EffectPass("fx_style_oil_combine", scale: 1.0, tapPass: 2),
+            EffectPass("fx_style_oil_cells", scale: 0.6, scaleParam: 4, consumesPointer: true),
+            EffectPass("fx_style_oil_combine", scale: 1.0, tapPass: 2, consumesPointer: true),
         ],
         tags: ["oil", "painterly", "impressionist", "van gogh", "brush", "flow"],
         needsHistory: true)

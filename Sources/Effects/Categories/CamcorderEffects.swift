@@ -133,5 +133,5 @@ enum CamcorderEffects {
             .toggle("liveClock", "Live Date/Time", default: true, group: "Date"),
         ],
         tags: ["osd", "overlay", "rec", "timecode", "battery", "date", "zoom", "timestamp"],
-        isAnimated: true)
+        isAnimated: true, injectsRecOSD: true)
 }

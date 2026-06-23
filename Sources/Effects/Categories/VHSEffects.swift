@@ -17,9 +17,12 @@ enum VHSEffects {
         parameters: [
             .slider("intensity", "Intensity", 0...1, default: 0.5),
             .slider("speed", "Speed", 0...2, default: 0.6),
+            .slider("linePressWarp", "Press Line Warp", 0...0.3, default: 0,
+                    group: "Interaction", help: "Pull the tracking bands toward the cursor while a button is held (MAOE §7.2)."),
+            .slider("warpRadius", "Warp Radius", 0.02...0.5, default: 0.2, group: "Interaction"),
         ],
         tags: ["tracking", "glitch", "tape"],
-        isAnimated: true)
+        isAnimated: true, consumesPointer: true)
 
     static let wrinkle = EffectDescriptor(
         id: "vhs.wrinkle", name: "Tape Wrinkle", category: .vhs,
