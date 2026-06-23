@@ -67,6 +67,7 @@ enum ParameterValue: Codable, Hashable, Sendable {
     case curve([CurvePoint])
     case gradient([GradientStop])
     case lut(String)            // built-in LUT id
+    case image(String)          // user image identifier (filename under AppPaths.cursorsDirectory; "" = unset)
 
     /// Number of consecutive `float` slots this value writes into the GPU
     /// uniform parameter array.
@@ -77,16 +78,10 @@ enum ParameterValue: Codable, Hashable, Sendable {
         case .vector3: 3
         case .color, .vector4: 4
         case .curve, .gradient, .lut: 0   // baked into an auxiliary texture
+        case .image: 0                    // consumed by the cursor pipeline, not a shader
         }
     }
 
-    /// Whether this value is realised as an auxiliary texture rather than uniforms.
-    var isTextureBacked: Bool {
-        switch self {
-        case .curve, .gradient, .lut: true
-        default: false
-        }
-    }
 
     /// Flatten into GPU-ready floats, in the order the shader expects.
     var floats: [Float] {
@@ -99,7 +94,7 @@ enum ParameterValue: Codable, Hashable, Sendable {
         case .vector3(let v): [Float(v.x), Float(v.y), Float(v.z)]
         case .vector4(let v): [Float(v.x), Float(v.y), Float(v.z), Float(v.w)]
         case .range(let lo, let hi): [Float(lo), Float(hi)]
-        case .curve, .gradient, .lut: []
+        case .curve, .gradient, .lut, .image: []
         }
     }
 
@@ -157,17 +152,22 @@ enum ParameterValue: Codable, Hashable, Sendable {
         if case .lut(let id) = self { return id }
         return nil
     }
+
+    var imageValue: String? {
+        if case .image(let id) = self { return id }
+        return nil
+    }
 }
 
 // MARK: - Codable (compact, stable on-disk form)
 
 extension ParameterValue {
     private enum Kind: String, Codable {
-        case scalar, bool, index, color, point, vector3, vector4, range, curve, gradient, lut
+        case scalar, bool, index, color, point, vector3, vector4, range, curve, gradient, lut, image
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, value, lo, hi, points, stops, lut
+        case kind, value, lo, hi, points, stops, lut, image
     }
 
     init(from decoder: Decoder) throws {
@@ -218,6 +218,8 @@ extension ParameterValue {
             self = .gradient(try container.decode([GradientStop].self, forKey: .stops))
         case .lut:
             self = .lut(try container.decode(String.self, forKey: .lut))
+        case .image:
+            self = .image(try container.decode(String.self, forKey: .image))
         }
     }
 
@@ -258,6 +260,9 @@ extension ParameterValue {
         case .lut(let id):
             try container.encode(Kind.lut, forKey: .kind)
             try container.encode(id, forKey: .lut)
+        case .image(let id):
+            try container.encode(Kind.image, forKey: .kind)
+            try container.encode(id, forKey: .image)
         }
     }
 }

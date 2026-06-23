@@ -628,6 +628,30 @@ inline void oil_flow_from_tensor(float E, float G, float F,
 // detection: the local structure-tensor edge magnitude drives a continuous level between a
 // COARSE grid (big strokes in flat areas) and a FINE grid (small strokes at edges and over
 // text), so detail naturally gets small marks with no separate text/readability gate. Two
+// Local "van Gogh ripple" (Painting §7.1): while the button is HELD, boost the oil's vanGogh
+// parameter in a soft, rippling disc around the CURRENT cursor — the brushwork there gets visibly
+// more agitated (longer directional strokes + more broken colour), exactly as if you turned the
+// Van Gogh dial up just where you paint. Reads the injected pointer block (slots 16–45); returns 0
+// when no button is held, so a still painting is unaffected.
+inline float oil_pressLive(constant SpectraUniforms &u) {
+    float pressActive = u.params[19], releaseAge = u.params[20];
+    return pressActive > 0.5 ? 1.0 : clamp(1.0 - releaseAge / 0.15, 0.0, 1.0);
+}
+inline float2 oil_pressPoint(constant SpectraUniforms &u) {
+    return (u.params[21] >= 1.0) ? float2(u.params[22], u.params[23])   // newest trail point (current cursor)
+                                 : float2(u.params[16], u.params[17]);  // else the press point
+}
+inline float oil_vanGoghBoost(constant SpectraUniforms &u, float2 uv) {
+    float live = oil_pressLive(u);
+    if (live <= 0.0) return 0.0;
+    float aspect = u.resolution.x / max(u.resolution.y, 1.0);
+    float2 d = uv - oil_pressPoint(u); d.x *= aspect;
+    float dist = length(d);
+    float disc = smoothstep(0.16, 0.0, dist);                  // tighter falloff (~0.16 UV) — a smaller, concentrated area
+    float ripple = 0.75 + 0.25 * sin(dist * 16.0 - u.time * 4.0); // concentric rings
+    return disc * ripple * live * 1.8;                         // stronger boost added to vanGogh (cap raised below)
+}
+
 // grid levels are evaluated and blended by the edge level, which keeps the size variation
 // crack-free (each level is a globally consistent grid). Boundaries snap to colour edges, a
 // procedural warp keeps edges organic, per-cell jitter adds broken colour, and a seam darkens
@@ -652,7 +676,7 @@ fragment float4 fx_style_oil_cells(RasterizerData in [[stage_in]],
     float smoothAmt = clamp(u.params[9], 0.0, 1.0);
     float pooling      = clamp(u.params[10], 0.0, 1.0);
     float pigmentDesat = clamp(u.params[12], 0.0, 1.0);
-    float vanGogh      = clamp(u.params[13], 0.0, 1.0);
+    float vanGogh      = min(2.0, max(u.params[13], 0.0) + oil_vanGoghBoost(u, in.uv));   // + local held-cursor ripple (stronger cap)
 
     // Flow + anisotropy + edge magnitude from the smoothed structure tensor.
     float3 T = src.sample(s, in.uv).rgb;
@@ -758,7 +782,7 @@ fragment float4 fx_style_oil_combine(RasterizerData in [[stage_in]],
     float smoothAmt = clamp(u.params[9], 0.0, 1.0);
     float pooling      = clamp(u.params[10], 0.0, 1.0);
     float pigmentDesat = clamp(u.params[12], 0.0, 1.0);
-    float vanGogh      = clamp(u.params[13], 0.0, 1.0);
+    float vanGogh      = min(2.0, max(u.params[13], 0.0) + oil_vanGoghBoost(u, in.uv));   // + local held-cursor ripple (stronger cap)
     {
         constexpr sampler s2(address::clamp_to_edge, filter::linear);
         // Reuse the SMOOTHED structure tensor (pass 2, tapped at texture(9)) for flow + edginess

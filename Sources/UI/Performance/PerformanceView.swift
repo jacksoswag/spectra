@@ -1,6 +1,62 @@
 import SwiftUI
 
-/// Real-time performance dashboard, the permanent left column of the Studio. Live
+/// The collapsible bottom drawer that houses the performance dashboard. Collapsed by
+/// default — a slim bar with a chevron and a one-line live summary — so the metrics
+/// stay out of the way until wanted; expanded reveals the full dashboard at a capped
+/// height. The heavy dashboard only mounts while expanded, so its 0.5s sampling loop
+/// idles when collapsed.
+struct PerformanceDrawer: View {
+    @Bindable var engine: SpectraEngine
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+            bar
+            if expanded {
+                Divider()
+                PerformanceView(engine: engine)
+                    .frame(maxHeight: 300)
+            }
+        }
+    }
+
+    private var bar: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) { expanded.toggle() }
+        } label: {
+            HStack(spacing: Theme.Spacing.sm) {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                Label("Performance", systemImage: "speedometer")
+                    .font(.callout.weight(.medium))
+                Spacer()
+                if !expanded { summary }
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// One-line live readout shown while collapsed, so the headline numbers stay
+    /// glanceable without opening the drawer (same direct-read pattern as the menu bar).
+    private var summary: some View {
+        let s = engine.performance.combined
+        return HStack(spacing: Theme.Spacing.sm) {
+            Text("\(Int(s.fps.rounded())) fps")
+                .foregroundStyle(s.fps >= 55 ? .green : .orange)
+            Text(String(format: "%.1f ms", s.gpuMilliseconds))
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption.monospacedDigit())
+    }
+}
+
+/// Real-time performance dashboard, shown inside `PerformanceDrawer`. Live
 /// trackers up top, a full timeline per relevant stat below them, then pipeline,
 /// shader-cost, render-quality, and per-display detail. Built to read well in a
 /// narrow column: trackers and timelines flow in adaptive grids that collapse to a

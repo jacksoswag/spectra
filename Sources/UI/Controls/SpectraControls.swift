@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 /// A labelled slider with an inline, editable numeric readout.
 struct LabeledSlider: View {
@@ -163,11 +165,70 @@ struct ParameterControlView: View {
                     .labelsHidden()
                     .frame(maxWidth: 180)
                 }
+
+            case .image:
+                ImagePickerField(title: parameter.name,
+                                 filename: ParameterBinding.image(stack, instanceID, parameter))
             }
 
             if let help = parameter.help {
                 Text(help).font(.caption).foregroundStyle(.tertiary)
             }
+        }
+    }
+}
+
+/// File-picker control for an image parameter (e.g. a custom cursor sprite). Picking copies the
+/// chosen image into `AppPaths.cursorsDirectory` and stores just the filename; the thumbnail
+/// previews the current selection.
+struct ImagePickerField: View {
+    let title: String
+    @Binding var filename: String
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            thumbnail
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: 4).fill(.quaternary.opacity(0.5)))
+                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.quaternary))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.callout)
+                Text(filename.isEmpty ? "No image" : "Image set").font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Choose…") { choose() }
+            if !filename.isEmpty {
+                Button { filename = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .help("Clear image")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var thumbnail: some View {
+        if !filename.isEmpty,
+           let img = NSImage(contentsOf: AppPaths.cursorsDirectory.appendingPathComponent(filename)) {
+            Image(nsImage: img).resizable().aspectRatio(contentMode: .fit).padding(2)
+        } else {
+            Image(systemName: "photo").foregroundStyle(.tertiary)
+        }
+    }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let src = panel.url else { return }
+        AppPaths.ensureDirectories()
+        let ext = src.pathExtension.isEmpty ? "png" : src.pathExtension
+        let dest = AppPaths.cursorsDirectory.appendingPathComponent(UUID().uuidString + "." + ext)
+        do {
+            try FileManager.default.copyItem(at: src, to: dest)
+            filename = dest.lastPathComponent
+        } catch {
+            // Copy failed (permissions / unreadable source) — keep the current selection.
         }
     }
 }

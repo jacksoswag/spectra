@@ -16,6 +16,9 @@ enum EffectCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
     case glitch = "Glitch"
     case environment = "Environment"
     case artistic = "Artistic"
+    case interaction = "Interaction"
+    case cursor = "Cursor"
+    case chrome = "Window Chrome"
     case system = "System / Desktop"
     case custom = "Custom"
 
@@ -39,29 +42,11 @@ enum EffectCategory: String, Codable, CaseIterable, Hashable, Identifiable, Send
         case .glitch: "bolt.horizontal"
         case .environment: "cloud.rain"
         case .artistic: "paintbrush.pointed.fill"
+        case .interaction: "cursorarrow.click"
+        case .cursor: "cursorarrow"
+        case .chrome: "macwindow"
         case .system: "macwindow.on.rectangle"
         case .custom: "wand.and.stars"
-        }
-    }
-
-    /// Short description shown as a section subtitle.
-    var summary: String {
-        switch self {
-        case .color: "Grade, balance, and stylise color."
-        case .sharpen: "Enhance detail and local contrast."
-        case .blur: "Soften, defocus, and add motion."
-        case .distortion: "Bend, warp, and displace the image."
-        case .retro: "CRT tubes, masks, and analog TV."
-        case .vhs: "Magnetic tape artifacts and decay."
-        case .camcorder: "Consumer camcorder looks and overlays."
-        case .film: "Celluloid grain, gate weave, and halation."
-        case .noise: "A procedural noise framework."
-        case .pixel: "Pixelation, dithering, and quantization."
-        case .glitch: "Digital corruption and signal failure."
-        case .environment: "Atmospheric weather and light."
-        case .artistic: "Painterly, cel, ink, and pixel mediums."
-        case .system: "Window transparency, layout, and desktop tint."
-        case .custom: "Your imported and authored effects."
         }
     }
 }

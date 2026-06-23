@@ -27,6 +27,11 @@ enum JSONStore {
             return try makeDecoder().decode(type, from: data)
         } catch {
             Log.storage.error("Failed to decode \(url.lastPathComponent): \(error.localizedDescription)")
+            // Preserve the unreadable file for diagnosis instead of silently overwriting it with
+            // defaults on the next save. Keeps only the most recent corrupt copy.
+            let backup = url.appendingPathExtension("corrupt")
+            try? FileManager.default.removeItem(at: backup)
+            try? FileManager.default.moveItem(at: url, to: backup)
             return nil
         }
     }

@@ -1,15 +1,24 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The root Studio surface: one coherent workspace, no modes. Three columns left
-/// to right — the live performance dashboard, the Effect Library (presets and
-/// effects), and the active effect stack with its parameters. Effects render
-/// directly on the desktop, so there's no separate preview. Creating, editing,
-/// duplicating, and importing all funnel through the single shader editor
-/// presented over this surface.
+/// The root Studio surface: one coherent workspace, no modes. The Effect Library
+/// (presets and effects) sits on the left; the right panel switches between the
+/// active **Effects** stack (with its parameters below) and the **Glass** desktop
+/// treatments. The live performance dashboard collapses into a drawer along the
+/// bottom. Effects render directly on the desktop, so there's no separate preview.
+/// Creating, editing, duplicating, and importing all funnel through the single shader
+/// editor presented over this surface.
 struct StudioView: View {
     @Bindable var engine: SpectraEngine
     @Environment(\.openWindow) private var openWindow
+
+    /// Which surface the right panel shows: the effect stack or the Glass treatments.
+    private enum RightTab: String, CaseIterable, Identifiable {
+        case effects = "Effects"
+        case glass = "Glass"
+        var id: String { rawValue }
+    }
+    @State private var rightTab: RightTab = .effects
 
     @State private var editorTarget: EditorTarget?
     @State private var showingImporter = false
@@ -18,6 +27,7 @@ struct StudioView: View {
     @State private var exportingComposite: ComposedEffect?
     @State private var exportingPreset: Preset?
     @State private var notice: Notice?
+    @State private var pendingShaderImport: PendingShaderImport?
 
     var body: some View {
         workspace
@@ -36,7 +46,7 @@ struct StudioView: View {
             isPresented: $showingImporter,
             allowedContentTypes: ImportSupport.contentTypes,
             allowsMultipleSelection: true,
-            onCompletion: handleImport)
+            onCompletion: requestImport)
         .fileExporter(
             isPresented: Binding(get: { exportingShader != nil }, set: { if !$0 { exportingShader = nil } }),
             document: exportingShader.map { ShaderFileDocument(shader: $0) },
@@ -55,15 +65,27 @@ struct StudioView: View {
         .alert(item: $notice) { notice in
             Alert(title: Text(notice.title), message: Text(notice.message), dismissButton: .default(Text("OK")))
         }
-        .sheet(isPresented: Binding(
-            get: { !engine.settings.hasSeenWelcome },
-            set: { if !$0 { engine.settings.hasSeenWelcome = true } })) {
-            WelcomeView(engine: engine) { engine.settings.hasSeenWelcome = true }
+        .confirmationDialog(
+            "Import custom shader code?",
+            isPresented: Binding(get: { pendingShaderImport != nil }, set: { if !$0 { pendingShaderImport = nil } })) {
+            Button("Import", role: .destructive) {
+                if let pending = pendingShaderImport { performImport(pending.urls) }
+                pendingShaderImport = nil
+            }
+            Button("Cancel", role: .cancel) { pendingShaderImport = nil }
+        } message: {
+            Text("These files contain Metal shader code that runs on your GPU every frame. Only import shaders from sources you trust.")
         }
         .sheet(isPresented: Binding(
             get: { engine.license.gatePrompted },
             set: { if !$0 { engine.license.gatePrompted = false } })) {
             LicenseGateView(engine: engine) { engine.license.gatePrompted = false }
+        }
+        // First-run welcome (previously hosted by the now-removed Worlds RootView).
+        .sheet(isPresented: Binding(
+            get: { !engine.settings.hasSeenWelcome },
+            set: { if !$0 { engine.settings.hasSeenWelcome = true } })) {
+            WelcomeView(engine: engine) { engine.settings.hasSeenWelcome = true }
         }
     }
 
@@ -79,14 +101,15 @@ struct StudioView: View {
             }
             UpgradeBanner(engine: engine)
             HSplitView {
-                PerformanceView(engine: engine)
-                    .frame(minWidth: 240, idealWidth: 300, maxWidth: 420)
                 libraryPanel
                     .frame(minWidth: 230, idealWidth: 280)
                 rightPanel
-                    .frame(minWidth: 280, idealWidth: 340, maxWidth: 520)
+                    .frame(minWidth: 300, idealWidth: 360, maxWidth: 560)
             }
             .frame(minHeight: 320)
+            // Performance lives in a collapsible drawer pinned to the bottom, hidden
+            // by default so the workspace stays focused on building looks.
+            PerformanceDrawer(engine: engine)
         }
     }
 
@@ -137,28 +160,46 @@ struct StudioView: View {
             toggleEnabled: { descriptor in engine.toggleInActiveStack(descriptor) })
     }
 
-    // MARK: Right — Effect Stack
+    // MARK: Right — Effects stack / Glass
 
     private var rightPanel: some View {
-        Group {
-            if let stack = engine.activeStack {
-                // Stack list on top; the selected effect's parameter sliders below.
-                // The inspector reads `stack.selection`, so selecting an effect in the
-                // list reveals its grouped controls here.
-                VSplitView {
-                    EffectStackView(engine: engine, stack: stack, onSavePreset: { savingPreset = true })
-                        .frame(minHeight: 150, idealHeight: 240)
-                    InspectorView(engine: engine, stack: stack)
-                        .frame(minHeight: 180)
-                }
-            } else {
-                ContentUnavailableView(
-                    "No Active Chain",
-                    systemImage: "square.3.layers.3d",
-                    description: Text("Select a display to edit its effect stack."))
+        VStack(spacing: 0) {
+            // The two faces of the panel: the per-display effect stack, or the global
+            // Glass desktop treatments. Glass replaces the stack entirely when selected.
+            Picker("", selection: $rightTab.animation(.easeInOut(duration: 0.15))) {
+                ForEach(RightTab.allCases) { tab in Text(tab.rawValue).tag(tab) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(Theme.Spacing.md)
+
+            Divider()
+
+            switch rightTab {
+            case .effects: effectsPanel
+            case .glass: GlassStackView(engine: engine)
             }
         }
         .background(.background)
+    }
+
+    @ViewBuilder
+    private var effectsPanel: some View {
+        if let stack = engine.activeStack {
+            // Stack grid on top; the selected effect's parameter sliders below. The
+            // inspector reads `stack.selection`, so tapping a tile reveals its controls.
+            VSplitView {
+                EffectStackView(engine: engine, stack: stack, onSavePreset: { savingPreset = true })
+                    .frame(minHeight: 180, idealHeight: 280)
+                InspectorView(engine: engine, stack: stack)
+                    .frame(minHeight: 180)
+            }
+        } else {
+            ContentUnavailableView(
+                "No Active Chain",
+                systemImage: "square.grid.2x2",
+                description: Text("Select a display to edit its effect stack."))
+        }
     }
 
     // MARK: - Toolbar
@@ -206,27 +247,42 @@ struct StudioView: View {
 
     // MARK: - Import
 
-    private func handleImport(_ result: Result<[URL], Error>) {
+    /// Triage the picked files. Raw `.metal`/`.shader` files compile to GPU code that
+    /// runs every frame, so they route through a trust confirmation first; everything
+    /// else imports straight away.
+    // ponytail: confirmation keys on the raw-shader extension, the obvious code case.
+    // A shader embedded inside a .spectra/.json document still imports unconfirmed; add
+    // a pre-decode peek there if shared documents become a real distribution channel.
+    private func requestImport(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
             notice = Notice(title: "Import Failed", message: error.localizedDescription)
         case .success(let urls):
-            var imported = 0
-            var failures: [String] = []
-            for url in urls {
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                do {
-                    _ = try engine.importFile(at: url)
-                    imported += 1
-                } catch {
-                    failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
-                }
+            let rawShaderExtensions: Set<String> = ["metal", "shader"]
+            if urls.contains(where: { rawShaderExtensions.contains($0.pathExtension.lowercased()) }) {
+                pendingShaderImport = PendingShaderImport(urls: urls)
+            } else {
+                performImport(urls)
             }
-            if !failures.isEmpty {
-                notice = Notice(title: imported > 0 ? "Partially Imported" : "Import Failed",
-                                message: failures.joined(separator: "\n"))
+        }
+    }
+
+    private func performImport(_ urls: [URL]) {
+        var imported = 0
+        var failures: [String] = []
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                _ = try engine.importFile(at: url)
+                imported += 1
+            } catch {
+                failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
             }
+        }
+        if !failures.isEmpty {
+            notice = Notice(title: imported > 0 ? "Partially Imported" : "Import Failed",
+                            message: failures.joined(separator: "\n"))
         }
     }
 }
@@ -280,6 +336,13 @@ private struct Notice: Identifiable {
     let message: String
 }
 
+/// A set of picked files awaiting the user's trust confirmation before raw shader
+/// code is compiled and run.
+private struct PendingShaderImport: Identifiable {
+    let id = UUID()
+    let urls: [URL]
+}
+
 // MARK: - Transport (the single on/off control)
 
 /// One button drives the whole on/off system: a green ▶ to start, a red ◼ to
@@ -309,7 +372,7 @@ private struct SaveChainAsPresetSheet: View {
     @State private var name = "My Preset"
     @State private var summary = ""
     @State private var tagsText = ""
-    @State private var category: PresetCategory = .user
+    @State private var category: String = PresetCategory.userName
     /// nil = use the category's icon (the generic default).
     @State private var icon: String?
 
@@ -347,7 +410,7 @@ private struct SaveChainAsPresetSheet: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Picker("Category", selection: $category) {
-                ForEach(PresetCategory.allCases) { Text($0.displayName).tag($0) }
+                ForEach(engine.presets.saveTargets, id: \.self) { Text($0).tag($0) }
             }
             HStack {
                 Spacer()
@@ -368,7 +431,7 @@ private struct SaveChainAsPresetSheet: View {
     private func iconButton(_ symbol: String?) -> some View {
         let isSelected = icon == symbol
         return Button { icon = symbol } label: {
-            Image(systemName: symbol ?? category.iconSystemName)
+            Image(systemName: symbol ?? PresetCategory.icon(for: category))
                 .frame(width: 30, height: 30)
                 .background(isSelected ? Theme.accent.opacity(0.25) : Color.clear,
                             in: RoundedRectangle(cornerRadius: Theme.Radius.sm))

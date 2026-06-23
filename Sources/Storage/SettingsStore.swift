@@ -88,19 +88,18 @@ final class SettingsStore {
     /// output, fewer full-resolution read/writes). On by default; an escape hatch in
     /// case a fused result ever looks different from the separate passes.
     var fuseColorPasses: Bool { didSet { persist() } }
-    /// The menu-bar Glass toggle: window transparency + the adaptive desktop tint, driven
-    /// directly via `SystemEffectsController` (independent of the main effects switch and the
-    /// effect stack). Persisted so it stays where you left it.
+    /// The menu-bar Glass switch: a master gate for the whole Liquid Glass system. Forced
+    /// off at every launch (the engine resets it in `init`), so glass never re-applies
+    /// window effects on boot; the user opens the gate deliberately. Only when it's on do
+    /// the per-element sub-switches below take effect.
     var glassEnabled: Bool { didSet { persist() } }
-    /// Per-element Glass controls (the Studio "Glass" tab). Each drives one
-    /// `SystemEffectsController` subsystem directly, independent of the main effects
-    /// switch and the effect stack — the same standalone path as `glassEnabled`. The two
-    /// style fields hold the chosen `MenuBarStyle` / `DockStyle` index (0 = None = off).
+    /// Per-element Glass controls (the Studio "Glass" tab), gated by `glassEnabled`. Each
+    /// drives one `SystemEffectsController` subsystem directly, independent of the main
+    /// effects switch and the effect stack. Their choices persist across re-enabling and
+    /// quits — the gate suppresses them while off, it doesn't forget them.
     var glassTransparency: Bool { didSet { persist() } }
     var glassTiling: Bool { didSet { persist() } }
     var glassTint: Bool { didSet { persist() } }
-    var glassMenuBarStyleIndex: Int { didSet { persist() } }
-    var glassDockStyleIndex: Int { didSet { persist() } }
     /// Make the overlay visible to external screen capture (system Screenshot UI /
     /// `screencapture`, third-party recorders) by flipping its `sharingType` from
     /// `.none` to `.readOnly`. On by default so screenshots and recordings include the
@@ -169,8 +168,6 @@ final class SettingsStore {
         var glassTransparency: Bool? = false
         var glassTiling: Bool? = false
         var glassTint: Bool? = false
-        var glassMenuBarStyleIndex: Int? = 0
-        var glassDockStyleIndex: Int? = 0
         var showInScreenshots: Bool? = true
         var hasSeenWelcome: Bool? = false
         var hasSeenSketchHelp: Bool? = false
@@ -238,8 +235,6 @@ final class SettingsStore {
         glassTransparency = state.glassTransparency ?? false
         glassTiling = state.glassTiling ?? false
         glassTint = state.glassTint ?? false
-        glassMenuBarStyleIndex = state.glassMenuBarStyleIndex ?? 0
-        glassDockStyleIndex = state.glassDockStyleIndex ?? 0
         showInScreenshots = state.showInScreenshots ?? true
         hasSeenWelcome = state.hasSeenWelcome ?? false
         hasSeenSketchHelp = state.hasSeenSketchHelp ?? false
@@ -272,8 +267,6 @@ final class SettingsStore {
         glassTransparency = d.glassTransparency ?? false
         glassTiling = d.glassTiling ?? false
         glassTint = d.glassTint ?? false
-        glassMenuBarStyleIndex = d.glassMenuBarStyleIndex ?? 0
-        glassDockStyleIndex = d.glassDockStyleIndex ?? 0
         showInScreenshots = d.showInScreenshots ?? true   // match the shipped default (State + init)
         intensity = d.intensity ?? 1.0
         isLoading = false
@@ -310,8 +303,6 @@ final class SettingsStore {
             glassTransparency: glassTransparency,
             glassTiling: glassTiling,
             glassTint: glassTint,
-            glassMenuBarStyleIndex: glassMenuBarStyleIndex,
-            glassDockStyleIndex: glassDockStyleIndex,
             showInScreenshots: showInScreenshots,
             hasSeenWelcome: hasSeenWelcome,
             hasSeenSketchHelp: hasSeenSketchHelp,

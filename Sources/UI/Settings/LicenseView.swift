@@ -9,6 +9,7 @@ struct LicenseSettingsSection: View {
     @State private var keyField = ""
     @State private var activating = false
     @State private var activationError = false
+    @State private var justPurchased = false
 
     var body: some View {
         Section("License") {
@@ -32,6 +33,9 @@ struct LicenseSettingsSection: View {
                 Button("Remove License", role: .destructive) { engine.license.deactivate() }
             }
         }
+        .sheet(isPresented: $justPurchased) {
+            PurchaseThanksView { justPurchased = false }
+        }
     }
 
     private func activate() {
@@ -41,7 +45,7 @@ struct LicenseSettingsSection: View {
             let ok = await engine.license.activate(key: keyField)
             activating = false
             activationError = !ok
-            if ok { keyField = "" }
+            if ok { keyField = ""; justPurchased = true }
         }
     }
 
@@ -90,8 +94,19 @@ struct LicenseGateView: View {
     @State private var keyField = ""
     @State private var activating = false
     @State private var activationError = false
+    @State private var purchased = false
 
     var body: some View {
+        // On a successful activation, land on the post-purchase panel in place rather
+        // than dismissing, so the just-paid customer always sees the welcome.
+        if purchased {
+            PurchaseThanksView(onDismiss: onDismiss)
+        } else {
+            paywall
+        }
+    }
+
+    private var paywall: some View {
         VStack(spacing: Theme.Spacing.lg) {
             Image(systemName: "sparkles")
                 .font(.system(size: 44)).foregroundStyle(Theme.accent)
@@ -148,7 +163,50 @@ struct LicenseGateView: View {
             let ok = await engine.license.activate(key: keyField)
             activating = false
             activationError = !ok
-            if ok { onDismiss() }
+            if ok { purchased = true }
         }
+    }
+}
+
+/// The post-purchase welcome, shown once right after a successful activation (from the
+/// paywall gate or the Settings key field). It confirms the unlock and points at the
+/// one upgrade that flatters Glass most: a live video wallpaper for the transparent
+/// windows and desktop tint to sit over. Aerial is the free, open-source pick.
+struct PurchaseThanksView: View {
+    let onDismiss: () -> Void
+    private static let aerialURL = URL(string: "https://aerialscreensaver.github.io")!
+
+    var body: some View {
+        VStack(spacing: Theme.Spacing.lg) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 44)).foregroundStyle(.green)
+            Text("Everything's unlocked")
+                .font(.title2.bold())
+            Text("Thanks for buying Spectra. The full effect library, editing, the composer, and Glass are all yours.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack(spacing: Theme.Spacing.sm) {
+                    Image(systemName: "play.rectangle.fill").foregroundStyle(Theme.accent)
+                    Text("Pair Glass with a live wallpaper").font(.callout.weight(.semibold))
+                }
+                Text("Glass makes your windows transparent and tints the desktop, so it works best over something that moves. Aerial is a free, open-source app that plays Apple's aerial videos as a live desktop wallpaper behind your windows.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Link("Get Aerial (free)", destination: Self.aerialURL)
+                    .font(.callout.weight(.medium))
+            }
+            .padding(Theme.Spacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.md).fill(Theme.accent.opacity(0.10)))
+
+            Button("Start exploring") { onDismiss() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+        }
+        .padding(Theme.Spacing.xl)
+        .frame(width: 470)
     }
 }

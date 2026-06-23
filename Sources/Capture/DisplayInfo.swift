@@ -23,8 +23,6 @@ struct DisplayInfo: Identifiable, Hashable, Sendable {
     /// Whether this display can present extended-dynamic-range content.
     var supportsEDR: Bool { maxEDRHeadroom > 1.0 }
 
-    var pointSize: CGSize { frame.size }
-
     var resolutionLabel: String { "\(pixelWidth) × \(pixelHeight)" }
 
     var refreshLabel: String {

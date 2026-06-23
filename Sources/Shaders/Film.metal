@@ -293,25 +293,33 @@ fragment float4 fx_film_scratches(RasterizerData in [[stage_in]],
     int count = int(mix(2.0, 14.0, clamp(density, 0.0, 1.0)));
 
     float scratch = 0.0;
+    float yLine = floor(in.uv.y * u.resolution.y * 0.6);   // coarse vertical cells for the breakup
     for (int i = 0; i < 14; i++) {
         if (i >= count) break;
         float fi = float(i);
         float id = fi + u.seed * 13.0;
-        // Each scratch lives at a slowly drifting horizontal position.
-        float baseX = spectra_hash11(id * 1.7);
+        // Teleport to a new random base position every 1–5 s (per-scratch hold length + phase so
+        // the lines don't all jump on the same beat)...
+        float hold = mix(1.0, 5.0, spectra_hash11(id * 2.9));
+        float tick = floor(u.time / hold + spectra_hash11(id * 8.1) * 13.0);
+        float baseX = spectra_hash11(id * 1.7 + tick * 53.0);
+        // ...with a continuous slow horizontal drift on top — the wandering emulsion motion.
         float drift = spectra_simplex(float2(t * 0.25 + id, id * 4.0)) * 0.04;
         float xPos = fract(baseX + drift);
-        // Flicker the scratch on and off so it does not persist every frame.
-        float life = spectra_simplex(float2(t * 0.8 + id * 3.0, id));
-        float on = smoothstep(0.2, 0.6, life);
-        float dx = abs(in.uv.x - xPos);
-        float width = mix(0.0006, 0.002, spectra_hash11(id * 5.3));
+        float width = mix(0.0004, 0.0013, spectra_hash11(id * 5.3));
+        // Per-row horizontal wobble so the line is never dead-straight (analog, not CGI).
+        float wobble = (spectra_hash11(yLine + id * 7.0) - 0.5) * width * 2.2;
+        float dx = abs(in.uv.x - xPos - wobble);
         float line = 1.0 - smoothstep(0.0, width, dx);
-        scratch = max(scratch, line * on);
+        // Grainy breakup along the length: always present but intermittent — emulsion dirt, the
+        // original fast flicker, not a clean persistent line.
+        float grain = spectra_hash21(float2(id * 3.1, yLine + floor(t * 22.0)));
+        float broken = step(0.40, grain);
+        scratch = max(scratch, line * broken);
     }
 
-    // Scratches read as bright emulsion lines, slightly desaturating.
-    float3 processed = clamp(c + scratch * 0.5, 0.0, 1.0);
+    // Scratches read as faint bright emulsion dirt (low opacity).
+    float3 processed = clamp(c + scratch * 0.22, 0.0, 1.0);
     return spectra_compositeRGBA(base, processed, u);
 }
 

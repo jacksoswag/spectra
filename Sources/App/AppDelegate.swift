@@ -15,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// is the only place that fires on ⌘Q / Quit.
     weak var engine: SpectraEngine?
 
+    /// Held so the signal sources stay alive for the process lifetime. See
+    /// `installTerminationSignalHandlers`.
+    private var signalSources: [DispatchSourceSignal] = []
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Debug visual harness: if SPECTRA_SHADERTEST is set, render presets over test
         // images to PNGs and exit before any window/capture starts. No-op otherwise.
@@ -23,6 +27,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ShaderTestHarness.runIfRequested()
         #endif
         NSApp.setActivationPolicy(.regular)
+        installTerminationSignalHandlers()
+    }
+
+    /// Run the engine teardown on a POSIX termination signal. Cocoa does NOT call
+    /// `applicationWillTerminate` when the process receives SIGTERM (what `pkill`,
+    /// `kill`, and Activity Monitor's "Quit" send) or SIGINT (terminal ⌃C); the
+    /// default disposition kills the process outright. Without this, a `pkill -x
+    /// Spectra` — exactly what the dev install script does — would strand windows at
+    /// reduced opacity / tiled until the next launch's snapshot recovery. We ignore
+    /// the default disposition and instead restore synchronously, then exit.
+    private func installTerminationSignalHandlers() {
+        for sig in [SIGTERM, SIGINT] {
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler { [weak self] in
+                MainActor.assumeIsolated { self?.engine?.shutdown() }
+                exit(0)
+            }
+            source.resume()
+            signalSources.append(source)
+        }
     }
 
     /// `NSApp.terminate` does not unwind SwiftUI scenes, so without this the engine's

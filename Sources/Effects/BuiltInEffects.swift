@@ -6,21 +6,13 @@ import Foundation
 /// live in `Effects/Categories/` with their matching Metal shaders in `Shaders/`.
 enum BuiltInEffects {
     static func all() -> [EffectDescriptor] {
-        var all: [EffectDescriptor] = []
-        all += ColorEffects.all
-        all += SharpenEffects.all
-        all += BlurEffects.all
-        all += DistortionEffects.all
-        all += RetroEffects.all
-        all += VHSEffects.all
-        all += CamcorderEffects.all
-        all += FilmEffects.all
-        all += NoiseEffects.all
-        all += PixelEffects.all
-        all += GlitchEffects.all
-        all += EnvironmentEffects.all
-        all += StyleEffects.all
-        all += SystemEffects.all
-        return all
+        // A flat list of each category's arrays, joined once. A long `+` chain trips Swift's
+        // expression type-checker ("unable to type-check in reasonable time"), so flatMap a
+        // homogeneous array literal instead.
+        [ColorEffects.all, SharpenEffects.all, BlurEffects.all, DistortionEffects.all,
+         RetroEffects.all, VHSEffects.all, CamcorderEffects.all, FilmEffects.all,
+         NoiseEffects.all, PixelEffects.all, GlitchEffects.all, EnvironmentEffects.all,
+         StyleEffects.all, InteractionEffects.all, CursorEffects.all,
+         WindowChromeEffects.all, SystemEffects.all].flatMap { $0 }
     }
 }

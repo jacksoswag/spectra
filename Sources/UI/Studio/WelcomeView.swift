@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// First-run welcome. Explains what Spectra does, points at the on/off control,
-/// and offers a one-click starter look. Shown once (gated on
-/// `SettingsStore.hasSeenWelcome`) over the Studio.
+/// and offers to grant Screen Recording. Shown once (gated on
+/// `SettingsStore.hasSeenWelcome`) over the root surface, so every new user sees it
+/// whether or not they ever open Studio.
 struct WelcomeView: View {
     @Bindable var engine: SpectraEngine
     let onDismiss: () -> Void

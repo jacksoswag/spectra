@@ -13,9 +13,6 @@ enum Log {
     static let capture = Logger(subsystem: subsystem, category: "Capture")
     static let render = Logger(subsystem: subsystem, category: "Render")
     static let shader = Logger(subsystem: subsystem, category: "Shader")
-    static let effects = Logger(subsystem: subsystem, category: "Effects")
-    static let presets = Logger(subsystem: subsystem, category: "Presets")
     static let storage = Logger(subsystem: subsystem, category: "Storage")
-    static let performance = Logger(subsystem: subsystem, category: "Performance")
     static let editor = Logger(subsystem: subsystem, category: "Editor")
 }

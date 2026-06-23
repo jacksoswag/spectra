@@ -352,39 +352,8 @@ fragment float4 fx_glitch_frameSkip(RasterizerData in [[stage_in]],
 
 // MARK: - Digital Rain
 
-// A 5x7 BITMAP FONT of 16 CRYPTOGRAPHIC glyphs — invented cipher/rune symbols, NO standard
-// letters or digits, so the rain reads as alien code. Each glyph is 7 rows; each row is a
-// 5-bit mask with the MSB (bit 4) as the leftmost column. A hashed index picks the glyph; the
-// cell-local coordinate samples it crisply (hard pixels read as authentic terminal type).
-constant uint glitch_glyphFont[112] = {
-     4, 4,21,14,21, 4, 4,   // eye / node
-    17,10, 4,31, 4,10,17,   // barred X
-    28,16,30, 2,15, 1, 3,   // angular rune
-    27,17, 0, 4, 0,17,27,   // bracketed dot
-    16,24,12, 6, 3, 6,12,   // zigzag
-    31, 4, 4,14, 4, 4, 4,   // crowned stem
-    24, 4,30, 4,15, 4, 3,   // asymmetric hooks
-     4,14,31,14, 4,10,17,   // diamond + legs
-    17,31,17,31,17,31,17,   // ladder
-    14,17,22,21,13, 1, 6,   // spiral
-    10, 0,31, 0,10, 0, 4,   // dotted bars
-     4,14,21, 4, 4,21,14,   // twin arrows
-     4, 4, 0, 4, 0, 4, 4,   // dashed axis
-    28,16,16, 0, 1, 1, 7,   // opposed corners
-    10,31,10,31,10, 0, 4,   // grid
-    17,10, 4,10,17, 0,31,   // crosshatch + base
-};
-
-// Sample the bitmap font for the glyph chosen by `seed`. `p` is 0..1 within the cell; a thin
-// gutter keeps adjacent glyphs from merging into a block.
-inline float glitch_glyph(float2 p, float seed) {
-    if (p.x < 0.04 || p.x > 0.96 || p.y < 0.02 || p.y > 0.98) return 0.0;   // inter-glyph gutter
-    int col = int(clamp((p.x - 0.04) / 0.92, 0.0, 0.999) * 5.0);   // 0..4
-    int row = int(clamp((p.y - 0.02) / 0.96, 0.0, 0.999) * 7.0);   // 0..6
-    int glyph = int(spectra_hash11(seed) * 16.0) & 15;             // pick 0..15
-    uint rowBits = glitch_glyphFont[glyph * 7 + row];
-    return (rowBits & (1u << uint(4 - col))) != 0u ? 1.0 : 0.0;    // MSB = leftmost column
-}
+// The 5x7 cipher glyph font + `glitch_glyph()` now live in SpectraCommon.h (shared with the
+// MAOE §7 interaction glyph effects); this file gets them via that include.
 
 // One depth layer of falling code: a grid of `columns` streams scrolling down, each with a
 // per-column phase, a speed jitter, and an active/empty roll (so it isn't a solid wall). The
