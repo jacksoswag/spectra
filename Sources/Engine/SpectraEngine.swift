@@ -345,8 +345,11 @@ final class SpectraEngine {
         notificationObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
         ) { [weak self] note in
-            guard let panel = note.object as? NSColorPanel else { return }
-            MainActor.assumeIsolated { self?.registerControlWindow(panel) }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.refreshDockActivationPolicy()   // Dock tile tracks the Studio's visibility
+                if let panel = note.object as? NSColorPanel { self.registerControlWindow(panel) }
+            }
         })
         AppPaths.ensureDirectories()
         displayGrade.clearStaleGradeAtLaunch()   // reset any scanout LUT a prior crash left installed
@@ -389,6 +392,15 @@ final class SpectraEngine {
         notificationObservers.append(NotificationCenter.default.addObserver(
             forName: .spectraReopen, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.frontStudioWindow() }
+        })
+        // The Dock tile follows the Studio: when it closes, drop to `.accessory` so Spectra runs
+        // headless as a menu-bar + overlay app with no Dock icon. `willClose` fires before the
+        // window's `isVisible` flips, so re-evaluate on the next runloop tick.
+        notificationObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                DispatchQueue.main.async { self?.refreshDockActivationPolicy() }
+            }
         })
         // While Screen Recording is still ungranted, re-check the moment the app regains
         // focus — the user may have just toggled it in System Settings — so the banner
@@ -780,6 +792,18 @@ final class SpectraEngine {
             self.renderEngine.raiseControlWindowAboveOverlay(window)
             self.refreshCaptureExceptions()
         }
+    }
+
+    /// Show the Dock icon and ⌘-Tab entry only while the Studio window is open. When it
+    /// closes, drop to `.accessory` so Spectra keeps running as a menu-bar + overlay app
+    /// with no Dock tile; reopening the Studio restores `.regular`. The decision is purely
+    /// the Studio's visibility, so the key/close notifications that drive it can be noisy
+    /// without harm. Idempotent.
+    func refreshDockActivationPolicy() {
+        let target: NSApplication.ActivationPolicy =
+            (studioWindow?.isVisible ?? false) ? .regular : .accessory
+        guard NSApp.activationPolicy() != target else { return }
+        NSApp.setActivationPolicy(target)
     }
 
     /// Toggle whether effects cover the menu bar and Dock. Applies the new overlay
