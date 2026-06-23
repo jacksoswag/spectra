@@ -26,11 +26,13 @@ struct LemonSqueezyBackend: LicenseBackend {
             let (data, _) = try await URLSession.shared.data(for: request)
             // The response carries `"valid": true|false`; trust that over the status code
             // (Lemon Squeezy returns 400 for an unknown key, which is a definite invalid).
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let valid = json["valid"] as? Bool {
-                return valid ? .valid : .invalid
+            struct Response: Decodable { let valid: Bool }
+            guard let response = try? JSONDecoder().decode(Response.self, from: data) else {
+                // Body present but not the shape we expect (API drift): treat as unreachable so a
+                // valid key falls into offline grace instead of being revoked as invalid.
+                return .unreachable
             }
-            return .invalid
+            return response.valid ? .valid : .invalid
         } catch {
             return .unreachable   // network/timeout — fall into offline grace
         }
