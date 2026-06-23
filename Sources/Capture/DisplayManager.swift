@@ -87,8 +87,6 @@ final class DisplayManager {
 
     func scDisplay(for id: CGDirectDisplayID) -> SCDisplay? { scDisplays[id] }
 
-    func display(for id: CGDirectDisplayID) -> DisplayInfo? { displays.first { $0.id == id } }
-
     var mainDisplay: DisplayInfo? { displays.first { $0.isMain } ?? displays.first }
 
     /// Refresh the display list. Displays are enumerated from AppKit (no

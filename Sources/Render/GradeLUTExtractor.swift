@@ -40,10 +40,7 @@ final class GradeLUTExtractor {
     /// tracks it like the overlay does. Returns nil on any GPU failure (the caller
     /// then leaves the chain on the overlay path).
     ///
-    /// - Important: This overload blocks the calling thread on GPU completion via
-    ///   `waitUntilCompleted`. Call `extractAsync` instead to avoid stalling the
-    ///   main thread — this method is retained only for call sites that have not
-    ///   yet been migrated (see crossFileNeeds in the task record).
+    /// - Important: This blocks the calling thread on GPU completion via `waitUntilCompleted`.
     func extract(chain: [ResolvedEffect], intensityScale: Float) -> DisplayGrade.LUT? {
         guard !chain.isEmpty,
               let ramp = ramp(), let readback = readback(),
@@ -75,53 +72,6 @@ final class GradeLUTExtractor {
         pool.release(result.transientTextures)
         guard commandBuffer.status == .completed else { return nil }
 
-        return readLUT(from: readback)
-    }
-
-    /// Async variant: encodes the GPU work on the main actor, then suspends while
-    /// the GPU runs (via Metal's completion handler — no thread is blocked), and
-    /// resumes on the main actor to read back the LUT. This keeps the main run loop
-    /// free during the GPU wait.
-    ///
-    /// Callers in `SpectraEngine.reconcileGlobalGrade` should be migrated to this
-    /// overload; see crossFileNeeds.
-    func extractAsync(chain: [ResolvedEffect], intensityScale: Float) async -> DisplayGrade.LUT? {
-        guard !chain.isEmpty,
-              let ramp = ramp(), let readback = readback(),
-              let commandBuffer = context.commandQueue.makeCommandBuffer() else { return nil }
-
-        var frame = FrameContext(time: 0, frameIndex: 0)
-        frame.intensityScale = intensityScale
-        // Encode on main actor (safe: touches no shared mutable state beyond the
-        // command buffer being constructed).
-        let result = chainRenderer.encode(into: commandBuffer, input: ramp, chain: chain, frame: frame)
-
-        guard result.outputTexture.width == width, result.outputTexture.height == rows,
-              let blit = commandBuffer.makeBlitCommandEncoder() else {
-            pool.release(result.transientTextures)
-            return nil
-        }
-        blit.copy(from: result.outputTexture,
-                  sourceSlice: 0, sourceLevel: 0,
-                  sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-                  sourceSize: MTLSize(width: width, height: rows, depth: 1),
-                  to: readback,
-                  destinationSlice: 0, destinationLevel: 0,
-                  destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
-        blit.endEncoding()
-
-        // Suspend the Swift task (not the thread) until Metal signals completion.
-        // The main run loop remains free during GPU execution.
-        let completed: Bool = await withCheckedContinuation { continuation in
-            commandBuffer.addCompletedHandler { buf in
-                continuation.resume(returning: buf.status == .completed)
-            }
-            commandBuffer.commit()
-        }
-
-        // Back on the main actor: release pool resources and read back pixels.
-        pool.release(result.transientTextures)
-        guard completed else { return nil }
         return readLUT(from: readback)
     }
 
