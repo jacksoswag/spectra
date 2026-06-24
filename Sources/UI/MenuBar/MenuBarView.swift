@@ -222,10 +222,14 @@ struct MenuBarLabel: View {
 
     var body: some View {
         if engine.settings.menuBarShowsPerformance && engine.isEnabled {
-            Label("\(Int(engine.performance.combined.fps.rounded())) fps", systemImage: "sparkles")
-                .fixedSize()
+            Label {
+                Text("\(Int(engine.performance.combined.fps.rounded())) fps")
+            } icon: {
+                PrismMark(height: 13)
+            }
+            .fixedSize()
         } else {
-            Image(systemName: "sparkles")
+            PrismMark()
         }
     }
 }
