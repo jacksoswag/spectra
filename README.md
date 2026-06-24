@@ -16,12 +16,11 @@ Spectra is a desktop-wide GPU visual effects engine for macOS. It captures your 
 
 ## The studio
 
-One unified workspace, no modes. Everything lives in a single coherent window:
+One unified workspace, no modes. Everything lives in a single coherent window, with the desktop itself serving as the live preview behind it:
 
 - **Effect Library** on the left: the primary interface. Search, filter by category, tag, or favorites, and add effects to the stack. Custom effects can be edited, duplicated, exported, or deleted in place; multi-select adds several at once.
-- **Live Preview** in the center: the processed result of the selected display, rendered continuously.
-- **Effect Stack and Parameters** on the right: add, remove, reorder (drag and drop), duplicate, rename, group, enable, and disable layered effects, with universal and effect-specific controls beneath.
-- **Performance** along the bottom on demand: frame rate, GPU and CPU time, latency, dropped frames, pipeline analysis, and on-demand per-effect cost profiling.
+- **Effect Stack and Parameters** on the right: add, remove, reorder (drag and drop), duplicate, rename, group, enable, and disable layered effects, with universal and effect-specific controls beneath. A segmented switch at the top of the panel swaps the stack for the global **Glass** desktop treatments (window transparency, layout, and tint).
+- **Performance** in a collapsible drawer pinned to the bottom, hidden by default: frame rate, GPU and CPU time, latency, dropped frames, pipeline analysis, and on-demand per-effect cost profiling.
 
 A menu bar item is always available for quick start/stop (also bound to a global hotkey), preset switching (grouped by category), an intensity slider, a quality slider with an Auto toggle that hands control to the adaptive governor, and a Glass toggle for the yabai-driven window transparency layer. Live fps and latency read at a glance, with shortcuts into the Studio and Settings windows. The Dock tile only appears while the Studio window is open; closing it drops the app back to a menu bar plus overlay process.
 
