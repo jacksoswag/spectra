@@ -63,7 +63,7 @@ Each display has its own effect stack and its own preset, capturing and renderin
 
 Spectra reports per-display and combined frame rate, CPU encode time, GPU time, frame interval, capture-to-present latency, dropped frames, GPU pass count, and VRAM in use. A pipeline analysis panel summarizes the resolved chain, and an on-demand profiler measures each effect's real GPU cost in isolation. When adaptive quality is on and GPU time runs past the display's frame budget, it lowers capture resolution in steps and restores it when headroom returns.
 
-The target is under 16ms latency with minimal CPU use. Rendering is driven by a per-window `CAMetalDisplayLink` whose callback fires off the main run loop on a dedicated render thread, gated by triple buffering. Intermediate textures are recycled through a pool to avoid per-frame allocation.
+The target is under 16ms latency with minimal CPU use. Rendering is driven by a per-window `CAMetalDisplayLink` whose callback fires off the main run loop on a dedicated render thread, gated by double buffering to trim a frame of present latency. Intermediate textures are recycled through a pool to avoid per-frame allocation.
 
 ## Requirements
 
