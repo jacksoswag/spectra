@@ -34,7 +34,8 @@ final class EffectContractTests: XCTestCase {
     }
 
     func testEffectCountIsPinned() {
-        // The number pinned in README / ARCHITECTURE / the UI. Update all four together.
-        XCTAssertEqual(all.count, 169)
+        // The number pinned in README / ARCHITECTURE / the UI. Update all together.
+        // 209 total = 203 non-system (GPU-pass) effects + 6 system controllers.
+        XCTAssertEqual(all.count, 209)
     }
 }

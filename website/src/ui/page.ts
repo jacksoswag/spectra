@@ -76,7 +76,7 @@ function glassLead(): HTMLElement {
 // ---- instrument: how it works, quietly ----
 function instrument(): HTMLElement {
   const figures: [string, string][] = [
-    ["169", "real-time effects"], ["16", "presets"], ["Every display", "native resolution and refresh"],
+    ["209", "real-time effects"], ["16", "presets"], ["Every display", "native resolution and refresh"],
   ];
   return h("section", { id: "engine", class: "wrap engine" },
     h("h2", { class: "engine__lead" }, "It is a real GPU between you and your screen."),
