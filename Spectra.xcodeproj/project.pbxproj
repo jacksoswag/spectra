@@ -109,6 +109,7 @@
 		84A8BF5ADB95E116B005A72A /* night-warm-text@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = 133FCA07D92851647D8586A3 /* night-warm-text@2x.png */; };
 		86011F3E4C0939FEAC6A553B /* Environment.metal in Sources */ = {isa = PBXBuildFile; fileRef = 6A76D684F5A019009ABBF45E /* Environment.metal */; };
 		86B13E20ACE0946F007CF9F8 /* night-warm-hand@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = E9F2B992CE673B2E35056A2C /* night-warm-hand@2x.png */; };
+		892B5F4B141A334FBA7AE9E7 /* PrismMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868F75A0C1B798D651BD7206 /* PrismMark.swift */; };
 		898AAAFA1DD1409AFE6B850C /* pow-sprite@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = 2099B270482D96B36DA50286 /* pow-sprite@2x.png */; };
 		89BCC7BA3E61618D6201F981 /* EffectDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92C725B9EA33AC2898E0DF0 /* EffectDescriptor.swift */; };
 		8BBCAB5FACEA8F94D9104758 /* SystemEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3FEC41EB2EFFF1C2F10C1A0 /* SystemEffects.swift */; };
@@ -311,6 +312,7 @@
 		8088F01B58C55DED8FA791C8 /* retro-8090-text@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "retro-8090-text@2x.png"; sourceTree = "<group>"; };
 		84DA3431B5A7EB42FD30B453 /* pencil-tip-text@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "pencil-tip-text@2x.png"; sourceTree = "<group>"; };
 		8564B920117D10A8A7CE5CC4 /* ParameterValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParameterValue.swift; sourceTree = "<group>"; };
+		868F75A0C1B798D651BD7206 /* PrismMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrismMark.swift; sourceTree = "<group>"; };
 		8965610CA83B8A5FA3C25FA5 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		8ADF6C7ED9056000AF71F847 /* aero-2000s-text@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "aero-2000s-text@2x.png"; sourceTree = "<group>"; };
 		8BA8087D63D41FDA88567882 /* cursor-hotspots.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "cursor-hotspots.json"; sourceTree = "<group>"; };
@@ -712,6 +714,7 @@
 			isa = PBXGroup;
 			children = (
 				D909AAB23D329DD64B948360 /* MenuBarView.swift */,
+				868F75A0C1B798D651BD7206 /* PrismMark.swift */,
 			);
 			path = MenuBar;
 			sourceTree = "<group>";
@@ -1206,6 +1209,7 @@
 				BCD2EA552E60A611AE88C181 /* Preset.swift in Sources */,
 				3199475CCC4964FBC7A7244F /* PresetLibrary.swift in Sources */,
 				1C544D2E2A06848D236BF80C /* PreviewView.swift in Sources */,
+				892B5F4B141A334FBA7AE9E7 /* PrismMark.swift in Sources */,
 				C9CBCECE74AC1B4368740E3B /* ProblemReporter.swift in Sources */,
 				A02E2C7938B9AEFAB32E08B8 /* RenderEngine.swift in Sources */,
 				2591C3A092E32F8A2841EF10 /* RenderLinkThread.swift in Sources */,

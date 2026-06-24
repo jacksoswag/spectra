@@ -60,7 +60,7 @@ struct SpectraApp: App {
             if let engine {
                 MenuBarStatusLabel(engine: engine)
             } else {
-                Image(systemName: "sparkles")
+                PrismMark()
             }
         }
         // A popover panel (not the classic NSMenu) so the Quality control can be a
