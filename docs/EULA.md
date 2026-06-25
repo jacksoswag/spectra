@@ -83,7 +83,7 @@ not this Agreement.
 Purchases are processed by our payment and licensing provider, Lemon Squeezy, acting
 as the Merchant of Record. Your purchase is also subject to Lemon Squeezy's terms.
 Prices are shown at checkout and may include tax collected by the Merchant of Record.
-We offer a 30-day money-back refund: contact us at the email in Section 14 within 30
+We offer a 14-day money-back refund: contact us at the email in Section 14 within 14
 days of purchase and we will refund your purchase and deactivate the associated
 license key.
 
