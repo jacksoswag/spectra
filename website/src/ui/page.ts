@@ -11,7 +11,7 @@ const CATEGORY_ORDER: PresetCategory[] = ["Cinematic", "Retro", "Artistic", "Uti
 const BUY = "Get Spectra";
 const PRICE = "$9.99";
 // Lemon Squeezy checkout (Merchant of Record). Set before launch; "#" no-ops the link until then.
-const BUY_URL = "#";
+const BUY_URL = "https://spect-crow.lemonsqueezy.com/checkout/buy/e9a63740-558f-4cea-adf2-bf94134d3bec";
 
 export function buildPage(): DocumentFragment {
   const frag = document.createDocumentFragment();

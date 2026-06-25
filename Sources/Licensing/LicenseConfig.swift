@@ -20,7 +20,7 @@ enum LicenseConfig {
 
     /// Where customers buy and manage their license.
     /// TODO: set to the Lemon Squeezy product checkout URL once the store exists.
-    static let purchaseURL = URL(string: "https://spectra.app/buy")!
+    static let purchaseURL = URL(string: "https://spect-crow.lemonsqueezy.com/checkout/buy/e9a63740-558f-4cea-adf2-bf94134d3bec")!
 
     /// Which backend validates keys. Debug builds use `.stub`, which accepts well-formed
     /// test keys offline so the activation flow can be exercised without a store. Release
