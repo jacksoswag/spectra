@@ -26,6 +26,9 @@ final class YabaiProvisioner: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.spectra.yabai.provision")
     private var weStartedService = false
+    /// True when Spectra's `--start-service` wrote the launchd plist (none existed before), so quit
+    /// can remove only what Spectra made and never leave a persistent agent that tiles at next login.
+    private var weInstalledServiceFile = false
 
     private static let sudoersPath = "/etc/sudoers.d/yabai"
 
@@ -79,6 +82,10 @@ final class YabaiProvisioner: @unchecked Sendable {
 
             if !self.serviceRunning(yabai) {
                 emit(.starting)
+                // `--start-service` writes a persistent RunAtLoad plist if one isn't already there;
+                // note whether we're the one creating it so quit removes only what Spectra made.
+                let servicePlist = NSHomeDirectory() + "/Library/LaunchAgents/com.koekeishiya.yabai.plist"
+                self.weInstalledServiceFile = !FileManager.default.fileExists(atPath: servicePlist)
                 _ = self.run(yabai, ["--start-service"])
                 self.weStartedService = true
                 for _ in 0..<12 where !self.serviceRunning(yabai) { Thread.sleep(forTimeInterval: 0.3) }
@@ -102,11 +109,23 @@ final class YabaiProvisioner: @unchecked Sendable {
         }
     }
 
+    /// Whether Spectra started the yabai service this session (vs. attaching to a yabai the
+    /// user was already running). Scopes global-config changes to a yabai Spectra owns.
+    var startedService: Bool { queue.sync { weStartedService } }
+
     /// Stop the yabai service on quit, but only if Spectra is the one that started it.
     func stopServiceIfStarted() {
         queue.sync {
             guard weStartedService, let yabai = yabaiPath() else { return }
             _ = run(yabai, ["--stop-service"])
+            // `--stop-service` only stops the running instance; it leaves the RunAtLoad plist, which
+            // would auto-start yabai (tiling by its bsp default) at next login. Remove it if we
+            // created it, so a Spectra-started yabai never outlives Spectra. A user's own agent is
+            // left untouched: weInstalledServiceFile is false when the plist already existed.
+            if weInstalledServiceFile {
+                _ = run(yabai, ["--uninstall-service"])
+                weInstalledServiceFile = false
+            }
             weStartedService = false
         }
     }

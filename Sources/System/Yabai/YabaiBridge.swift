@@ -28,7 +28,6 @@ final class YabaiBridge: @unchecked Sendable {
         var windowOpacityEnabled: Bool
         var blurEnabled: Bool
         var blurRadius: Int
-        var spaceLayout: String
         var windowGap: Int
         var topPadding: Int
         var bottomPadding: Int
@@ -123,8 +122,20 @@ final class YabaiBridge: @unchecked Sendable {
         }
     }
 
+    /// Set yabai's global default layout to `float` so a yabai Spectra started doesn't tile
+    /// every Space by yabai's `bsp` default. `applyLayout` still tiles the specific Space an
+    /// active tiling effect claims. The caller scopes this to a Spectra-started service, so a
+    /// user's own running yabai is never globally overridden. Runtime-only: it dies with the
+    /// service Spectra stops on quit, so there's nothing to snapshot or restore.
+    func neutralizeDefaultLayout() {
+        queue.async {
+            guard self.binaryPath != nil else { return }
+            self.setConfig("layout", "float")
+        }
+    }
+
     /// Stop tiling on the Space when Window Tiling is toggled off. Forces `float` rather
-    /// than replaying `snap.spaceLayout`: that snapshot can itself be `bsp` (the user's
+    /// than replaying the captured layout: that snapshot can itself be `bsp` (the user's
     /// yabai default, or a value captured while tiling was already on), which would leave
     /// windows still snapping after the toggle is off. Gap/padding are put back from the
     /// snapshot for cleanliness; they're inert in float.
@@ -145,21 +156,70 @@ final class YabaiBridge: @unchecked Sendable {
         }
     }
 
-    /// Synchronously force opacity/blur off and restore the Space layout from the
-    /// snapshot, for quit time when an async restore might not run before the process
-    /// exits. Opacity is forced off (not replayed from the snapshot) so a stale value
-    /// left by the retired Glass.app agent can't leave windows transparent after quit.
-    /// A no-op when nothing was changed (no snapshot taken).
+    /// The ⌘0 action: move the focused window to a fresh Space and follow focus there — but when
+    /// more than one Space on the active display is already empty, reuse the right-most empty one
+    /// instead of creating yet another (so repeated presses don't pile up blank Spaces). Space
+    /// operations and cross-Space window moves need yabai's scripting addition (SIP off, loaded
+    /// once Window Transparency has been enabled), so this is best-effort: a no-op when yabai isn't
+    /// running, commands fail quietly without the addition, and it changes nothing to restore.
+    func moveFocusedWindowToNewSpace() {
+        queue.async {
+            guard self.availabilityNow().isReady else { return }
+            if let target = self.rightmostReusableEmptySpace() {
+                self.run(["-m", "window", "--space", String(target)])
+                self.run(["-m", "space", "--focus", String(target)])
+            } else {
+                self.run(["-m", "space", "--create"])
+                self.run(["-m", "window", "--space", "last"])
+                self.run(["-m", "space", "--focus", "last"])
+            }
+        }
+    }
+
+    /// When more than one Space on the active display is empty, the index of the right-most
+    /// (highest-index) empty one; otherwise nil, so the caller creates a fresh Space. "Empty" = no
+    /// windows, excluding native-fullscreen Spaces. Active display = the display of the focused
+    /// Space, so the window stays on its own display rather than jumping to another.
+    private func rightmostReusableEmptySpace() -> Int? {
+        struct SpaceInfo: Decodable {
+            let index: Int
+            let display: Int
+            let windows: [Int]
+            let hasFocus: Bool
+            let isNativeFullscreen: Bool
+            enum CodingKeys: String, CodingKey {
+                case index, display, windows
+                case hasFocus = "has-focus"
+                case isNativeFullscreen = "is-native-fullscreen"
+            }
+        }
+        let r = run(["-m", "query", "--spaces"])
+        guard r.status == 0, let data = r.out.data(using: .utf8),
+              let spaces = try? JSONDecoder().decode([SpaceInfo].self, from: data),
+              let activeDisplay = spaces.first(where: { $0.hasFocus })?.display else { return nil }
+        let empty = spaces.filter { $0.display == activeDisplay && $0.windows.isEmpty && !$0.isNativeFullscreen }
+        guard empty.count > 1 else { return nil }
+        return empty.map(\.index).max()
+    }
+
+    /// Synchronously force opacity/blur off — and, when tiling was applied, stop the Space
+    /// tiling (`float`) — for quit time when an async restore might not run before the process
+    /// exits. Both are forced to their hands-off defaults rather than replayed from the snapshot
+    /// (same reason as `restoreTransparency`/`restoreLayout`): a captured value can itself be a
+    /// stale dimmed/tiling state that would otherwise survive the quit and strand windows. Gap/
+    /// padding are put back from the snapshot for cleanliness. A no-op when nothing was changed.
     func shutdownRestore() {
         queue.sync {
             guard binaryPath != nil, let snap = snapshot else { return }
             clearOpacity()
-            run(["-m", "space", "--layout", Self.validLayout(snap.spaceLayout)])
-            setConfig("window_gap", String(snap.windowGap))
-            setConfig("top_padding", String(snap.topPadding))
-            setConfig("bottom_padding", String(snap.bottomPadding))
-            setConfig("left_padding", String(snap.leftPadding))
-            setConfig("right_padding", String(snap.rightPadding))
+            if pendingRestores.contains("layout") {
+                run(["-m", "space", "--layout", "float"])
+                setConfig("window_gap", String(snap.windowGap))
+                setConfig("top_padding", String(snap.topPadding))
+                setConfig("bottom_padding", String(snap.bottomPadding))
+                setConfig("left_padding", String(snap.leftPadding))
+                setConfig("right_padding", String(snap.rightPadding))
+            }
             snapshot = nil
             pendingRestores = []
             try? FileManager.default.removeItem(at: Self.snapshotFile)
@@ -177,7 +237,7 @@ final class YabaiBridge: @unchecked Sendable {
             self.snapshot = snap
             guard self.availabilityNow().isReady else { return }   // can't restore now; keep the file for next launch
             self.clearOpacity()
-            self.run(["-m", "space", "--layout", Self.validLayout(snap.spaceLayout)])
+            self.run(["-m", "space", "--layout", "float"])   // stop tiling, not snap's captured layout (can be a stale bsp)
             self.snapshot = nil
             try? FileManager.default.removeItem(at: Self.snapshotFile)
         }
@@ -193,7 +253,6 @@ final class YabaiBridge: @unchecked Sendable {
             windowOpacityEnabled: queryString("window_opacity") == "on",
             blurEnabled: queryString("window_blur") == "on",
             blurRadius: Int(queryDouble("window_blur_radius") ?? 0),
-            spaceLayout: querySpaceLayout() ?? "float",
             windowGap: Int(queryDouble("window_gap") ?? 0),
             topPadding: Int(queryDouble("top_padding") ?? 0),
             bottomPadding: Int(queryDouble("bottom_padding") ?? 0),
@@ -227,20 +286,6 @@ final class YabaiBridge: @unchecked Sendable {
     private func queryString(_ key: String) -> String? {
         let r = run(["-m", "config", key])
         return r.status == 0 ? r.out.trimmingCharacters(in: .whitespacesAndNewlines) : nil
-    }
-
-    /// Clamp a layout name to one Spectra actually sets, so a tampered on-disk snapshot can't feed
-    /// an arbitrary string to `yabai -m space --layout` (passed as a Process argument, not a shell).
-    private static func validLayout(_ layout: String) -> String {
-        ["bsp", "stack", "float"].contains(layout) ? layout : "float"
-    }
-
-    private func querySpaceLayout() -> String? {
-        struct SpaceInfo: Decodable { let type: String }
-        let r = run(["-m", "query", "--spaces", "--space"])
-        guard r.status == 0, let data = r.out.data(using: .utf8),
-              let info = try? JSONDecoder().decode(SpaceInfo.self, from: data) else { return nil }
-        return info.type
     }
 
     @discardableResult
