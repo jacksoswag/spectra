@@ -18,8 +18,7 @@ enum LicenseConfig {
     /// Decided price. Shown in the purchase UI.
     static let price = "$9.99"
 
-    /// Where customers buy and manage their license.
-    /// TODO: set to the Lemon Squeezy product checkout URL once the store exists.
+    /// Where customers buy and manage their license: the Lemon Squeezy product checkout.
     static let purchaseURL = URL(string: "https://spect-crow.lemonsqueezy.com/checkout/buy/e9a63740-558f-4cea-adf2-bf94134d3bec")!
 
     /// Which backend validates keys. Debug builds use `.stub`, which accepts well-formed
