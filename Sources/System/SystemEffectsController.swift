@@ -158,6 +158,13 @@ final class SystemEffectsController {
 
     /// Re-push the current desired yabai config after provisioning makes the service ready.
     private func reapplyYabaiConfig() {
+        // A yabai Spectra started comes up on yabai's `bsp` default, which tiles every Space
+        // even with no tiling effect on (e.g. Glass/transparency alone). Neutralize that to
+        // `float` so only a Space an active tiling effect claims (via applyLayout below) tiles.
+        // Scoped to a Spectra-started service, so a user's own running yabai is never overridden.
+        if provisioner.startedService {
+            yabai.neutralizeDefaultLayout()
+        }
         if let transparency = lastState.transparency {
             yabai.applyTransparency(active: transparency.activeOpacity,
                                     normal: transparency.normalOpacity, blurRadius: transparency.blur)
@@ -239,6 +246,12 @@ final class SystemEffectsController {
         yabai.shutdownRestore()
         provisioner.stopServiceIfStarted()
         lastState = .inactive
+    }
+
+    /// Create a new Space and move the focused window there (the ⌘0 hotkey). Forwarded to the
+    /// yabai bridge; a no-op when yabai isn't ready.
+    func moveFocusedWindowToNewSpace() {
+        yabai.moveFocusedWindowToNewSpace()
     }
 
     /// Rebuild tint windows for a changed display set (hot-plug, geometry change).

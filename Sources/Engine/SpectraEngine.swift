@@ -152,6 +152,8 @@ final class SpectraEngine {
     @ObservationIgnored private var cycleWorldHotKey: GlobalHotKey?
     @ObservationIgnored private var filterWindowHotKey: GlobalHotKey?
     @ObservationIgnored private var captureFrameHotKey: GlobalHotKey?
+    @ObservationIgnored private var toggleTransparencyHotKey: GlobalHotKey?
+    @ObservationIgnored private var newSpaceHotKey: GlobalHotKey?
 
     /// Global color grading via the scanout transfer LUT. A display whose chain is
     /// made up ENTIRELY of per-channel color effects is rendered here — above the
@@ -453,6 +455,19 @@ final class SpectraEngine {
         }
         if captureFrameHotKey == nil {
             captureFrameHotKey = GlobalHotKey.captureFrame { [weak self] in MainActor.assumeIsolated { self?.captureStyledFrame() } }
+        }
+        if toggleTransparencyHotKey == nil {
+            toggleTransparencyHotKey = GlobalHotKey.toggleTransparency { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.setGlassTransparency(!self.settings.glassTransparency)
+                }
+            }
+        }
+        if newSpaceHotKey == nil {
+            newSpaceHotKey = GlobalHotKey.moveWindowToNewSpace { [weak self] in
+                MainActor.assumeIsolated { self?.systemEffects.moveFocusedWindowToNewSpace() }
+            }
         }
     }
 

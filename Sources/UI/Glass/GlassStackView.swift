@@ -91,7 +91,8 @@ struct GlassStackView: View {
             GlassRow(
                 icon: "macwindow", title: "Window Transparency",
                 subtitle: "Make every window see-through (via yabai). Needs SIP disabled.",
-                note: transparencyStatusNote) {
+                note: transparencyStatusNote,
+                shortcut: (keys: GlobalHotKey.toggleTransparencyLabel, label: "toggles transparency")) {
                 Toggle("", isOn: Binding(
                     get: { engine.settings.glassTransparency },
                     set: { engine.setGlassTransparency($0) }))
@@ -138,7 +139,8 @@ struct GlassStackView: View {
     private var tilingRow: some View {
         GlassRow(
             icon: "rectangle.split.2x1", title: "Window Tiling",
-            subtitle: "Auto-arrange windows into a tidy BSP layout (via yabai).") {
+            subtitle: "Auto-arrange windows into a tidy BSP layout (via yabai).",
+            shortcut: (keys: GlobalHotKey.moveWindowToNewSpaceLabel, label: "move window to a new space")) {
             Toggle("", isOn: Binding(
                 get: { engine.settings.glassTiling },
                 set: { engine.setGlassTiling($0) }))
@@ -180,6 +182,8 @@ private struct GlassRow<Control: View>: View {
     let title: String
     let subtitle: String
     var note: (icon: String, color: Color, text: String)? = nil
+    /// Optional keyboard-shortcut hint shown under the subtitle: a keycap plus what it does.
+    var shortcut: (keys: String, label: String)? = nil
     @ViewBuilder var control: Control
 
     var body: some View {
@@ -191,6 +195,16 @@ private struct GlassRow<Control: View>: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.callout.weight(.medium))
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    if let shortcut {
+                        HStack(spacing: 5) {
+                            Text(shortcut.keys)
+                                .font(.caption2.weight(.semibold).monospaced())
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.08)))
+                            Text(shortcut.label).font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 1)
+                    }
                 }
                 Spacer(minLength: Theme.Spacing.sm)
                 control

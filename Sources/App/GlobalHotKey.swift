@@ -95,4 +95,22 @@ final class GlobalHotKey {
     static func captureFrame(onFire: @escaping () -> Void) -> GlobalHotKey? {
         GlobalHotKey(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(optionKey | cmdKey), id: 5, onFire: onFire)
     }
+
+    /// ⌘T — toggle Window Transparency from anywhere. A bare ⌘ chord by explicit owner choice;
+    /// while Spectra runs it shadows other apps' own ⌘T (e.g. New Tab).
+    static func toggleTransparency(onFire: @escaping () -> Void) -> GlobalHotKey? {
+        GlobalHotKey(keyCode: UInt32(kVK_ANSI_T), modifiers: UInt32(cmdKey), id: 6, onFire: onFire)
+    }
+
+    /// Human-readable label for the transparency chord, for UI hints.
+    static let toggleTransparencyLabel = "⌘T"
+
+    /// ⌘0 — create a new Space and move the focused window to it. A bare ⌘ chord by explicit
+    /// owner choice; while Spectra runs it shadows other apps' own ⌘0 (e.g. Actual Size).
+    static func moveWindowToNewSpace(onFire: @escaping () -> Void) -> GlobalHotKey? {
+        GlobalHotKey(keyCode: UInt32(kVK_ANSI_0), modifiers: UInt32(cmdKey), id: 7, onFire: onFire)
+    }
+
+    /// Human-readable label for the new-Space chord, for UI hints.
+    static let moveWindowToNewSpaceLabel = "⌘0"
 }
