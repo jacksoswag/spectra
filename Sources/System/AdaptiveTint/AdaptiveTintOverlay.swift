@@ -10,8 +10,10 @@ import CoreVideo
 /// cut for every window, so the real wallpaper still shows pixel-perfect under the windows
 /// and only the gaps are tinted. The tint colour is the darkness-weighted average of the
 /// windows' own pixels (sampled from a tiny ScreenCaptureKit grid), so the gaps take on the
-/// apps' tone. Only active on a Space that actually has a window; empty/fullscreen Spaces are
-/// left clean. One overlay per (Space, display), pinned to its Space so it slides correctly.
+/// apps' tone. Active when a Space has a transparent (glass) window, OR when opaque windows cover
+/// essentially the whole display (a maximized window, full tiling) so the few remaining gaps still
+/// take the windows' tone rather than clashing. A Space with only partial opaque windows — or an
+/// empty/fullscreen Space — is left untinted. One overlay per (Space, display), pinned to its Space.
 ///
 /// Ported from `os-mods/adaptive-menubar` (the compiled Glass.app), adapted to run inside
 /// Spectra: it excludes Spectra's own windows from both the colour sample and the window list.
@@ -138,7 +140,7 @@ final class AdaptiveTintOverlay {
             lastLayoutKey[id] = rectsKey
             if moved && !mouseDown { freezeUntil[id] = now.addingTimeInterval(Self.animationSettle) }
             if let f = freezeUntil[id], now < f { continue }
-            guard !sw.windowRects.isEmpty, let color = dimColor[id] else {
+            guard !sw.windowRects.isEmpty, sw.hasTransparent || sw.coversScreen, let color = dimColor[id] else {
                 overlays.hide(space: space, screen: screen); continue
             }
             let opacity = min(1, max(0, sw.avgAlpha * dimScale))
@@ -171,7 +173,7 @@ private extension NSScreen {
 enum TintGeometry {
     /// One window's cutout: display-local top-left rect, plus the corner radius to round its top.
     struct Win { let rect: CGRect; let radius: CGFloat }
-    struct SpaceWindows { let all: [Win]; let windowRects: [CGRect]; let avgAlpha: CGFloat; let fullscreen: Bool }
+    struct SpaceWindows { let all: [Win]; let windowRects: [CGRect]; let avgAlpha: CGFloat; let hasTransparent: Bool; let coversScreen: Bool; let fullscreen: Bool }
 
     private static let cornerRadii: [String: CGFloat] = ["Safari": 16, "Claude": 10]
     static func cornerRadius(forOwner owner: String) -> CGFloat {
@@ -183,9 +185,10 @@ enum TintGeometry {
         let b = CGDisplayBounds(displayID)
         guard b.width > 0, b.height > 0,
               let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-                as? [[String: Any]] else { return SpaceWindows(all: [], windowRects: [], avgAlpha: 1, fullscreen: false) }
+                as? [[String: Any]] else { return SpaceWindows(all: [], windowRects: [], avgAlpha: 1, hasTransparent: false, coversScreen: false, fullscreen: false) }
         var all: [Win] = [], rects: [CGRect] = []
         var alphaSum: CGFloat = 0, alphaN = 0
+        var hasTransparent = false
         var fullscreen = false
         for info in infos {
             guard (info[kCGWindowLayer as String] as? Int) == 0 else { continue }
@@ -203,12 +206,37 @@ enum TintGeometry {
             rects.append(local)
             let a = CGFloat((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1)
             alphaSum += a; alphaN += 1
+            if a < transparentAlphaMax { hasTransparent = true }
         }
         let avgAlpha = alphaN > 0 ? alphaSum / CGFloat(alphaN) : 1
-        return SpaceWindows(all: all, windowRects: rects, avgAlpha: avgAlpha, fullscreen: fullscreen)
+        let coversScreen = unionCoversDisplay(rects: rects, size: b.size)
+        return SpaceWindows(all: all, windowRects: rects, avgAlpha: avgAlpha, hasTransparent: hasTransparent, coversScreen: coversScreen, fullscreen: fullscreen)
     }
 
     private static let hideWhenFullscreen = true
+    /// A window with alpha below this counts as transparent (glass). yabai's window opacity sits
+    /// well under 1 (~0.70–0.85); fully opaque windows report 1.0. The tint shows when at least one
+    /// window is transparent, OR when windows cover the whole display (see `unionCoversDisplay`).
+    private static let transparentAlphaMax: CGFloat = 0.99
+
+    /// Opaque windows still earn a tint when their union covers essentially the whole display (a
+    /// maximized window, full tiling): the remaining slivers then take the windows' tone instead of
+    /// clashing. Sampled on a coarse grid so overlapping windows aren't double-counted; the < 1.0
+    /// threshold leaves room for the menu-bar strip and rounded corners that windows can't cover.
+    private static let coverGridN = 24
+    private static let coverThreshold: CGFloat = 0.90
+    private static func unionCoversDisplay(rects: [CGRect], size: CGSize) -> Bool {
+        guard !rects.isEmpty, size.width > 0, size.height > 0 else { return false }
+        var covered = 0
+        for row in 0..<coverGridN {
+            let y = (CGFloat(row) + 0.5) * size.height / CGFloat(coverGridN)
+            for col in 0..<coverGridN {
+                let x = (CGFloat(col) + 0.5) * size.width / CGFloat(coverGridN)
+                if rects.contains(where: { $0.contains(CGPoint(x: x, y: y)) }) { covered += 1 }
+            }
+        }
+        return CGFloat(covered) >= CGFloat(coverGridN * coverGridN) * coverThreshold
+    }
 
     /// A rect with its TOP two corners rounded (bottom square), matching how macOS rounds a
     /// window's top corners. Built in bottom-left coords (the window's top edge is the rect's max-Y).
