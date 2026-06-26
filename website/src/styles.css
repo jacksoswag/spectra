@@ -149,6 +149,17 @@ h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.02; l
 .close__prose { margin: 1.1rem auto 2rem; text-align: center; }
 .close .btn--lg { margin: 0 auto; }
 
+/* ---- hardware ---- */
+.hardware { padding: clamp(70px, 12vh, 150px) clamp(20px, 5vw, 48px); }
+.hw-table { margin-top: clamp(30px, 4vw, 50px); border-top: 1px solid var(--line-2); }
+.hw-table table { width: 100%; border-collapse: collapse; }
+.hw-table th, .hw-table td { padding: 15px 14px; border-bottom: 1px solid var(--line); text-align: left; }
+.hw-table thead th { font: 600 0.72rem var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-faint); }
+.hw-table thead th:not(:first-child), .hw-table tbody td { text-align: center; width: 22%; }
+.hw-table tbody th { font: 600 1.02rem var(--display); letter-spacing: -0.01em; color: var(--ink); }
+.chk { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; border: 1px solid var(--line-2); }
+.chk--on { background: var(--ink); border-color: var(--ink); }
+
 /* ---- footer ---- */
 .foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 18px; padding-top: 44px; padding-bottom: 60px; margin-top: clamp(30px, 5vh, 60px); border-top: 1px solid var(--line); }
 .foot__brand { display: flex; align-items: center; gap: 10px; font: 700 1.08rem var(--display); }
@@ -157,11 +168,11 @@ h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.02; l
 .foot__links a:hover { color: var(--ink); }
 
 /* ---- reveal on scroll (progressive enhancement) ---- */
-.js .look, .js .engine, .js .catalog, .js .close {
+.js .look, .js .engine, .js .catalog, .js .hardware, .js .close {
   opacity: 0; transform: translateY(22px);
   transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.js .look.in, .js .engine.in, .js .catalog.in, .js .close.in { opacity: 1; transform: none; }
+.js .look.in, .js .engine.in, .js .catalog.in, .js .hardware.in, .js .close.in { opacity: 1; transform: none; }
 
 /* ---- responsive ---- */
 @media (max-width: 900px) {
@@ -183,6 +194,6 @@ h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.02; l
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .js .look, .js .engine, .js .catalog, .js .close { opacity: 1 !important; transform: none !important; transition: none !important; }
+  .js .look, .js .engine, .js .catalog, .js .hardware, .js .close { opacity: 1 !important; transform: none !important; transition: none !important; }
   .btn, .cmp__tag { transition: none !important; }
 }

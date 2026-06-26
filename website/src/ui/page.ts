@@ -18,7 +18,7 @@ export function buildPage(): DocumentFragment {
   frag.append(
     h("a", { class: "skip-link", href: "#looks" }, "Skip to content"),
     nav(),
-    h("main", {}, hero(), looks(), instrument(), catalog(), close()),
+    h("main", {}, hero(), looks(), instrument(), catalog(), hardware(), close()),
     footer(),
   );
   return frag;
@@ -28,7 +28,7 @@ export function buildPage(): DocumentFragment {
 function nav(): HTMLElement {
   return h("header", { class: "nav" },
     h("a", { class: "nav__brand", href: "#top", "aria-label": "Spectra home" }, prismMark(), h("b", {}, "Spectra")),
-    h("a", { class: "btn", href: "#buy" }, `${BUY} · ${PRICE}`),
+    h("a", { class: "btn", href: BUY_URL }, `${BUY} · ${PRICE}`),
   );
 }
 
@@ -111,6 +111,52 @@ function close(): HTMLElement {
       "Buy it once and the full app unlocks. A free tier ships the cinematic presets, so you can run a shaded desktop before you pay anything. macOS 15 or later, Apple Silicon."),
     h("a", { class: "btn btn--lg", href: BUY_URL }, `${BUY} · ${PRICE}`),
   );
+}
+
+// ---- hardware: what runs it at native resolution ----
+// Minimum = holds a mid-weight preset (Cyberpunk) at native 60fps; Recommended =
+// holds the heaviest preset (Frutiger Aero) at native 60fps. Both at full
+// resolution, no quality scaling. Verdicts measured per chip across the lineup.
+function hardware(): HTMLElement {
+  const rows: [string, boolean, boolean][] = [
+    ["MacBook Air (M1–M4)", true, false],
+    ['MacBook Pro 14"/16" (M3 / M4)', true, true],
+    ['iMac 24" (M1 / M3)', false, false],
+    ['iMac 24" (M4)', true, false],
+    ["Mac mini (M4)", true, false],
+    ["Mac mini (M4 Pro)", true, true],
+    ["Mac Studio (M4 Max / M3 Ultra)", true, true],
+    ["Mac Pro (M2 Ultra)", true, true],
+  ];
+  return h("section", { id: "hardware", class: "wrap hardware" },
+    h("h2", { class: "catalog__lead" }, "What runs it."),
+    h("p", { class: "prose" },
+      "Every display is graded at its native resolution, never upscaled. Minimum holds the mid-weight presets at a locked 60fps; recommended holds the heaviest preset in the library at 60fps, every preset, no quality drop. Apple Silicon, macOS 15 or later."),
+    h("div", { class: "hw-table" },
+      h("table", {},
+        h("thead", {},
+          h("tr", {},
+            h("th", { scope: "col" }, "Device"),
+            h("th", { scope: "col" }, "Minimum"),
+            h("th", { scope: "col" }, "Recommended"))),
+        h("tbody", {},
+          ...rows.map(([device, min, rec]) =>
+            h("tr", {},
+              h("th", { scope: "row" }, device),
+              h("td", {}, check(min, "Minimum")),
+              h("td", {}, check(rec, "Recommended"))))))),
+  );
+}
+
+// A read-only checkbox cell: a filled box with a check when supported, an empty
+// box otherwise.
+function check(on: boolean, label: string): HTMLElement {
+  return h("span",
+    { class: "chk" + (on ? " chk--on" : ""), role: "img", "aria-label": `${label}: ${on ? "yes" : "no"}` },
+    on && checkMark());
+}
+function checkMark(): SVGSVGElement {
+  return svg(`<svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true"><path d="M5 12.5 L10 17.5 L19 6.5" stroke="#08070d" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`);
 }
 
 // ---- footer ----
