@@ -40,6 +40,10 @@ final class YabaiBridge: @unchecked Sendable {
     private var snapshot: Snapshot?
     /// Tracks which subsystems applied changes that need restoring; cleared when all have been restored.
     private var pendingRestores: Set<String> = []
+    /// Window ids pinned to full opacity because they're in native fullscreen, where the global
+    /// glass opacity only darkens them against the black fullscreen backdrop for no benefit. Held
+    /// so each can be handed back to auto-managed opacity once it leaves fullscreen.
+    private var fullscreenOpaqueWindows: Set<Int> = []
     private static let snapshotFile = AppPaths.supportDirectory.appendingPathComponent("yabai-snapshot.json")
 
     init() {
@@ -78,7 +82,43 @@ final class YabaiBridge: @unchecked Sendable {
             } else {
                 self.setConfig("window_blur", "off")
             }
+            self.syncFullscreenOpacityNow()   // catch a window already fullscreen when glass turns on
         }
+    }
+
+    /// Pin every native-fullscreen window to full opacity and release any that have left fullscreen
+    /// back to yabai's auto-managed opacity. Driven on the transparency apply and on each Space change
+    /// (native fullscreen always lands on its own Space), so the dim never sticks to a fullscreen
+    /// window without polling. A no-op when glass isn't active or yabai isn't ready.
+    func syncFullscreenOpacity() {
+        queue.async { self.syncFullscreenOpacityNow() }
+    }
+
+    private func syncFullscreenOpacityNow() {
+        guard pendingRestores.contains("transparency"), availabilityNow().isReady else { return }
+        struct WinInfo: Decodable {
+            let id: Int
+            let isNativeFullscreen: Bool
+            enum CodingKeys: String, CodingKey { case id; case isNativeFullscreen = "is-native-fullscreen" }
+        }
+        let r = run(["-m", "query", "--windows"])
+        guard r.status == 0, let data = r.out.data(using: .utf8),
+              let wins = try? JSONDecoder().decode([WinInfo].self, from: data) else { return }
+        let fullscreen = Set(wins.filter { $0.isNativeFullscreen }.map(\.id))
+        for id in fullscreen.subtracting(fullscreenOpaqueWindows) {
+            run(["-m", "window", String(id), "--opacity", "1.0"])
+        }
+        for id in fullscreenOpaqueWindows.subtracting(fullscreen) {
+            run(["-m", "window", String(id), "--opacity", "0.0"])   // 0 = back to auto active/normal opacity
+        }
+        fullscreenOpaqueWindows = fullscreen
+    }
+
+    /// Hand every pinned fullscreen window back to auto-managed opacity. Part of every transparency-off
+    /// path so a window is never stranded at a forced fixed opacity after glass is disabled.
+    private func releaseFullscreenOpacity() {
+        for id in fullscreenOpaqueWindows { run(["-m", "window", String(id), "--opacity", "0.0"]) }
+        fullscreenOpaqueWindows.removeAll()
     }
 
     /// Hand windows back fully opaque on the transparency on->off transition. Forces
@@ -98,6 +138,7 @@ final class YabaiBridge: @unchecked Sendable {
     /// dimmed. Used for crash recovery (where reapplying a possibly-stale snapshot would be
     /// risky) and as the no-snapshot fallback for the startup stale-opacity sweep.
     private func clearOpacity() {
+        releaseFullscreenOpacity()
         setConfig("window_opacity", "off")
         setConfig("active_window_opacity", "1.0000")
         setConfig("normal_window_opacity", "1.0000")

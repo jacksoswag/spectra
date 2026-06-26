@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import AppKit
 
 /// Resolved parameters for the Window Transparency system effect.
 struct TransparencySettings: Equatable, Sendable {
@@ -98,6 +99,7 @@ final class SystemEffectsController {
     private var clearedStaleOpacity = false
     private var provisioningInFlight = false
     private var lastProvisionStatus: YabaiProvisioner.Status = .unknown
+    private var spaceObserver: NSObjectProtocol?
 
     /// Latest yabai provisioning status, pushed out so the inspector can reflect the
     /// install / admin-prompt / SIP / ready state on the yabai-backed rows.
@@ -115,6 +117,22 @@ final class SystemEffectsController {
         // Recover a snapshot left by a previous run that didn't exit cleanly, so a
         // crash never strands the user's windows at reduced opacity.
         yabai.restoreFromDiskIfDirty()
+        // Native fullscreen always lands a window on its own black-backed Space, where the glass
+        // opacity only darkens it for no benefit. Re-sync on every Space change (gated on glass being
+        // active) so such windows are pinned opaque the moment they go fullscreen and released when
+        // they leave — event-driven, no polling.
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.lastState.transparency != nil else { return }
+                self.yabai.syncFullscreenOpacity()
+            }
+        }
+    }
+
+    deinit {
+        if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
     }
 
     /// Re-probe yabai's state read-only (no install, no prompt) and report it out, for the
