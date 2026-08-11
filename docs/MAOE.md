@@ -5,7 +5,7 @@ engine into the macOS Aesthetic Overlay Engine (MAOE): coherent per-theme worlds
 their own cursor, interaction language, window chrome, and system-UI treatment.
 
 Status: planning. No code written yet. This document is the source of truth for the build;
-a separate instance implements it end to end (see `docs/MAOE_IMPLEMENTATION_PROMPT.md`).
+it is implemented end to end from this document.
 
 ---
 
