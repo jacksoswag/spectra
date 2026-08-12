@@ -1,4 +1,4 @@
-# Architecture
+# Spectra technical specification
 
 Spectra is organized into focused modules under `Sources/`. Each module owns one concern and exposes a small surface. A single `SpectraEngine` coordinator composes them and is the only object the UI observes. Dependencies are injected, not reached for through globals.
 

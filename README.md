@@ -85,11 +85,8 @@ On first launch, grant Screen Recording access in System Settings when prompted,
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the module breakdown, the effect contract, and the render pipeline. The codebase is organized into focused modules (Core, Capture, Render, Effects, Shaders, Presets, Storage, Performance, Editor, Engine, Scene, System, Licensing, UI, App) wired together through a single injected `SpectraEngine` coordinator.
+See [technical-spec.md](technical-spec.md) for the module breakdown, the effect contract, and the render pipeline. The codebase is organized into focused modules (Core, Capture, Render, Effects, Shaders, Presets, Storage, Performance, Editor, Engine, Scene, System, Licensing, UI, App) wired together through a single injected `SpectraEngine` coordinator.
 
 ## License
 
-Spectra is commercial software. Use is governed by the [End User License Agreement](docs/EULA.md);
-data handling is described in the [Privacy Policy](docs/PRIVACY.md). A one-time
-purchase unlocks the full app; a free tier (the cinematic presets) is available
-without a license.
+MIT. See [LICENSE](LICENSE).
